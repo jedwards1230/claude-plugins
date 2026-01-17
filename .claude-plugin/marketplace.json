@@ -1,0 +1,14 @@
+{
+  "name": "jedwards1230-plugins",
+  "owner": {
+    "name": "jedwards1230"
+  },
+  "plugins": [
+    {
+      "name": "dream",
+      "source": "./plugins/dream",
+      "description": "Basic-memory knowledge base maintenance and optimization",
+      "version": "1.0.0"
+    }
+  ]
+}
