@@ -73,39 +73,93 @@ mcp__basic-memory__search_notes(query="TODO OR FIXME OR outdated")
 ## Phase 2: Identify Maintenance Opportunities
 
 ### Pruning & Archiving
-- **Completed plans**: Status is "COMPLETE" or "DONE" → move to `archive/`
-- **Old troubleshooting**: Resolved issues >6 months old → archive or summarize
-- **Deprecated references**: Infrastructure that no longer exists → update or archive
+
+**When to archive** (move to `archive/<original-folder>/`):
+- Status explicitly says "completed", "done", or "archived"
+- Resolved troubleshooting issues >6 months old
+- Deprecated references to infrastructure that no longer exists
+- Plans where all objectives are marked complete
+
+**Never archive**:
+- Notes with `status: active` or `status: in-progress`
+- Reference documentation still in use
+- Decision logs (preserve for historical context)
+- Notes actively linked by other documents
+
+**Archive process**:
+```bash
+# Structure: archive/<original-folder>/<filename>.md
+git mv ".basic-memory/plans/My-Plan.md" ".basic-memory/archive/plans/My-Plan.md"
+```
+
+Before moving, update frontmatter:
+```yaml
+status: completed
+archived_date: 2026-01-20
+original_date: 2025-06-15  # When originally created
+```
 
 ### Consolidation
 - **Duplicate notes**: Similar content in multiple files → merge (keep richer one)
 - **Scattered topics**: 5+ notes on same topic in different folders → propose new category
 - **Breadcrumb trail**: When consolidating, add: `> Consolidated from X, Y, Z on YYYY-MM-DD`
 
-### Metadata & Organization
-**Required frontmatter fields:**
+### Frontmatter Standards
+
+**Required fields** - every note MUST have:
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `title` | String | Human-readable title |
+| `type` | `note`, `plan`, `decision`, `troubleshooting`, `research`, `learning` | Document classification |
+| `permalink` | `folder/slug-based-on-title` | Stable identifier (lowercase, hyphens) |
+| `tags` | YAML array | Categorization (min 1 tag) |
+
+**Optional fields**:
+
+| Field | Values | When to use |
+|-------|--------|-------------|
+| `status` | `active`, `in-progress`, `completed`, `paused`, `deprecated` | Plans/projects with lifecycle |
+| `archived_date` | `YYYY-MM-DD` | When moved to archive/ |
+| `original_date` | `YYYY-MM-DD` | Original creation date (archived items) |
+
+**Example valid frontmatter**:
 ```yaml
 ---
-title: Human-readable title
-type: note|plan|decision|troubleshooting|research|learning
-permalink: folder/slug-based-on-title
+title: Longhorn Storage Setup Plan
+type: plan
+permalink: plans/longhorn-storage-setup-plan
 tags:
-  - relevant
-  - tags
-status: active|completed|deprecated  # Add if missing
+- longhorn
+- storage
+- kubernetes
+status: in-progress
 ---
 ```
 
-**For archived items, add:**
-```yaml
-archived_date: YYYY-MM-DD
-original_date: YYYY-MM-DD  # When originally created
-```
+### Anti-Patterns to Fix
 
-### Content Quality
-- **Fix broken links**: `memory://` links pointing to non-existent notes
-- **Update stale info**: References to old infrastructure state
-- **Historical context**: Preserve decision rationale and lessons learned
+| Issue | Fix |
+|-------|-----|
+| `type: note` on a plan file | Change to `type: plan` |
+| Status in tags (`- complete`, `- in-progress`) | Remove from tags, add `status:` field |
+| Type in tags (`- plan`, `- implementation-plan`) | Remove, use `type:` field instead |
+| Missing `status:` on plans | Add appropriate status based on content |
+| Broken `memory://` links | Fix path or remove if target doesn't exist |
+| Duplicate content across files | Consolidate into richer version, archive other |
+
+### Content Quality & Links
+
+**Link formats**:
+- Internal: `[Link Text](memory://folder/note-permalink)`
+- Wiki-style: `[[Note Title]]`
+- Relative: `[Link Text](./sibling-note.md)`
+
+**Quality checks**:
+- Fix broken `memory://` links pointing to non-existent or moved notes
+- Update stale infrastructure references
+- Preserve decision rationale and lessons learned
+- Add historical context breadcrumbs when consolidating
 
 ---
 
@@ -118,11 +172,19 @@ original_date: YYYY-MM-DD  # When originally created
 - Propose new category structures if patterns emerge
 
 ### Comprehensive CI Mode (--ci only)
-- Full review of entire knowledge base
+- Full review of **entire** knowledge base - examine every file
 - Can make major restructuring changes
 - **NEVER ask for confirmation** - proceed autonomously
 - Make judgment calls based on the rules in this document
 - Used by manual GitHub Action dispatch
+
+**Comprehensive mode MUST**:
+1. Scan ALL notes in `.basic-memory/` (not just recent)
+2. Fix ALL metadata issues found (wrong type, missing status, status in tags)
+3. Archive ALL clearly completed plans
+4. Identify and consolidate duplicates
+5. Fix ALL broken memory:// links
+6. Produce a detailed summary with every change documented
 
 ### Targeted Mode (--diff)
 - Focus only on recently changed files
@@ -139,20 +201,6 @@ original_date: YYYY-MM-DD  # When originally created
 ---
 
 ## Execution Guidelines
-
-### Moving Files to Archive
-```bash
-# Structure: archive/<original-folder>/<filename>.md
-# Example: plans/My-Plan.md → archive/plans/My-Plan.md
-
-git mv ".basic-memory/plans/My-Plan.md" ".basic-memory/archive/plans/My-Plan.md"
-```
-
-Before moving, update frontmatter:
-```yaml
-status: completed
-archived_date: 2026-01-08
-```
 
 ### Editing Notes
 Use MCP tools when possible:
@@ -178,29 +226,59 @@ When proposing new categories:
 
 ## Output Summary
 
-After completing maintenance, provide a summary:
+After completing maintenance, provide a **detailed** summary suitable for PR bodies:
 
 ```markdown
-## Memory Maintenance Summary
+## Claude Dream Summary
 
 **Mode:** [Comprehensive|Targeted|CI]
 **Date:** YYYY-MM-DD
 
+### Statistics
+| Metric | Count |
+|--------|-------|
+| Notes analyzed | X |
+| Notes modified | Y |
+| Notes archived | Z |
+| Metadata fixed | N |
+| Broken links fixed | N |
+| Duplicates consolidated | N |
+
 ### Changes Made
-- [ ] Archived: `plans/X.md` → Completed, moved to archive
-- [ ] Updated: `infrastructure/Y.md` → Fixed broken links
-- [ ] Consolidated: `A.md` + `B.md` → `C.md`
+
+#### Archived (moved to archive/)
+| File | Reason |
+|------|--------|
+| `plans/X.md` | Status: completed, moved to archive/plans/ |
+
+#### Metadata Fixed
+| File | Change |
+|------|--------|
+| `plans/Y.md` | Added `status: active`, changed `type: note` → `type: plan` |
+| `infrastructure/Z.md` | Removed status from tags, added `status:` field |
+
+#### Content Updated
+| File | Change |
+|------|--------|
+| `infrastructure/Y.md` | Fixed 3 broken memory:// links |
+| `homelab/X.md` | Added historical context breadcrumb |
+
+#### Consolidated
+| Source Files | Target | Reason |
+|--------------|--------|--------|
+| `A.md` + `B.md` | `C.md` | Duplicate content, kept richer version |
 
 ### Recommendations (requires human review)
-- Consider archiving: `plans/Old-Plan.md` - appears complete but unclear
-- Potential duplicate: `notes/X.md` and `notes/Y.md` overlap significantly
+- **Consider archiving**: `plans/Old-Plan.md` - appears complete but status unclear
+- **Potential duplicate**: `notes/X.md` and `notes/Y.md` overlap significantly
+- **Needs attention**: `research/Stale.md` - references outdated infrastructure
 
-### Statistics
-- Notes analyzed: X
-- Notes modified: Y
-- Notes archived: Z
-- Broken links fixed: N
+### Files Skipped (no changes needed)
+- X files with valid metadata
+- Y files recently modified (within 7 days)
 ```
+
+**Important**: In CI mode, this summary should be detailed enough to serve as the PR body. Include every change with reasoning.
 
 ---
 
