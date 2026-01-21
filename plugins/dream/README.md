@@ -5,11 +5,16 @@ Basic-memory knowledge base maintenance and optimization.
 ## Usage
 
 ```bash
-/dream              # Comprehensive interactive mode
-/dream --diff       # Focus on recent git changes only
-/dream --ci         # Non-interactive, full review
-/dream --ci --diff  # Conservative, non-interactive, diff-targeted
+/dream        # Comprehensive mode - scans EVERY file, interactive
+/dream --ci   # CI mode - diff-targeted, non-interactive, conservative
 ```
+
+## Modes
+
+| Mode | Args | Behavior |
+|------|------|----------|
+| **Comprehensive** | (none) | Scans every file in `.basic-memory/`, can make major changes, interactive |
+| **CI** | `--ci` | Only examines recent git changes, conservative changes only, non-interactive |
 
 ## What it does
 
@@ -18,6 +23,12 @@ Basic-memory knowledge base maintenance and optimization.
 - Fixes broken `memory://` links
 - Updates metadata and frontmatter
 - Reorganizes scattered topics into categories
+
+## GitHub Actions Integration
+
+The workflow uses:
+- **Scheduled (nightly)**: `/dream --ci` - quick scan of recent changes
+- **Manual dispatch**: `/dream` - comprehensive review of entire KB
 
 ## Requirements
 

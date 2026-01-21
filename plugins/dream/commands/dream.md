@@ -1,7 +1,7 @@
 ---
 name: dream
-description: "Maintain and optimize basic-memory knowledge base. Use --diff for git-targeted review, --ci for conservative non-interactive mode (GitHub Actions)."
-argument-hint: "[--diff] [--ci]"
+description: "Maintain and optimize basic-memory knowledge base. Use --ci for automated diff-targeted mode (GitHub Actions)."
+argument-hint: "[--ci]"
 allowed-tools:
   - Read
   - Write
@@ -30,43 +30,78 @@ You are performing knowledge base maintenance ("dreaming") for the `.basic-memor
 
 Parse arguments from `$ARGUMENTS`:
 
-| Mode                          | Args          | Behavior                                             |
-| ----------------------------- | ------------- | ---------------------------------------------------- |
-| **Comprehensive Interactive** | (none)        | Full KB review, interactive, major changes OK        |
-| **Comprehensive CI**          | `--ci`        | Full KB review, non-interactive, major changes OK    |
-| **Targeted**                  | `--diff`      | Focus on recent git changes only                     |
-| **CI/Conservative**           | `--ci --diff` | Non-interactive, diff-targeted, conservative changes |
+| Mode | Args | Behavior |
+|------|------|----------|
+| **Comprehensive** | (none) | Full KB review - scan EVERY file, major changes OK, interactive |
+| **CI** | `--ci` | Diff-targeted, non-interactive, conservative changes only |
 
-**Key flags:**
-- `--ci` = Non-interactive (never ask questions, proceed autonomously)
-- `--diff` = Diff-targeted scope (only files changed in recent git commits)
+**Key behaviors:**
+- **No flags (comprehensive)**: Scan ALL files in `.basic-memory/`, fix everything found, can ask user questions
+- **`--ci` flag**: Only examine files changed in recent git commits, never ask questions, conservative
 
 **GitHub Actions uses:**
-- Scheduled (nightly): `--ci --diff` → conservative, only recent changes
-- Manual dispatch: `--ci` → comprehensive but non-interactive
+- Scheduled (nightly): `--ci` → quick scan of recent changes only
+- Manual dispatch: (no flags) → comprehensive review of entire KB
 
 ---
 
 ## Phase 1: Gather Context
 
-Use basic-memory MCP tools (NOT raw file reads) for efficiency:
+### CI Mode (--ci)
+Quick targeted scan - only recent changes:
 
-```
-1. List all notes and structure:
-   mcp__basic-memory__list_directory(dir_name="/", depth=3)
-
-2. Get recent activity:
-   mcp__basic-memory__recent_activity(timeframe="7d")
-
-3. If --diff mode, also check git:
-   git log --oneline --name-status -20 -- .basic-memory/
+```bash
+# Get files changed in last 20 commits
+git log --oneline --name-only -20 -- .basic-memory/ | grep "\.md$" | sort -u
 ```
 
-For comprehensive mode, also search for potential issues:
+Then use basic-memory MCP to read those specific files.
+
+### Comprehensive Mode (no flags)
+**CRITICAL: You MUST scan every single file.** Do not skip files or sample.
+
+**Step 1: Get complete file inventory**
 ```
-mcp__basic-memory__search_notes(query="status:completed OR deprecated")
+mcp__basic-memory__list_directory(dir_name="/", depth=5)
+```
+
+**Step 2: Systematically process EVERY folder**
+
+Process each folder in order, reading and evaluating EVERY file:
+
+1. `.basic-memory/plans/` - Check status, archive completed
+2. `.basic-memory/archive/` - Verify metadata, fix issues
+3. `.basic-memory/troubleshooting/` - Archive resolved issues >6 months old
+4. `.basic-memory/decisions/` - Preserve all, fix metadata only
+5. `.basic-memory/learnings/` - Fix metadata
+6. `.basic-memory/research/` - Check for stale content
+7. `.basic-memory/homelab/` - Fix broken links, update stale refs
+8. `.basic-memory/infrastructure/` - Fix broken links
+9. `.basic-memory/home-automation/` - Fix metadata
+10. `.basic-memory/networking/` - Fix metadata
+11. `.basic-memory/monitoring/` - Fix metadata
+12. `.basic-memory/kubernetes/` - Fix metadata
+13. `.basic-memory/migrations/` - Archive completed
+14. `.basic-memory/security/` - Fix metadata
+15. `.basic-memory/debugging/` - Archive resolved
+16. All other folders found in step 1
+
+**Step 3: For EACH file, check:**
+- [ ] Frontmatter has required fields (title, type, permalink, tags)
+- [ ] `type` matches content (plan vs note vs decision, etc.)
+- [ ] Status in frontmatter field, not in tags
+- [ ] Type not duplicated in tags
+- [ ] All `memory://` links resolve to existing files
+- [ ] Plans have `status:` field with appropriate value
+- [ ] Completed items should be archived
+
+**Step 4: Search for issues**
+```
+mcp__basic-memory__search_notes(query="status:completed")
 mcp__basic-memory__search_notes(query="TODO OR FIXME OR outdated")
 ```
+
+**YOU MUST report how many files you examined in the final summary.**
 
 ---
 
@@ -165,38 +200,22 @@ status: in-progress
 
 ## Phase 3: Execute Changes
 
-### Comprehensive Interactive Mode (no args)
-- Full review of entire knowledge base
+### Comprehensive Mode (no flags)
+- **Full review of ENTIRE knowledge base** - every file must be examined
 - Can make major restructuring changes
-- Ask user for confirmation on significant changes
+- Can ask user for confirmation on significant changes
 - Propose new category structures if patterns emerge
+- **Must report total files examined vs modified**
 
-### Comprehensive CI Mode (--ci only)
-- Full review of **entire** knowledge base - examine every file
-- Can make major restructuring changes
+### CI Mode (--ci)
+- **Diff-targeted only** - examine files changed in recent git commits
 - **NEVER ask for confirmation** - proceed autonomously
-- Make judgment calls based on the rules in this document
-- Used by manual GitHub Action dispatch
-
-**Comprehensive mode MUST**:
-1. Scan ALL notes in `.basic-memory/` (not just recent)
-2. Fix ALL metadata issues found (wrong type, missing status, status in tags)
-3. Archive ALL clearly completed plans
-4. Identify and consolidate duplicates
-5. Fix ALL broken memory:// links
-6. Produce a detailed summary with every change documented
-
-### Targeted Mode (--diff)
-- Focus only on recently changed files
-- Moderate changes - cleanup related to recent work
-- Don't restructure unrelated areas
-
-### CI/Conservative Mode (--ci --diff)
-- **Conservative only** - no major restructuring
-- Safe changes: fix broken links, update metadata, archive obviously complete items
-- Skip anything that needs human judgment
-- Don't ask questions - make safe assumptions or skip
-- Used by nightly scheduled GitHub Action
+- **Conservative changes only**:
+  - Fix broken links
+  - Fix metadata issues (wrong type, missing required fields)
+  - Archive ONLY items explicitly marked "completed" or "done"
+- Skip anything requiring human judgment
+- Make safe assumptions or skip uncertain cases
 
 ---
 
@@ -226,21 +245,22 @@ When proposing new categories:
 
 ## Output Summary
 
-After completing maintenance, provide a **detailed** summary suitable for PR bodies:
+After completing maintenance, provide a **detailed** summary:
 
 ```markdown
 ## Claude Dream Summary
 
-**Mode:** [Comprehensive|Targeted|CI]
+**Mode:** [Comprehensive|CI]
 **Date:** YYYY-MM-DD
 
 ### Statistics
 | Metric | Count |
 |--------|-------|
-| Notes analyzed | X |
-| Notes modified | Y |
-| Notes archived | Z |
-| Metadata fixed | N |
+| Total files in KB | X |
+| Files examined | Y |
+| Files modified | Z |
+| Files archived | N |
+| Metadata issues fixed | N |
 | Broken links fixed | N |
 | Duplicates consolidated | N |
 
@@ -273,12 +293,13 @@ After completing maintenance, provide a **detailed** summary suitable for PR bod
 - **Potential duplicate**: `notes/X.md` and `notes/Y.md` overlap significantly
 - **Needs attention**: `research/Stale.md` - references outdated infrastructure
 
-### Files Skipped (no changes needed)
-- X files with valid metadata
-- Y files recently modified (within 7 days)
+### Files Examined But Not Modified
+- X files with valid metadata and current content
 ```
 
-**Important**: In CI mode, this summary should be detailed enough to serve as the PR body. Include every change with reasoning.
+**Important**:
+- In comprehensive mode, "Files examined" should equal "Total files in KB"
+- In CI mode, this summary should be detailed enough to serve as the PR body
 
 ---
 
@@ -297,4 +318,4 @@ After completing maintenance, provide a **detailed** summary suitable for PR bod
 
 ---
 
-**Begin by detecting the mode from arguments and gathering context with MCP tools.**
+**Begin by detecting the mode from arguments, then follow the appropriate phase 1 instructions.**
