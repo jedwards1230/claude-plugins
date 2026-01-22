@@ -30,22 +30,22 @@ You are performing knowledge base maintenance ("dreaming") for the `.basic-memor
 
 **Basic Memory Project Info:**
 ```
-!`basic-memory project info default 2>/dev/null || echo "basic-memory not available"`
+!`basic-memory project info default`
 ```
 
 **Directory structure:**
 ```
-!`find .basic-memory -type d 2>/dev/null | sort`
+!`find .basic-memory -type d`
 ```
 
-**Files per folder:**
+**File count:**
 ```
-!`find .basic-memory -name "*.md" -printf "%h\n" 2>/dev/null | sort | uniq -c | sort -rn`
+!`find .basic-memory -name *.md | wc -l`
 ```
 
-**Recent git changes (last 20 commits):**
+**Recent git changes:**
 ```
-!`git log --oneline --name-only -20 -- .basic-memory/ 2>/dev/null | grep "\.md$" | sort -u || echo "No recent changes"`
+!`git log --oneline -20 -- .basic-memory/`
 ```
 
 ---
