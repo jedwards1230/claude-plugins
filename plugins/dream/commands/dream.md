@@ -26,6 +26,30 @@ example_prompts:
 
 You are performing knowledge base maintenance ("dreaming") for the `.basic-memory/` directory. This is Claude's memory - you own these files completely. They are committed to git but not touched by human developers.
 
+## Current Knowledge Base State (Injected)
+
+**Basic Memory Project Info:**
+```
+!`basic-memory project info default 2>/dev/null || echo "basic-memory not available"`
+```
+
+**Directory structure:**
+```
+!`find .basic-memory -type d 2>/dev/null | sort`
+```
+
+**Files per folder:**
+```
+!`find .basic-memory -name "*.md" -printf "%h\n" 2>/dev/null | sort | uniq -c | sort -rn`
+```
+
+**Recent git changes (last 20 commits):**
+```
+!`git log --oneline --name-only -20 -- .basic-memory/ 2>/dev/null | grep "\.md$" | sort -u || echo "No recent changes"`
+```
+
+---
+
 ## Mode Detection
 
 Parse arguments from `$ARGUMENTS`:
@@ -36,8 +60,8 @@ Parse arguments from `$ARGUMENTS`:
 | **CI** | `--ci` | Diff-targeted, non-interactive, conservative changes only |
 
 **Key behaviors:**
-- **No flags (comprehensive)**: Scan ALL files in `.basic-memory/`, fix everything found, can ask user questions
-- **`--ci` flag**: Only examine files changed in recent git commits, never ask questions, conservative
+- **No flags (comprehensive)**: Scan ALL entities shown above, fix everything found, can ask user questions
+- **`--ci` flag**: Only examine files from "Recent git changes" section, never ask questions, conservative
 
 **GitHub Actions uses:**
 - Scheduled (nightly): `--ci` → quick scan of recent changes only
@@ -48,64 +72,57 @@ Parse arguments from `$ARGUMENTS`:
 ## Phase 1: Gather Context
 
 ### CI Mode (--ci)
-Quick targeted scan - only recent changes:
-
-```bash
-# Get files changed in last 20 commits
-git log --oneline --name-only -20 -- .basic-memory/ | grep "\.md$" | sort -u
-```
-
-Then use basic-memory MCP to read those specific files.
+Process ONLY the files listed in "Recent git changes" above. Skip all other files.
 
 ### Comprehensive Mode (no flags)
-**CRITICAL: You MUST scan every single file.** Do not skip files or sample.
+**CRITICAL: You MUST process every entity.** The count is shown in "Basic Memory Project Info" above (Entities row). Your final summary MUST match this number.
 
-**Step 1: Get complete file inventory**
-```
-mcp__basic-memory__list_directory(dir_name="/", depth=5)
-```
+**Key metrics to fix from the injected stats:**
+- **Unresolved Relations** - These are broken `memory://` links that need fixing
+- **Entity Types** - Most show as `note` but many should be `plan`, `troubleshooting`, etc.
 
-**Step 2: Systematically process EVERY folder**
+**Step 1: Process each folder systematically**
 
-Process each folder in order, reading and evaluating EVERY file:
+For each folder shown in "Directory structure" above, read and evaluate EVERY `.md` file:
 
-1. `.basic-memory/plans/` - Check status, archive completed
-2. `.basic-memory/archive/` - Verify metadata, fix issues
-3. `.basic-memory/troubleshooting/` - Archive resolved issues >6 months old
-4. `.basic-memory/decisions/` - Preserve all, fix metadata only
-5. `.basic-memory/learnings/` - Fix metadata
-6. `.basic-memory/research/` - Check for stale content
-7. `.basic-memory/homelab/` - Fix broken links, update stale refs
-8. `.basic-memory/infrastructure/` - Fix broken links
-9. `.basic-memory/home-automation/` - Fix metadata
-10. `.basic-memory/networking/` - Fix metadata
-11. `.basic-memory/monitoring/` - Fix metadata
-12. `.basic-memory/kubernetes/` - Fix metadata
-13. `.basic-memory/migrations/` - Archive completed
-14. `.basic-memory/security/` - Fix metadata
-15. `.basic-memory/debugging/` - Archive resolved
-16. All other folders found in step 1
+| Folder | Expected Type | Action |
+|--------|---------------|--------|
+| `plans/` | `type: plan` | Check status, archive completed |
+| `archive/` | varies | Verify metadata, fix issues |
+| `troubleshooting/` | `type: troubleshooting` | Archive resolved issues >6 months old |
+| `decisions/` | `type: decision` | Preserve all, fix metadata only |
+| `learnings/` | `type: learning` | Fix metadata |
+| `research/` | `type: research` | Check for stale content |
+| All other folders | `type: note` | Fix broken links, metadata |
 
-**Step 3: For EACH file, check:**
+**Step 2: For EACH file, check:**
 - [ ] Frontmatter has required fields (title, type, permalink, tags)
-- [ ] `type` matches content (plan vs note vs decision, etc.)
+- [ ] `type` matches folder (see table above)
 - [ ] Status in frontmatter field, not in tags
 - [ ] Type not duplicated in tags
 - [ ] All `memory://` links resolve to existing files
 - [ ] Plans have `status:` field with appropriate value
 - [ ] Completed items should be archived
 
-**Step 4: Search for issues**
-```
-mcp__basic-memory__search_notes(query="status:completed")
-mcp__basic-memory__search_notes(query="TODO OR FIXME OR outdated")
-```
-
-**YOU MUST report how many files you examined in the final summary.**
-
 ---
 
-## Phase 2: Identify Maintenance Opportunities
+## Phase 2: Maintenance Rules
+
+### Folder-to-Type Mapping (CRITICAL)
+
+Files MUST have types matching their folder location:
+
+| Folder | Required Type |
+|--------|---------------|
+| `plans/**` | `type: plan` |
+| `troubleshooting/**` | `type: troubleshooting` |
+| `decisions/**` | `type: decision` |
+| `learnings/**` | `type: learning` |
+| `research/**` | `type: research` |
+| `archive/**` | Original type (plan, troubleshooting, etc.) |
+| All others | `type: note` |
+
+**Fix any file where type doesn't match folder.**
 
 ### Pruning & Archiving
 
@@ -130,14 +147,9 @@ git mv ".basic-memory/plans/My-Plan.md" ".basic-memory/archive/plans/My-Plan.md"
 Before moving, update frontmatter:
 ```yaml
 status: completed
-archived_date: 2026-01-20
+archived_date: 2026-01-21
 original_date: 2025-06-15  # When originally created
 ```
-
-### Consolidation
-- **Duplicate notes**: Similar content in multiple files → merge (keep richer one)
-- **Scattered topics**: 5+ notes on same topic in different folders → propose new category
-- **Breadcrumb trail**: When consolidating, add: `> Consolidated from X, Y, Z on YYYY-MM-DD`
 
 ### Frontmatter Standards
 
@@ -146,7 +158,7 @@ original_date: 2025-06-15  # When originally created
 | Field | Values | Description |
 |-------|--------|-------------|
 | `title` | String | Human-readable title |
-| `type` | `note`, `plan`, `decision`, `troubleshooting`, `research`, `learning` | Document classification |
+| `type` | `note`, `plan`, `decision`, `troubleshooting`, `research`, `learning` | Must match folder |
 | `permalink` | `folder/slug-based-on-title` | Stable identifier (lowercase, hyphens) |
 | `tags` | YAML array | Categorization (min 1 tag) |
 
@@ -158,94 +170,44 @@ original_date: 2025-06-15  # When originally created
 | `archived_date` | `YYYY-MM-DD` | When moved to archive/ |
 | `original_date` | `YYYY-MM-DD` | Original creation date (archived items) |
 
-**Example valid frontmatter**:
-```yaml
----
-title: Longhorn Storage Setup Plan
-type: plan
-permalink: plans/longhorn-storage-setup-plan
-tags:
-- longhorn
-- storage
-- kubernetes
-status: in-progress
----
-```
-
 ### Anti-Patterns to Fix
 
 | Issue | Fix |
 |-------|-----|
-| `type: note` on a plan file | Change to `type: plan` |
+| `type: note` in plans/ folder | Change to `type: plan` |
+| `type: note` in troubleshooting/ folder | Change to `type: troubleshooting` |
+| `type: note` in decisions/ folder | Change to `type: decision` |
+| `type: note` in learnings/ folder | Change to `type: learning` |
+| `type: note` in research/ folder | Change to `type: research` |
 | Status in tags (`- complete`, `- in-progress`) | Remove from tags, add `status:` field |
 | Type in tags (`- plan`, `- implementation-plan`) | Remove, use `type:` field instead |
 | Missing `status:` on plans | Add appropriate status based on content |
 | Broken `memory://` links | Fix path or remove if target doesn't exist |
-| Duplicate content across files | Consolidate into richer version, archive other |
-
-### Content Quality & Links
-
-**Link formats**:
-- Internal: `[Link Text](memory://folder/note-permalink)`
-- Wiki-style: `[[Note Title]]`
-- Relative: `[Link Text](./sibling-note.md)`
-
-**Quality checks**:
-- Fix broken `memory://` links pointing to non-existent or moved notes
-- Update stale infrastructure references
-- Preserve decision rationale and lessons learned
-- Add historical context breadcrumbs when consolidating
 
 ---
 
 ## Phase 3: Execute Changes
 
 ### Comprehensive Mode (no flags)
-- **Full review of ENTIRE knowledge base** - every file must be examined
+- **Full review of ENTIRE knowledge base** - every entity must be examined
 - Can make major restructuring changes
 - Can ask user for confirmation on significant changes
-- Propose new category structures if patterns emerge
-- **Must report total files examined vs modified**
+- **Must report total entities examined = Entities count from injected stats**
 
 ### CI Mode (--ci)
-- **Diff-targeted only** - examine files changed in recent git commits
+- **Diff-targeted only** - examine ONLY files from "Recent git changes"
 - **NEVER ask for confirmation** - proceed autonomously
 - **Conservative changes only**:
   - Fix broken links
   - Fix metadata issues (wrong type, missing required fields)
   - Archive ONLY items explicitly marked "completed" or "done"
 - Skip anything requiring human judgment
-- Make safe assumptions or skip uncertain cases
 
 ---
 
-## Execution Guidelines
+## Output Summary (REQUIRED)
 
-### Editing Notes
-Use MCP tools when possible:
-```
-mcp__basic-memory__edit_note(
-  identifier="plans/my-plan",
-  operation="replace_section",
-  section="Status",
-  content="## Status\n\n**COMPLETED** - Archived on 2026-01-08"
-)
-```
-
-Or use Edit tool for precise changes to the markdown files directly.
-
-### Creating Categories
-When proposing new categories:
-1. Identify 5+ related notes scattered across folders
-2. Create new folder under `.basic-memory/`
-3. Move related notes (preserving as much history as practical)
-4. Update any `memory://` links that reference moved files
-
----
-
-## Output Summary
-
-After completing maintenance, provide a **detailed** summary:
+After completing maintenance, provide this summary:
 
 ```markdown
 ## Claude Dream Summary
@@ -256,50 +218,42 @@ After completing maintenance, provide a **detailed** summary:
 ### Statistics
 | Metric | Count |
 |--------|-------|
-| Total files in KB | X |
-| Files examined | Y |
-| Files modified | Z |
-| Files archived | N |
-| Metadata issues fixed | N |
-| Broken links fixed | N |
-| Duplicates consolidated | N |
+| Total entities in KB | [MUST MATCH INJECTED COUNT] |
+| Entities examined | [MUST EQUAL TOTAL IN COMPREHENSIVE MODE] |
+| Files modified | X |
+| Files archived | X |
+| Type mismatches fixed | X |
+| Metadata issues fixed | X |
+| Unresolved relations fixed | X |
 
 ### Changes Made
+
+#### Type Corrections
+| File | Change |
+|------|--------|
+| `troubleshooting/X.md` | `type: note` → `type: troubleshooting` |
+| `decisions/Y.md` | `type: note` → `type: decision` |
 
 #### Archived (moved to archive/)
 | File | Reason |
 |------|--------|
-| `plans/X.md` | Status: completed, moved to archive/plans/ |
+| `plans/X.md` | Status: completed |
 
 #### Metadata Fixed
 | File | Change |
 |------|--------|
-| `plans/Y.md` | Added `status: active`, changed `type: note` → `type: plan` |
-| `infrastructure/Z.md` | Removed status from tags, added `status:` field |
+| `plans/Y.md` | Removed `- in-progress` from tags, added `status: in-progress` |
 
-#### Content Updated
+#### Broken Links Fixed
 | File | Change |
 |------|--------|
 | `infrastructure/Y.md` | Fixed 3 broken memory:// links |
-| `homelab/X.md` | Added historical context breadcrumb |
 
-#### Consolidated
-| Source Files | Target | Reason |
-|--------------|--------|--------|
-| `A.md` + `B.md` | `C.md` | Duplicate content, kept richer version |
-
-### Recommendations (requires human review)
-- **Consider archiving**: `plans/Old-Plan.md` - appears complete but status unclear
-- **Potential duplicate**: `notes/X.md` and `notes/Y.md` overlap significantly
-- **Needs attention**: `research/Stale.md` - references outdated infrastructure
-
-### Files Examined But Not Modified
-- X files with valid metadata and current content
+### Entities Examined But Not Modified
+- X entities with valid metadata and correct types
 ```
 
-**Important**:
-- In comprehensive mode, "Files examined" should equal "Total files in KB"
-- In CI mode, this summary should be detailed enough to serve as the PR body
+**CRITICAL**: In comprehensive mode, "Entities examined" MUST equal the "Entities" count shown in the injected stats. If they don't match, you haven't completed the task.
 
 ---
 
@@ -311,11 +265,7 @@ After completing maintenance, provide a **detailed** summary:
 4. **Respect active work** - don't archive anything without clear "completed" status
 5. **Maintain links** - update `memory://` references when moving files
 6. **Path validation** - all operations must target `.basic-memory/` directory
-   - Source paths must start with `.basic-memory/`
-   - Destination paths must start with `.basic-memory/`
-   - No path traversal (`..`) allowed
-7. **Focus scope** - primarily modify `.basic-memory/` files; only touch other files (like docs/) if directly relevant and justified
 
 ---
 
-**Begin by detecting the mode from arguments, then follow the appropriate phase 1 instructions.**
+**Begin by checking your mode from `$ARGUMENTS`, then systematically process each entity.**
