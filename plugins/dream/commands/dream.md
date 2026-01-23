@@ -20,6 +20,9 @@ example_prompts:
   - "prune and tune the knowledge base"
   - "memory maintenance"
   - "dreaming"
+  - "run memory dreaming"
+  - "clean up basic-memory"
+  - "archive completed plans"
 ---
 
 # Basic-Memory Knowledge Base Maintenance
@@ -52,7 +55,7 @@ You are performing knowledge base maintenance ("dreaming") for the `.basic-memor
 
 ## Mode Detection
 
-Parse arguments from `$ARGUMENTS`:
+Parse arguments from `$ARGUMENTS` (auto-populated from command invocation, e.g., `/dream --ci`):
 
 | Mode | Args | Behavior |
 |------|------|----------|
