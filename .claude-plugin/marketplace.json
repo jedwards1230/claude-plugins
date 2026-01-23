@@ -3,12 +3,21 @@
   "owner": {
     "name": "jedwards1230"
   },
+  "metadata": {
+    "version": "2.1.0"
+  },
   "plugins": [
     {
       "name": "dream",
       "source": "./plugins/dream",
       "description": "Basic-memory knowledge base maintenance and optimization",
-      "version": "1.0.0"
+      "version": "1.1.0"
+    },
+    {
+      "name": "remember",
+      "source": "./plugins/remember",
+      "description": "Memory management skill for storing and retrieving knowledge via basic-memory",
+      "version": "0.0.1"
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "name": "remember",
+  "version": "0.0.1",
+  "description": "Memory management skill for storing and retrieving knowledge via basic-memory",
+  "author": {
+    "name": "jedwards1230"
+  }
+}

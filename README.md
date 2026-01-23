@@ -17,6 +17,7 @@ Private marketplace for reusable Claude Code plugins.
 | Plugin | Description |
 |--------|-------------|
 | [dream](plugins/dream/) | Basic-memory knowledge base maintenance |
+| [remember](plugins/remember/) | Memory management for storing and retrieving knowledge |
 
 ## Development
 
