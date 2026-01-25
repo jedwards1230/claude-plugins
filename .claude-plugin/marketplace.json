@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "2.1.0"
+    "version": "3.0.0"
   },
   "plugins": [
     {
@@ -12,6 +12,12 @@
       "source": "./plugins/dream",
       "description": "Basic-memory knowledge base maintenance and optimization",
       "version": "1.1.0"
+    },
+    {
+      "name": "grafana-dashboards",
+      "source": "./plugins/grafana-dashboards",
+      "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments",
+      "version": "1.0.0"
     },
     {
       "name": "remember",
