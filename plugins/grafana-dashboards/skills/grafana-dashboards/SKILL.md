@@ -77,6 +77,12 @@ For comprehensive design theory, see [DESIGN-PRINCIPLES.md](DESIGN-PRINCIPLES.md
 | User-facing APIs | **Four Golden Signals** | Latency, Traffic, Errors, Saturation |
 | Microservices | **RED** | Rate, Errors, Duration |
 | Infrastructure | **USE** | Utilization, Saturation, Errors |
+| CI/CD Pipelines | **DORA** | Deploy Freq, Lead Time, CFR, MTTR |
+| Developer Productivity | **SPACE/DevEx/DX Core 4** | Multiple dimensions (see Section 5) |
+| AI/LLM Applications | **OTel GenAI** | Tokens, Duration, Cost |
+| Developer Tools | **Hybrid** | Adoption + Technical + Productivity |
+
+For comprehensive framework selection guidance including decision trees and hybrid approaches, see [DESIGN-PRINCIPLES.md Section 2](DESIGN-PRINCIPLES.md#2-framework-selection-guide).
 
 ### Color Accessibility
 - **Blue-orange** is the safest color combination (colorblind-friendly)

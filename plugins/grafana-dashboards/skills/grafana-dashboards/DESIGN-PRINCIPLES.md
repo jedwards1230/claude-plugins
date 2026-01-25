@@ -5,14 +5,17 @@ This document synthesizes foundational monitoring principles, dashboard design t
 ## Table of Contents
 
 1. [Foundational Monitoring Principles](#1-foundational-monitoring-principles) - Golden Signals, RED, USE methods
-2. [Dashboard Design Principles](#2-dashboard-design-principles) - Layout, cognitive load, color theory, chart selection
-3. [Industry Standards and Frameworks](#3-industry-standards-and-frameworks) - Google SRE, Honeycomb, DORA, Grafana
-4. [Academic and Research Foundations](#4-academic-and-research-foundations) - Tufte, Few, Gestalt principles
-5. [Practical Design Patterns](#5-practical-design-patterns) - Drill-down, time ranges, SLO burn rates
-6. [Common Mistakes and Anti-Patterns](#6-common-mistakes-and-anti-patterns) - Vanity metrics, chartjunk, overload
-7. [Quick Reference Checklist](#7-quick-reference-checklist) - Pre-flight checks for dashboard design
-8. [Authoritative Sources](#8-authoritative-sources-summary) - Books, documentation, key practitioners
-9. [Specialized Monitoring Domains](#9-specialized-monitoring-domains) - When RED/USE don't apply
+2. [Framework Selection Guide](#2-framework-selection-guide) - Decision tree for choosing the right methodology
+3. [Dashboard Design Principles](#3-dashboard-design-principles) - Layout, cognitive load, color theory, chart selection
+4. [Industry Standards and Frameworks](#4-industry-standards-and-frameworks) - Google SRE, Honeycomb, DORA, Grafana
+5. [Developer Productivity Frameworks](#5-developer-productivity-frameworks) - SPACE, DevEx, DX Core 4
+6. [Academic and Research Foundations](#6-academic-and-research-foundations) - Tufte, Few, Gestalt principles
+7. [Practical Design Patterns](#7-practical-design-patterns) - Drill-down, time ranges, SLO burn rates
+8. [Common Mistakes and Anti-Patterns](#8-common-mistakes-and-anti-patterns) - Vanity metrics, chartjunk, overload
+9. [Quick Reference Checklist](#9-quick-reference-checklist) - Pre-flight checks for dashboard design
+10. [Authoritative Sources](#10-authoritative-sources-summary) - Books, documentation, key practitioners
+11. [Specialized Monitoring Domains](#11-specialized-monitoring-domains) - When RED/USE don't apply
+12. [GenAI and LLM Observability](#12-genai-and-llm-observability) - OpenTelemetry GenAI, Claude Code, cost tracking
 
 ---
 
@@ -78,7 +81,7 @@ The USE method was developed by **Brendan Gregg** for analyzing system performan
 - [Brendan Gregg - The USE Method](https://www.brendangregg.com/usemethod.html)
 - [ACM Queue - Thinking Methodically about Performance](https://queue.acm.org/detail.cfm?id=2413037)
 
-### 1.4 Methodology Selection Guide
+### 1.4 Basic Methodology Selection
 
 | Scenario | Recommended Method | Rationale |
 |----------|-------------------|-----------|
@@ -87,9 +90,94 @@ The USE method was developed by **Brendan Gregg** for analyzing system performan
 | Infrastructure/hardware | **USE** | Resource-focused, finds bottlenecks |
 | Full-stack visibility | **RED + USE** | Cover both user experience and infrastructure |
 
-## 2. Dashboard Design Principles
+---
 
-### 2.1 Information Hierarchy and Visual Layout
+## 2. Framework Selection Guide
+
+This section provides a decision tree to help choose the right monitoring framework for any dashboard type.
+
+### 2.1 Framework Comparison Matrix
+
+| Framework | Best For | Key Metrics | Data Freshness | Typical Audience |
+|-----------|----------|-------------|----------------|------------------|
+| **Four Golden Signals** | User-facing services | Latency, Traffic, Errors, Saturation | Real-time | SRE, Ops |
+| **RED** | Microservices | Rate, Errors, Duration | Real-time | SRE, Developers |
+| **USE** | Infrastructure | Utilization, Saturation, Errors | Real-time | Ops, Platform |
+| **DORA** | CI/CD, Release | Deploy freq, Lead time, CFR, MTTR | Daily/Weekly | Engineering Leaders |
+| **SPACE** | Developer productivity | 5 dimensions (see Section 5) | Weekly/Monthly | Eng Management |
+| **DevEx** | Developer experience | Feedback loops, Cognitive load, Flow | Weekly/Monthly | Platform Teams |
+| **DX Core 4** | Holistic engineering | Speed, Effectiveness, Quality, Impact | Weekly | Engineering Leaders |
+| **OTel GenAI** | AI/LLM applications | Tokens, Duration, Model, Cost | Real-time | ML/AI Teams |
+
+### 2.2 Decision Tree
+
+Use this flowchart to select the appropriate framework:
+
+```
+START: What are you monitoring?
+│
+├─► User-facing service (API, web app)?
+│   └─► Use: Four Golden Signals or RED
+│       - Golden Signals for complete picture
+│       - RED for microservices consistency
+│
+├─► Infrastructure (servers, storage, network)?
+│   └─► Use: USE Method
+│       - Per-resource: Utilization, Saturation, Errors
+│
+├─► CI/CD pipeline or release process?
+│   └─► Use: DORA Metrics
+│       - Deployment Frequency, Lead Time
+│       - Change Failure Rate, Recovery Time
+│
+├─► Developer productivity or team health?
+│   └─► Use: SPACE, DevEx, or DX Core 4
+│       - SPACE: 5 dimensions, survey-based
+│       - DevEx: Focus on feedback loops & flow
+│       - DX Core 4: Unified technical + business
+│
+├─► AI/LLM application or API?
+│   └─► Use: OTel GenAI + Cost Metrics
+│       - Token usage, latency, model attribution
+│       - Cost per request, cache efficiency
+│
+├─► Developer tools (CLI, IDE, plugins)?
+│   └─► Use: Hybrid approach (Section 11.7)
+│       - Tool-specific: Latency, success rate
+│       - Adoption: Active users, feature usage
+│       - Productivity: SPACE/DevEx dimensions
+│
+└─► Specialized domain (backup, security, FinOps)?
+    └─► See: Section 11 (Specialized Monitoring Domains)
+```
+
+### 2.3 Hybrid Approaches
+
+Many dashboards benefit from combining frameworks:
+
+| Combination | Use Case | Example |
+|-------------|----------|---------|
+| **RED + USE** | Full-stack service | Service latency (RED) + host CPU (USE) |
+| **DORA + SPACE** | Engineering effectiveness | Delivery metrics + developer satisfaction |
+| **Golden Signals + Cost** | FinOps-aware services | Service health + cost per transaction |
+| **OTel GenAI + SPACE** | AI-assisted developer tools | Tool telemetry + productivity impact |
+
+### 2.4 Quick Reference Card
+
+| If you hear... | Use this framework |
+|----------------|-------------------|
+| "Is the API healthy?" | Golden Signals / RED |
+| "Why is the server slow?" | USE |
+| "How fast do we ship?" | DORA |
+| "Are developers productive?" | SPACE / DevEx |
+| "How much does this AI cost?" | OTel GenAI + Cost |
+| "Is the backup working?" | Specialized: Backups (Section 11.2) |
+
+---
+
+## 3. Dashboard Design Principles
+
+### 3.1 Information Hierarchy and Visual Layout
 
 From Grafana's official documentation:
 
@@ -110,7 +198,7 @@ From Grafana's official documentation:
 | **Analytical** | Historical analysis, insights | Analysts | On-demand | High detail |
 | **Debugging** | Root cause investigation | Engineers | Real-time | Maximum detail |
 
-### 2.2 The 5-Second Rule and Cognitive Load
+### 3.2 The 5-Second Rule and Cognitive Load
 
 > "Within 5 seconds of opening the dashboard, you should be able to see whether you're winning or losing. If you're still reading, filtering, or searching after 5 seconds, the dashboard has failed as a management tool."
 
@@ -131,7 +219,7 @@ From Grafana's official documentation:
 - [Yellowfin BI - 10 Key Dashboard Design Principles](https://www.yellowfinbi.com/blog/key-dashboard-design-principles-analytics-best-practice)
 - [Den Otter Solutions - Dashboard Design 5 Seconds Rule](https://denottersolutions.com/en/data-insights/dashboard-design-5-seconds-rule/)
 
-### 2.3 Color Theory for Dashboards
+### 3.3 Color Theory for Dashboards
 
 #### Color Blindness Considerations
 
@@ -167,7 +255,7 @@ From Grafana's official documentation:
 | **Blue** | Informational, neutral | General data, safe default |
 | **Gray** | Inactive, historical | Disabled states, comparison data |
 
-### 2.4 Chart Type Selection Guide
+### 3.4 Chart Type Selection Guide
 
 | Chart Type | Best For | Avoid When |
 |------------|----------|------------|
@@ -193,9 +281,11 @@ From Grafana's official documentation:
 - [Atlassian - Essential Chart Types](https://www.atlassian.com/data/charts/essential-chart-types-for-data-visualization)
 - [Atlassian - How to Choose Data Visualization](https://www.atlassian.com/data/charts/how-to-choose-data-visualization)
 
-## 3. Industry Standards and Frameworks
+---
 
-### 3.1 Google SRE Book Principles
+## 4. Industry Standards and Frameworks
+
+### 4.1 Google SRE Book Principles
 
 **Symptom-Based vs. Cause-Based Monitoring**:
 
@@ -213,7 +303,7 @@ From Grafana's official documentation:
 - [Google SRE - Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/)
 - [Google SRE - Practical Alerting](https://sre.google/sre-book/practical-alerting/)
 
-### 3.2 Observability Philosophy (Honeycomb/Charity Majors)
+### 4.2 Observability Philosophy (Honeycomb/Charity Majors)
 
 **Charity Majors**, co-founder and CTO of Honeycomb, defines observability differently from traditional monitoring:
 
@@ -232,7 +322,7 @@ From Grafana's official documentation:
 - [Honeycomb - Observability: A Manifesto](https://www.honeycomb.io/blog/observability-a-manifesto)
 - [charity.wtf - Observability Category](https://charity.wtf/category/observability/)
 
-### 3.3 DORA Metrics
+### 4.3 DORA Metrics
 
 **DORA (DevOps Research and Assessment)** was founded by Gene Kim, Jez Humble, and Nicole Forsgren in 2015, acquired by Google Cloud in 2018.
 
@@ -251,7 +341,7 @@ From Grafana's official documentation:
 - [DORA - Four Keys](https://dora.dev/guides/dora-metrics-four-keys/)
 - [Atlassian - DORA Metrics](https://www.atlassian.com/devops/frameworks/dora-metrics)
 
-### 3.4 Grafana Official Best Practices
+### 4.4 Grafana Official Best Practices
 
 **Strategic planning**:
 > "It's easy to make new dashboards. It's harder to optimize dashboard creation and adhere to a plan, but it's worth it."
@@ -277,9 +367,104 @@ From Grafana's official documentation:
 - [Grafana - Dashboard Best Practices](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/best-practices/)
 - [Grafana Blog - Getting Started Best Practices (2024)](https://grafana.com/blog/2024/07/03/getting-started-with-grafana-best-practices-to-design-your-first-dashboard/)
 
-## 4. Academic and Research Foundations
+---
 
-### 4.1 Edward Tufte's Principles
+## 5. Developer Productivity Frameworks
+
+Unlike infrastructure monitoring (RED/USE), developer productivity requires frameworks that capture **experience**, **flow**, and **outcomes** - dimensions not addressed by traditional methodologies.
+
+### 5.1 SPACE Framework (Microsoft/GitHub Research, 2021)
+
+A five-dimensional framework for measuring developer productivity, developed by researchers at Microsoft and GitHub:
+
+> "Productivity cannot be reduced to a single dimension. The SPACE framework ensures a holistic view."
+
+| Dimension | Description | Example Metrics |
+|-----------|-------------|-----------------|
+| **S**atisfaction & Well-being | How developers feel about their work | Survey scores, burnout indicators, retention |
+| **P**erformance | Outcomes and impact of work | Code review effectiveness, customer impact, goals met |
+| **A**ctivity | Countable outputs (use carefully) | Commits, PRs, code reviews, deployments |
+| **C**ommunication & Collaboration | Team interaction quality | Review response time, meeting load, knowledge sharing |
+| **E**fficiency & Flow | Ability to complete work with minimal friction | Focus time, interruption frequency, handoffs |
+
+**Key insights**:
+- Track **at least 3 dimensions** to avoid gaming single metrics
+- **Activity alone is misleading** - high commit counts don't mean high productivity
+- Include **self-reported metrics** (surveys) alongside system metrics
+- Consider **team-level** over individual-level measurement
+
+**Anti-patterns to avoid**:
+- Measuring lines of code or commit frequency as productivity
+- Individual-level leaderboards (causes gaming and harm)
+- Ignoring satisfaction and well-being dimensions
+
+**Sources**:
+- [ACM Queue - The SPACE of Developer Productivity](https://queue.acm.org/detail.cfm?id=3454124)
+- [Microsoft Research - SPACE Framework](https://www.microsoft.com/en-us/research/publication/the-space-of-developer-productivity/)
+- [LinearB - SPACE Framework Deep Dive](https://linearb.io/blog/space-framework)
+
+### 5.2 DevEx Framework (2023)
+
+Focuses on three pillars affecting developer experience, developed by Nicole Forsgren, Margaret-Anne Storey, and others:
+
+| Dimension | Description | Metrics |
+|-----------|-------------|---------|
+| **Feedback Loops** | How quickly developers receive input on their work | Build time, CI duration, code review latency, deploy time |
+| **Cognitive Load** | Mental effort required to complete tasks | Documentation quality, codebase complexity, context switches |
+| **Flow State** | Ability to achieve uninterrupted, focused work | Focus time blocks, interruption frequency, meeting-free time |
+
+**Key insight**: Developer experience directly impacts productivity. Poor DevEx creates friction that slows everything.
+
+**Feedback Loop Targets**:
+| Loop | Elite | Good | Needs Work |
+|------|-------|------|------------|
+| Local build | < 30 seconds | < 2 minutes | > 5 minutes |
+| CI pipeline | < 10 minutes | < 30 minutes | > 1 hour |
+| Code review | < 4 hours | < 24 hours | > 48 hours |
+| Deploy to prod | < 1 hour | < 1 day | > 1 week |
+
+**Sources**:
+- [ACM Queue - DevEx: What Actually Drives Productivity](https://queue.acm.org/detail.cfm?id=3595878)
+- [Cortex - Developer Experience Metrics](https://www.cortex.io/post/developer-experience-metrics-for-software-development-success)
+
+### 5.3 DX Core 4 Framework (2024)
+
+A unified framework combining DORA, SPACE, and DevEx into four counterbalanced dimensions:
+
+| Dimension | Key Metric | Secondary Metrics | What It Measures |
+|-----------|------------|-------------------|------------------|
+| **Speed** | Diffs/PRs per Engineer | Cycle time, deployment frequency | Delivery velocity |
+| **Effectiveness** | Developer Experience Index (DXI) | Time to 10th PR, regrettable attrition | Developer success |
+| **Quality** | Change Failure Rate | Recovery time, perceived quality | Output reliability |
+| **Impact** | % Time on New Capabilities | Innovation ratio, customer value | Business value |
+
+**Key insight**: "For every 1-point increase in DXI score, you save ~10 minutes per week per engineer."
+
+**Balancing the dimensions**:
+- Speed without Quality = technical debt accumulation
+- Quality without Speed = slow delivery
+- Impact without Effectiveness = burnout
+- All four must be balanced for sustainable engineering
+
+**Sources**:
+- [DX Research - Measuring Developer Productivity with DX Core 4](https://getdx.com/research/measuring-developer-productivity-with-the-dx-core-4/)
+- [LeadDev - DX Core 4 Unifies Productivity Frameworks](https://leaddev.com/reporting/dx-core-4-aims-to-unify-developer-productivity-frameworks)
+
+### 5.4 Framework Selection for Developer Dashboards
+
+| Dashboard Purpose | Recommended Framework | Key Panels |
+|-------------------|----------------------|------------|
+| Engineering leadership | DX Core 4 | Speed, Quality, Impact gauges |
+| Team health | SPACE | Survey scores, collaboration metrics |
+| Platform team | DevEx | Feedback loop latencies |
+| Individual growth | SPACE (carefully) | Learning, satisfaction (not activity) |
+| CI/CD effectiveness | DORA + DevEx | Deploy freq + pipeline duration |
+
+---
+
+## 6. Academic and Research Foundations
+
+### 6.1 Edward Tufte's Principles
 
 Edward Tufte is a statistician and professor emeritus at Yale University, author of **"The Visual Display of Quantitative Information"** (1983), considered one of the most important books on data visualization.
 
@@ -313,7 +498,7 @@ Tufte coined "chartjunk" to describe **unnecessary or distracting elements** tha
 - [The Double Think - Tufte's Principles](https://thedoublethink.com/tuftes-principles-for-visualizing-quantitative-information/)
 - [Holistics - Data-Ink Ratio](https://www.holistics.io/blog/data-ink-ratio/)
 
-### 4.2 Stephen Few's Dashboard Design Work
+### 6.2 Stephen Few's Dashboard Design Work
 
 Stephen Few, founder of Perceptual Edge, authored **"Information Dashboard Design: The Effective Visual Communication of Data"** (2006, 2nd edition 2013).
 
@@ -331,7 +516,7 @@ Stephen Few, founder of Perceptual Edge, authored **"Information Dashboard Desig
 - [Amazon - Information Dashboard Design Book](https://www.amazon.com/Information-Dashboard-Design-Effective-Communication/dp/0596100167)
 - [Perceptual Edge Library](https://www.perceptualedge.com/library.php)
 
-### 4.3 Gestalt Principles for Dashboards
+### 6.3 Gestalt Principles for Dashboards
 
 The Gestalt Principles emerged from 1920s German psychology research on human pattern recognition:
 
@@ -351,9 +536,11 @@ The Gestalt Principles emerged from 1920s German psychology research on human pa
 - [Playfair Data - Applying Gestalt Principles](https://playfairdata.com/applying-gestalt-principles-to-dashboard-design/)
 - [Viz Zen Data - Gestalt Principles](https://vizzendata.com/2020/07/06/utilizing-gestalt-principles-to-improve-your-data-visualization-design/)
 
-## 5. Practical Design Patterns
+---
 
-### 5.1 Overview, Drill-Down, Detail Pattern
+## 7. Practical Design Patterns
+
+### 7.1 Overview, Drill-Down, Detail Pattern
 
 **The pattern**:
 1. **Overview**: High-level summary of system health (executive view)
@@ -370,16 +557,16 @@ The Gestalt Principles emerged from 1920s German psychology research on human pa
 - **Drill-through**: Navigates to separate detailed report
 - **Slice-and-dice**: Changes view angle without changing detail level
 
-### 5.2 Dashboard Hierarchy Levels
+### 7.2 Dashboard Hierarchy Levels
 
-See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hierarchy table. In summary:
+See [Section 3.1](#31-information-hierarchy-and-visual-layout) for the full hierarchy table. In summary:
 
 - **Executive**: "Are we winning?" - 3-5 KPIs, red/green status
 - **Operational**: "What needs attention?" - Real-time service health
 - **Tactical**: "How are we performing?" - Team metrics, SLO status
 - **Debugging**: "What went wrong?" - Maximum detail, logs, traces
 
-### 5.3 Time Range and Refresh Rate Guidelines
+### 7.3 Time Range and Refresh Rate Guidelines
 
 | Time Range | Recommended Refresh | Rationale |
 |------------|--------------------| ----------|
@@ -394,7 +581,7 @@ See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hier
 - Limit data points per panel
 - Avoid over-scheduling that creates refresh backlog
 
-### 5.4 SLO Alerting and Burn Rate Visualization
+### 7.4 SLO Alerting and Burn Rate Visualization
 
 **Burn rate concept**:
 - **Burn rate of 1**: Consuming error budget at expected rate (exactly hitting SLO)
@@ -417,9 +604,11 @@ See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hier
 - [Google SRE Workbook - Alerting on SLOs](https://sre.google/workbook/alerting-on-slos/)
 - [Grafana SLO Documentation](https://grafana.com/docs/grafana-cloud/alerting-and-irm/slo/)
 
-## 6. Common Mistakes and Anti-Patterns
+---
 
-### 6.1 Vanity Metrics
+## 8. Common Mistakes and Anti-Patterns
+
+### 8.1 Vanity Metrics
 
 **Definition**: Metrics that look good on dashboards but don't reflect meaningful progress, quality, or outcomes.
 
@@ -447,7 +636,7 @@ See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hier
 - [Tableau - Vanity Metrics Definition](https://www.tableau.com/learn/articles/vanity-metrics)
 - [Amplitude - What Are Vanity Metrics](https://amplitude.com/blog/vanity-metrics)
 
-### 6.2 Dashboard Proliferation/Sprawl
+### 8.2 Dashboard Proliferation/Sprawl
 
 **The problem**: Organizations create dashboards faster than they can maintain them, leading to:
 - Duplicate dashboards with conflicting data
@@ -461,7 +650,7 @@ See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hier
 - Centralize dashboard templates
 - Delete TEST/TMP dashboards when done
 
-### 6.3 Chart Type Misuse
+### 8.3 Chart Type Misuse
 
 **Common mistakes**:
 
@@ -476,7 +665,7 @@ See [Section 2.1](#21-information-hierarchy-and-visual-layout) for the full hier
 **Sources**:
 - [Datadog - Graphing Anti-Patterns](https://www.datadoghq.com/blog/anti-patterns-metric-graphs-101/)
 
-### 6.4 Over-Decoration (Chartjunk)
+### 8.4 Over-Decoration (Chartjunk)
 
 Following Tufte's principles, avoid:
 - Decorative graphics that don't encode data
@@ -488,7 +677,7 @@ Following Tufte's principles, avoid:
 
 **Rule of thumb**: If you can remove it without losing information, remove it.
 
-### 6.5 Poor Color Choices
+### 8.5 Poor Color Choices
 
 **Mistakes to avoid**:
 - Red/green for critical distinctions (colorblind users)
@@ -497,7 +686,7 @@ Following Tufte's principles, avoid:
 - Inconsistent color meanings across dashboards
 - Using color as the only differentiator
 
-### 6.6 Information Overload
+### 8.6 Information Overload
 
 **The most common mistake**: "Too many different types of information on one visualization."
 
@@ -514,13 +703,15 @@ Following Tufte's principles, avoid:
 - Provide context through titles, annotations, and comparisons
 - Use drill-down for details instead of cramming everything up front
 
-## 7. Quick Reference Checklist
+---
+
+## 9. Quick Reference Checklist
 
 ### Before Building a Dashboard
 
 - [ ] Define the specific question this dashboard answers
 - [ ] Identify the target audience (executive, operational, debugging)
-- [ ] Choose appropriate monitoring methodology (Golden Signals, RED, USE, or specialized - see Section 9)
+- [ ] Choose appropriate monitoring methodology (Golden Signals, RED, USE, DORA, SPACE, or specialized - see Section 2)
 - [ ] Plan the information hierarchy
 
 ### During Design
@@ -541,7 +732,15 @@ Following Tufte's principles, avoid:
 - [ ] SLO burn rates visualized appropriately
 - [ ] Percentiles used instead of averages for latency
 
-### Specialized Domains (Section 9)
+### Framework-Specific Checks
+
+- [ ] **Services (RED/Golden Signals)**: Rate, Errors, Duration/Latency all present
+- [ ] **Infrastructure (USE)**: Per-resource Utilization, Saturation, Errors
+- [ ] **DevOps (DORA)**: All four key metrics tracked
+- [ ] **Developer Tools (SPACE/DevEx)**: Multiple dimensions, not just activity
+- [ ] **AI/LLM (OTel GenAI)**: Token usage, latency, cost attribution
+
+### Specialized Domains (Section 11)
 
 - [ ] **Backups**: Showing freshness (hours since last), not just success/failure
 - [ ] **Security**: Baseline established for anomaly detection
@@ -556,7 +755,9 @@ Following Tufte's principles, avoid:
 - [ ] Regular review for staleness
 - [ ] TEST/TMP dashboards cleaned up
 
-## 8. Authoritative Sources Summary
+---
+
+## 10. Authoritative Sources Summary
 
 ### Books
 - **"The Visual Display of Quantitative Information"** - Edward Tufte (1983)
@@ -564,12 +765,20 @@ Following Tufte's principles, avoid:
 - **"Site Reliability Engineering"** - Google (2016) - [sre.google](https://sre.google/sre-book/table-of-contents/)
 - **"The Site Reliability Workbook"** - Google (2018) - [sre.google/workbook](https://sre.google/workbook/)
 - **"Observability Engineering"** - Charity Majors, Liz Fong-Jones, George Miranda (2022)
+- **"Accelerate"** - Nicole Forsgren, Jez Humble, Gene Kim (2018) - DORA research
 
 ### Official Documentation
 - [Grafana Dashboard Best Practices](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/best-practices/)
 - [Google SRE - Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/)
 - [DORA - Four Keys](https://dora.dev/guides/dora-metrics-four-keys/)
 - [Brendan Gregg - USE Method](https://www.brendangregg.com/usemethod.html)
+- [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+
+### Developer Productivity Research
+- [ACM Queue - The SPACE of Developer Productivity](https://queue.acm.org/detail.cfm?id=3454124)
+- [ACM Queue - DevEx: What Actually Drives Productivity](https://queue.acm.org/detail.cfm?id=3595878)
+- [DX Research - DX Core 4](https://getdx.com/research/measuring-developer-productivity-with-the-dx-core-4/)
+- [Microsoft Research - Developer Productivity](https://www.microsoft.com/en-us/research/group/rise/articles/measuring-developer-productivity/)
 
 ### Specialized Domain Sources
 - **Backup Monitoring**: [Grafana Cloud Velero Integration](https://grafana.com/docs/grafana-cloud/monitor-infrastructure/integrations/integration-reference/integration-velero/), [AWS RPO/RTO Guide](https://aws.amazon.com/blogs/mt/establishing-rpo-and-rto-targets-for-cloud-applications/)
@@ -584,14 +793,16 @@ Following Tufte's principles, avoid:
 - **Tom Wilkie** - RED Method creator (Weaveworks, formerly Google)
 - **Charity Majors** - Observability 2.0, Honeycomb CTO
 - **Gene Kim, Jez Humble, Nicole Forsgren** - DORA research founders
+- **Margaret-Anne Storey** - SPACE framework co-author
+- **Abi Noda** - DX Core 4, developer productivity research
 
 ---
 
-## 9. Specialized Monitoring Domains
+## 11. Specialized Monitoring Domains
 
 This section covers monitoring scenarios that don't fit neatly into traditional RED or USE methodologies. Each domain has unique requirements that warrant specialized approaches.
 
-### 9.1 When to Use This Section
+### 11.1 When to Use This Section
 
 Use the guidance below when standard patterns don't apply:
 
@@ -603,10 +814,11 @@ Use the guidance below when standard patterns don't apply:
 | **Games** | Player experience is subjective | TPS, latency, retention analytics |
 | **Storage** | Availability != redundancy | Replica health, rebuild progress |
 | **External Systems** | No instrumentation access | Protocol bridges, SNMP, synthetic probes |
+| **Developer Tools** | Productivity != throughput | Adoption, satisfaction, time savings |
 
 **Key Takeaway**: Match monitoring methodology to what users actually need to know. Technical metrics serve operators; business metrics serve stakeholders; experience metrics serve users.
 
-### 9.2 Backup and Compliance Monitoring
+### 11.2 Backup and Compliance Monitoring
 
 Traditional availability metrics ("is the backup system running?") are insufficient for backup monitoring. The critical question is: **"Can we recover when needed?"**
 
@@ -654,7 +866,7 @@ Pre-built Grafana dashboards: [grafana.com/dashboards/15469](https://grafana.com
 - [Grafana Cloud Velero Integration](https://grafana.com/docs/grafana-cloud/monitor-infrastructure/integrations/integration-reference/integration-velero/)
 - [AWS Resilience Hub - RPO/RTO Targets](https://aws.amazon.com/blogs/mt/establishing-rpo-and-rto-targets-for-cloud-applications/)
 
-### 9.3 Security and Threat Detection Dashboards
+### 11.3 Security and Threat Detection Dashboards
 
 Security dashboards serve fundamentally different purposes than operational dashboards. They must support **threat hunting**, **anomaly detection**, and **incident response** - not just system health.
 
@@ -709,7 +921,7 @@ Security dashboards require interactivity beyond standard monitoring:
 - [SearchInform - SIEM Dashboard Best Practices](https://searchinform.com/articles/cybersecurity/measures/siem/management/dashboard-and-reporting/)
 - [Sumo Logic - Cloud SIEM Dashboards and KPIs](https://www.sumologic.com/blog/how-using-cloud-siem-dashboards-and-metrics-for-daily-standups-improves-soc-efficiency/)
 
-### 9.4 FinOps and Cost Observability
+### 11.4 FinOps and Cost Observability
 
 FinOps dashboards bridge technical metrics and financial outcomes. They require different design thinking than operational dashboards.
 
@@ -764,7 +976,7 @@ Pattern: Budget Burn Rate Gauge
 - [CloudZero - FinOps Dashboards](https://www.cloudzero.com/blog/finops-dashboards/)
 - [nOps - FinOps Best Practices](https://www.nops.io/blog/top-finops-practices-to-effectively-manage-cloud-costs/)
 
-### 9.5 Domain-Specific Metrics
+### 11.5 Domain-Specific Metrics
 
 Some systems have unique metrics that don't fit RED/USE patterns. These require domain expertise to monitor effectively.
 
@@ -834,7 +1046,7 @@ Pre-built Longhorn Grafana dashboards:
 - [SigNoz - Game Server Monitoring Guide](https://signoz.io/guides/game-server-monitoring/)
 - [MetricFire - IoT Dashboards with Grafana](https://www.metricfire.com/blog/iot-dashboards-with-grafana-and-prometheus/)
 
-### 9.6 External System and Boundary Monitoring
+### 11.6 External System and Boundary Monitoring
 
 Not all systems in your infrastructure run your observability stack. Appliances, network devices, and external services require different approaches.
 
@@ -906,3 +1118,281 @@ Section: External Dependencies
 - [TrueNAS Monitoring with Prometheus and Loki](https://alexandre.deverteuil.net/post/monitoring-truenas-with-prometheus-and-loki/)
 - [Grafana Labs - OpenWRT Monitoring](https://grafana.com/blog/2021/02/09/how-i-monitor-my-openwrt-router-with-grafana-cloud-and-prometheus/)
 - [Network UPS Tools](https://networkupstools.org/)
+
+### 11.7 Developer Tools and CLI Telemetry
+
+Developer tools (CLIs, IDE plugins, code assistants) require monitoring approaches that blend **technical health** with **productivity impact**.
+
+#### Why Standard Frameworks Don't Fit
+
+| Challenge | Why RED/USE Fails | Alternative Approach |
+|-----------|-------------------|---------------------|
+| Success is subjective | No clear "error" - user may reject valid output | Track acceptance/rejection rates |
+| Latency tolerance varies | 5s for AI response is acceptable, 5s for autocomplete is not | Context-specific thresholds |
+| Adoption is a journey | First use != productive use | Track time-to-Nth-action |
+| Privacy constraints | Can't track code content | Metadata only (counts, durations) |
+
+#### Recommended Framework: Hybrid Approach
+
+Combine elements from multiple frameworks:
+
+| Layer | Framework | Metrics |
+|-------|-----------|---------|
+| **Technical Health** | RED-like | Command latency, error rate, success rate |
+| **Adoption** | Custom | Active users (DAU/WAU/MAU), feature usage, adoption curve |
+| **Productivity** | SPACE/DevEx | Time savings, satisfaction, flow state |
+| **Cost** | FinOps | Token usage, cost per session, cost per outcome |
+
+#### Key Metrics for Developer Tools
+
+**Adoption Metrics**:
+| Metric | Description | Target |
+|--------|-------------|--------|
+| Daily/Weekly Active Users | Unique users interacting with tool | Trending up |
+| Adoption Rate | Active users / Licensed users | > 70% |
+| Time to 10th Action | Days from first use to 10th meaningful action | < 14 days |
+| Feature Adoption | % users using advanced features | > 30% |
+
+**Engagement Metrics**:
+| Metric | Description | What It Indicates |
+|--------|-------------|-------------------|
+| Session Duration | Average time per session | Engagement depth |
+| Actions per Session | Commands/requests per session | Usage intensity |
+| Return Rate | % users returning next day/week | Stickiness |
+| Acceptance Rate | Suggestions accepted / total | Quality/relevance |
+
+**Technical Metrics**:
+| Metric | Description | Alert Threshold |
+|--------|-------------|-----------------|
+| Command Latency (p50/p95) | Time to first response | p95 > 5s |
+| Error Rate | Failed commands / total | > 5% |
+| Availability | Uptime of backend services | < 99.9% |
+
+**Productivity Metrics**:
+| Metric | Source | Frequency |
+|--------|--------|-----------|
+| Time Saved | Self-reported or estimated | Weekly survey |
+| Developer Satisfaction | NPS or CSAT survey | Monthly |
+| Code Output | PRs, commits (use carefully) | Weekly, team-level |
+
+#### Dashboard Structure for Developer Tools
+
+```
+Layer 1: Adoption & Engagement (Top)
+├── Active Users (DAU/WAU/MAU) [Stat panels]
+├── Adoption Rate [Gauge]
+├── Feature Usage Distribution [Pie chart]
+└── Adoption Trend [Time series]
+
+Layer 2: Technical Health (Middle)
+├── Command Latency (p50/p95) [Time series]
+├── Error Rate [Stat with threshold]
+├── Success Rate by Command Type [Bar chart]
+└── Backend Service Health [Status grid]
+
+Layer 3: Productivity Impact (Middle)
+├── Acceptance Rate Trend [Time series]
+├── Sessions per User [Distribution]
+├── Top Commands/Features [Table]
+└── Estimated Time Saved [Stat]
+
+Layer 4: Cost & Efficiency (Bottom, collapsible)
+├── Token Usage by Model [Pie chart]
+├── Cost per Session [Time series]
+├── Cache Hit Rate [Gauge]
+└── Cost Attribution by Team [Table]
+
+Layer 5: Event Logs (Bottom, collapsed)
+└── Recent Events [Logs panel]
+```
+
+#### AI Coding Assistant Patterns (GitHub Copilot, Claude Code)
+
+For AI-assisted developer tools, additional metrics apply:
+
+| Metric | What It Measures | Good Target |
+|--------|------------------|-------------|
+| Suggestion Acceptance Rate | Quality of AI suggestions | > 25% |
+| Lines Added via AI | Code attribution | Informational |
+| Time to First Suggestion | Responsiveness | < 500ms |
+| Model Distribution | Which models are used | Varies |
+
+**Key insight from Microsoft research**: It takes approximately **11 weeks** for developers to fully realize productivity gains from AI coding tools. Don't expect immediate impact.
+
+#### Anti-Patterns for Developer Tool Dashboards
+
+- **Individual-level metrics on leaderboards** - Causes gaming, harms collaboration
+- **Lines of code as productivity** - Incentivizes bloat
+- **Measuring AI acceptance alone** - High acceptance doesn't mean high value
+- **Ignoring satisfaction** - Technical metrics without user feedback is incomplete
+- **Real-time dashboards for weekly metrics** - Causes anxiety, doesn't help
+
+**Sources**:
+- [GitHub - Copilot Metrics Documentation](https://docs.github.com/en/copilot/concepts/copilot-metrics)
+- [Microsoft Research - AI Coding Tools Productivity](https://www.microsoft.com/en-us/research/publication/the-space-of-developer-productivity/)
+- [Claude Code - Monitoring Documentation](https://code.claude.com/docs/en/monitoring-usage)
+
+---
+
+## 12. GenAI and LLM Observability
+
+This section covers monitoring patterns for AI/LLM applications, including OpenTelemetry semantic conventions and cost tracking.
+
+### 12.1 OpenTelemetry GenAI Semantic Conventions
+
+OpenTelemetry has established **official semantic conventions** for GenAI observability (status: experimental, rapidly maturing).
+
+#### Client-Side Metrics
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `gen_ai.client.token.usage` | Histogram | `{token}` | Token consumption (input/output) |
+| `gen_ai.client.operation.duration` | Histogram | `s` | End-to-end operation latency |
+
+#### Server-Side Metrics (Model Servers)
+
+| Metric | Type | Unit | Description |
+|--------|------|------|-------------|
+| `gen_ai.server.request.duration` | Histogram | `s` | Time-to-last-token |
+| `gen_ai.server.time_per_output_token` | Histogram | `s` | Decode phase performance |
+| `gen_ai.server.time_to_first_token` | Histogram | `s` | Prefill + queue time |
+
+#### Required Attributes
+
+| Attribute | Description | Example Values |
+|-----------|-------------|----------------|
+| `gen_ai.operation.name` | Type of operation | `chat`, `text_completion`, `embeddings` |
+| `gen_ai.system` | AI provider | `openai`, `anthropic`, `azure_ai_inference` |
+| `gen_ai.request.model` | Requested model | `gpt-4`, `claude-sonnet-4-20250514` |
+| `gen_ai.response.model` | Actual model used | May differ from request |
+| `gen_ai.response.finish_reasons` | Why generation stopped | `stop`, `length`, `tool_calls` |
+
+#### Token Usage Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `gen_ai.usage.input_tokens` | Tokens in prompt |
+| `gen_ai.usage.output_tokens` | Tokens in response |
+| `gen_ai.token.type` | Token category: `input`, `output`, `cache_read`, `cache_creation` |
+
+**Sources**:
+- [OpenTelemetry - GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
+- [OpenTelemetry - GenAI Metrics](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-metrics/)
+- [Datadog - OTel GenAI Semantic Conventions](https://www.datadoghq.com/blog/llm-otel-semantic-convention/)
+
+### 12.2 Claude Code Telemetry Patterns
+
+Claude Code provides OpenTelemetry-based telemetry with specific metrics:
+
+#### Metrics
+
+| Metric | Unit | Description |
+|--------|------|-------------|
+| `claude_code.session.count` | count | CLI sessions started |
+| `claude_code.token.usage` | tokens | Tokens used (by type: input/output/cacheRead/cacheCreation) |
+| `claude_code.cost.usage` | USD | Session cost |
+| `claude_code.lines_of_code.count` | count | Lines modified (by type: added/removed) |
+| `claude_code.code_edit_tool.decision` | count | Tool permission decisions (accept/reject) |
+
+#### Key Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `session.id` | Unique session identifier |
+| `model` | Model used (e.g., `claude-sonnet-4-20250514`) |
+| `terminal.type` | Terminal environment (vscode, cursor, iTerm) |
+| `environment` | Execution context |
+
+#### Dashboard Panels for Claude Code
+
+| Panel | Type | Query Pattern |
+|-------|------|---------------|
+| Sessions (24h) | Stat | `sum(increase(claude_code_session_count[24h]))` |
+| Token Usage | Time series | `sum by (type) (rate(claude_code_token_usage[5m]))` |
+| Cost | Stat with threshold | `sum(increase(claude_code_cost_usage[24h]))` |
+| Cache Hit Rate | Gauge | `cacheRead / (input + cacheRead)` |
+| Tool Decisions | Pie chart | `sum by (decision) (claude_code_code_edit_tool_decision)` |
+
+**Source**: [Claude Code - Monitoring Documentation](https://code.claude.com/docs/en/monitoring-usage)
+
+### 12.3 GitHub Copilot Metrics
+
+GitHub's metrics for AI coding assistant adoption:
+
+#### Adoption Metrics
+| Metric | Description |
+|--------|-------------|
+| Daily/Weekly Active Users | Unique users interacting with Copilot |
+| Adoption Rate | Active users / total licensed users |
+
+#### Engagement Metrics
+| Metric | Description |
+|--------|-------------|
+| Average Requests per User | Chat interactions per active user |
+| Agent Adoption % | Usage of advanced features (refactoring, debugging) |
+
+#### Acceptance Metrics
+| Metric | Description | What It Indicates |
+|--------|-------------|-------------------|
+| Inline Acceptance Rate | Suggestions accepted / offered | Quality, relevance |
+| Lines Suggested | Code proposed by Copilot | Volume |
+| Lines Added | Accepted code inserted | Adoption |
+
+**Source**: [GitHub Copilot Metrics Documentation](https://docs.github.com/en/copilot/concepts/copilot-metrics)
+
+### 12.4 Cost Observability for GenAI
+
+AI/LLM costs require dedicated tracking due to variable pricing and high potential spend.
+
+#### Key Cost Metrics
+
+| Metric | Formula | Purpose |
+|--------|---------|---------|
+| Cost per Request | `(input_tokens × input_price) + (output_tokens × output_price)` | Unit economics |
+| Cost per Session | Sum of request costs in session | User attribution |
+| Cost per Outcome | Cost / meaningful outputs (PRs, docs, etc.) | Business value |
+| Token Efficiency | Output tokens / Input tokens | Prompt optimization |
+| Cache Savings | `(cache_read_tokens × full_price - cache_read_tokens × cache_price)` | Efficiency gain |
+
+#### Cost Attribution Dimensions
+
+| Dimension | Why It Matters |
+|-----------|----------------|
+| By Model | Different models have vastly different costs |
+| By User/Team | Accountability and budgeting |
+| By Feature | Understand which features drive cost |
+| By Time | Detect anomalies, forecast spend |
+
+#### Optimization Strategies
+
+| Strategy | Potential Impact | How to Measure |
+|----------|-----------------|----------------|
+| **Caching** | 40-60% cost reduction | Cache hit rate, cache savings |
+| **Model Cascading** | 50-70% cost reduction | Route simple→cheap, complex→premium |
+| **Prompt Optimization** | 20-40% token reduction | Tokens per request trend |
+| **Batching** | Reduce overhead costs | Requests per batch |
+
+#### Budget Visualization
+
+```
+Cost Dashboard Structure:
+├── Current Period Spend [Stat, vs budget]
+├── Burn Rate [Gauge, with projection]
+├── Cost by Model [Pie chart]
+├── Cost Trend [Time series]
+├── Top Users/Teams [Table]
+├── Cost per Outcome [Stat]
+└── Anomaly Detection [Alert panel]
+```
+
+#### Anti-Patterns
+
+- **No cost visibility** - Token counts without pricing
+- **Delayed reporting** - Cost data > 24h old
+- **No attribution** - Can't identify cost drivers
+- **No budgets** - Unlimited spend risk
+- **Ignoring cache** - Missing optimization opportunity
+
+**Sources**:
+- [Langfuse - Token and Cost Tracking](https://langfuse.com/docs/observability/features/token-and-cost-tracking)
+- [Skywork AI - API Cost Management](https://skywork.ai/blog/ai-api-cost-throughput-pricing-token-math-budgets-2025/)

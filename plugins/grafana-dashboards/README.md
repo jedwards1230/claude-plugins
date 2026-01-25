@@ -119,18 +119,39 @@ The plugin enforces industry best practices:
 | **Accessibility** | Blue-orange palette, grayscale test |
 
 See `DESIGN-PRINCIPLES.md` for comprehensive theory including:
-- Four Golden Signals, RED, and USE methodologies
-- Tufte's data-ink ratio and chartjunk
-- Gestalt principles for layout
-- SLO burn rate visualization
+- Framework Selection Guide with decision trees (Section 2)
+- Four Golden Signals, RED, USE, and DORA methodologies (Sections 1, 4)
+- Developer productivity frameworks: SPACE, DevEx, DX Core 4 (Section 5)
+- Tufte's data-ink ratio and Gestalt principles (Section 6)
+- GenAI/LLM observability with OTel conventions (Section 12)
+- Specialized domains: backups, security, FinOps, games, dev tools (Section 11)
 
-## Monitoring Methodologies
+## Monitoring Frameworks
 
-| Scenario | Method | Metrics |
-|----------|--------|---------|
-| User-facing APIs | **Golden Signals** | Latency, Traffic, Errors, Saturation |
-| Microservices | **RED** | Rate, Errors, Duration |
-| Infrastructure | **USE** | Utilization, Saturation, Errors |
+This plugin covers all major monitoring methodologies:
+
+| Framework | Best For | Key Metrics |
+|-----------|----------|-------------|
+| **Four Golden Signals** | User-facing services | Latency, Traffic, Errors, Saturation |
+| **RED Method** | Microservices | Rate, Errors, Duration |
+| **USE Method** | Infrastructure | Utilization, Saturation, Errors |
+| **DORA Metrics** | CI/CD pipelines | Deploy Freq, Lead Time, CFR, MTTR |
+| **SPACE Framework** | Developer productivity | 5 dimensions (see docs) |
+| **DevEx Framework** | Developer experience | Feedback loops, Cognitive load, Flow |
+| **DX Core 4** | Holistic engineering | Speed, Effectiveness, Quality, Impact |
+| **OTel GenAI** | AI/LLM applications | Tokens, Duration, Model, Cost |
+
+Use the [Framework Selection Guide](./skills/grafana-dashboards/DESIGN-PRINCIPLES.md#2-framework-selection-guide) (Section 2) to choose the right approach for your dashboard.
+
+### Specialized Domains
+
+The plugin also covers monitoring scenarios where standard frameworks don't fit:
+- Backups and compliance (RPO/RTO visualization)
+- Security and threat detection (SIEM dashboards)
+- FinOps and cost observability
+- Game servers (TPS, player experience)
+- Developer tools and CLI telemetry
+- External systems (NAS, routers, UPS)
 
 ## Requirements
 
