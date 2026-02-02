@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "3.0.0"
+    "version": "4.0.0"
   },
   "plugins": [
     {
@@ -24,6 +24,12 @@
       "source": "./plugins/remember",
       "description": "Memory management skill for storing and retrieving knowledge via basic-memory",
       "version": "0.0.1"
+    },
+    {
+      "name": "git-worktree",
+      "source": "./plugins/git-worktree",
+      "description": "Git worktree workflow management for parallel branch development",
+      "version": "0.1.0"
     }
   ]
 }
