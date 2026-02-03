@@ -1,28 +1,30 @@
 ---
 name: dream
-description: "Maintain and optimize basic-memory knowledge base. Use --ci for automated diff-targeted mode (GitHub Actions)."
-argument-hint: "[--ci]"
+description: Maintain and optimize basic-memory knowledge base. Use --ci for automated
+  diff-targeted mode (GitHub Actions).
+argument-hint: '[--ci]'
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Bash(git status:*)
-  - Bash(git log:*)
-  - Bash(git diff:*)
-  - Bash(git mv:*)
-  - Bash(git add:*)
-  - Bash(mkdir:*)
-  - mcp__basic-memory__*
+- Read
+- Write
+- Edit
+- Glob
+- Grep
+- Bash(git status:*)
+- Bash(git log:*)
+- Bash(git diff:*)
+- Bash(git mv:*)
+- Bash(git add:*)
+- Bash(mkdir:*)
+- mcp__basic-memory__*
 example_prompts:
-  - "review and maintain memories"
-  - "prune and tune the knowledge base"
-  - "memory maintenance"
-  - "dreaming"
-  - "run memory dreaming"
-  - "clean up basic-memory"
-  - "archive completed plans"
+- review and maintain memories
+- prune and tune the knowledge base
+- memory maintenance
+- dreaming
+- run memory dreaming
+- clean up basic-memory
+- archive completed plans
+permalink: tooling/claude-plugins/plugins/dream/skills/dream/skill
 ---
 
 # Basic-Memory Knowledge Base Maintenance

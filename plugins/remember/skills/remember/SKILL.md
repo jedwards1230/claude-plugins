@@ -1,16 +1,23 @@
 ---
 name: remember
-description: "This skill should be used when the user asks to store, recall, or search memories. Trigger phrases include: 'remember this', 'save to memory', 'what do you remember about', 'have we done this before', 'check your memory', 'go through my memory', 'recall', 'note this as a memory', 'search your memories', 'what did we learn about'. Handles creating notes with proper frontmatter, searching the knowledge base, building context from related memories, and browsing recent activity. Uses basic-memory MCP tools for all operations."
+description: 'This skill should be used when the user asks to store, recall, or search
+  memories. Trigger phrases include: ''remember this'', ''save to memory'', ''what
+  do you remember about'', ''have we done this before'', ''check your memory'', ''go
+  through my memory'', ''recall'', ''note this as a memory'', ''search your memories'',
+  ''what did we learn about''. Handles creating notes with proper frontmatter, searching
+  the knowledge base, building context from related memories, and browsing recent
+  activity. Uses basic-memory MCP tools for all operations.'
 allowed-tools:
-  - mcp__basic-memory__write_note
-  - mcp__basic-memory__read_note
-  - mcp__basic-memory__search_notes
-  - mcp__basic-memory__build_context
-  - mcp__basic-memory__recent_activity
-  - mcp__basic-memory__edit_note
-  - mcp__basic-memory__list_directory
-  - mcp__basic-memory__view_note
-  - Read
+- mcp__basic-memory__write_note
+- mcp__basic-memory__read_note
+- mcp__basic-memory__search_notes
+- mcp__basic-memory__build_context
+- mcp__basic-memory__recent_activity
+- mcp__basic-memory__edit_note
+- mcp__basic-memory__list_directory
+- mcp__basic-memory__view_note
+- Read
+permalink: tooling/claude-plugins/plugins/remember/skills/remember/skill
 ---
 
 # Memory Management Skill

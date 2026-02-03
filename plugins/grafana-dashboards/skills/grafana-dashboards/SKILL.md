@@ -1,28 +1,36 @@
 ---
 name: grafana-dashboards
-description: This skill should be used when creating, editing, or managing Grafana dashboards as Kubernetes resources. Trigger phrases include "create dashboard", "add panel", "edit dashboard JSON", "dashboard variable", "template variable", "GrafanaDashboard CRD", "PromQL query for dashboard", "LogQL query for dashboard", "stat panel", "time series panel", "gauge panel", "pie chart", "logs panel", "table panel", "dashboard layout", "dashboard annotation", "ConfigMap dashboard", "dashboard not showing data", "fix dashboard query", "dashboard design". Covers Grafana Operator CRDs, panel types, template variables, and dashboard design best practices.
+description: This skill should be used when creating, editing, or managing Grafana
+  dashboards as Kubernetes resources. Trigger phrases include "create dashboard",
+  "add panel", "edit dashboard JSON", "dashboard variable", "template variable", "GrafanaDashboard
+  CRD", "PromQL query for dashboard", "LogQL query for dashboard", "stat panel", "time
+  series panel", "gauge panel", "pie chart", "logs panel", "table panel", "dashboard
+  layout", "dashboard annotation", "ConfigMap dashboard", "dashboard not showing data",
+  "fix dashboard query", "dashboard design". Covers Grafana Operator CRDs, panel types,
+  template variables, and dashboard design best practices.
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Bash
-  - mcp__grafana__get_dashboard_by_uid
-  - mcp__grafana__get_dashboard_summary
-  - mcp__grafana__get_dashboard_panel_queries
-  - mcp__grafana__search_dashboards
-  - mcp__grafana__list_datasources
-  - mcp__grafana__query_prometheus
-  - mcp__grafana__query_loki_logs
-  - mcp__grafana__list_prometheus_metric_names
-  - mcp__grafana__list_prometheus_label_names
-  - mcp__grafana__list_prometheus_label_values
-  - mcp__grafana__list_loki_label_names
-  - mcp__grafana__list_loki_label_values
-  - mcp__grafana__update_dashboard
-  - mcp__grafana__get_dashboard_property
+- Read
+- Write
+- Edit
+- Glob
+- Grep
+- Bash
+- mcp__grafana__get_dashboard_by_uid
+- mcp__grafana__get_dashboard_summary
+- mcp__grafana__get_dashboard_panel_queries
+- mcp__grafana__search_dashboards
+- mcp__grafana__list_datasources
+- mcp__grafana__query_prometheus
+- mcp__grafana__query_loki_logs
+- mcp__grafana__list_prometheus_metric_names
+- mcp__grafana__list_prometheus_label_names
+- mcp__grafana__list_prometheus_label_values
+- mcp__grafana__list_loki_label_names
+- mcp__grafana__list_loki_label_values
+- mcp__grafana__update_dashboard
+- mcp__grafana__get_dashboard_property
 model: sonnet
+permalink: tooling/claude-plugins/plugins/grafana-dashboards/skills/grafana-dashboards/skill
 ---
 
 # Grafana Dashboard Skill

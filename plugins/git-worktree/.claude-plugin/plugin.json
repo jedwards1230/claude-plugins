@@ -1,6 +1,6 @@
 {
   "name": "git-worktree",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Git worktree workflow management - create, switch, and clean up worktrees for parallel branch development",
   "author": {
     "name": "jedwards1230"

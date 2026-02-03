@@ -1,43 +1,48 @@
 ---
 name: git-worktree
-description: >
-  This skill should be used when the user asks to "create a worktree",
+description: 'This skill should be used when the user asks to "create a worktree",
   "add a worktree", "set up worktrees for PRs", "create worktrees for open pull requests",
-  "inspect worktrees", "show worktree status", "clean up worktrees",
-  "prune worktrees", "list worktrees",
-  "remove stale worktrees", "new branch worktree", "parallel branch development",
-  or mentions git worktree management. Provides workflows for creating, managing,
-  and cleaning up git worktrees for efficient parallel branch development.
+  "inspect worktrees", "show worktree status", "clean up worktrees", "prune worktrees",
+  "list worktrees", "remove stale worktrees", "new branch worktree", "parallel branch
+  development", or mentions git worktree management. Provides workflows for creating,
+  managing, and cleaning up git worktrees for efficient parallel branch development.
+  Assume the user does NOT want to commit and push directly to main — always create
+  a worktree on a feature branch so changes go through a PR.
+
+  '
 allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash(git worktree:*)
-  - Bash(git branch:*)
-  - Bash(git switch:*)
-  - Bash(git symbolic-ref:*)
-  - Bash(git status:*)
-  - Bash(git diff:*)
-  - Bash(git log:*)
-  - Bash(git fetch:*)
-  - Bash(git remote:*)
-  - Bash(git rev-parse:*)
-  - Bash(gh pr:*)
-  - Bash(gh auth:*)
-  - Bash(gh repo:*)
-  - Bash(mkdir:*)
-  - Bash(ls:*)
-  - Bash(pwd:*)
-  - Bash(basename:*)
-  - Bash(wc:*)
-  - AskUserQuestion
+- Read
+- Glob
+- Grep
+- Bash(git worktree:*)
+- Bash(git branch:*)
+- Bash(git switch:*)
+- Bash(git symbolic-ref:*)
+- Bash(git status:*)
+- Bash(git diff:*)
+- Bash(git log:*)
+- Bash(git fetch:*)
+- Bash(git remote:*)
+- Bash(git rev-parse:*)
+- Bash(gh pr:*)
+- Bash(gh auth:*)
+- Bash(gh repo:*)
+- Bash(mkdir:*)
+- Bash(ls:*)
+- Bash(pwd:*)
+- Bash(basename:*)
+- Bash(wc:*)
+- Bash(cd:*)
+- Bash(cat:*)
+- AskUserQuestion
 example_prompts:
-  - create worktrees for all open PRs
-  - set up a new worktree for this branch
-  - clean up stale worktrees
-  - list my worktrees
-  - create a worktree for a new feature branch
-  - prune merged worktree branches
+- create worktrees for all open PRs
+- set up a new worktree for this branch
+- clean up stale worktrees
+- list my worktrees
+- create a worktree for a new feature branch
+- prune merged worktree branches
+permalink: tooling/claude-plugins/plugins/git-worktree/skills/git-worktree/skill
 ---
 
 # Git Worktree Management
@@ -64,6 +69,32 @@ Manage git worktrees for parallel branch development. Worktrees allow working on
 **Remote tracking:**
 ```
 !`git remote -v 2>/dev/null | head -2`
+```
+
+**Nested repositories (independent git repos inside this repo):**
+```
+!`bash ${CLAUDE_PLUGIN_ROOT}/skills/git-worktree/scripts/detect-nested-repos.sh 2>/dev/null || echo "(detection script not available)"`
+```
+
+## Nested Repository Handling
+
+**CRITICAL**: If nested repositories are detected above, you MUST determine which repo the user wants the worktree in BEFORE creating it. Nested repos are independent git repositories with their own branches, remotes, and worktrees. They are NOT tracked by the parent repo (they are gitignored).
+
+**Rules:**
+1. If the user's request names or implies a nested repo (e.g., "create a worktree for home-agent"), the worktree MUST be created inside that nested repo's directory, not the parent.
+2. If ambiguous, use AskUserQuestion to ask which repo: the parent or one of the nested repos.
+3. When creating a worktree in a nested repo, `cd` into that repo first. All git commands (fetch, branch, worktree add) must run from the nested repo's root.
+4. Worktree paths for nested repos follow the same convention: `<nested-repo>/worktrees/<branch-name>/`.
+5. Never create a parent-repo worktree expecting nested repo code to appear in it — the nested repos are gitignored and won't be present in the worktree.
+6. For PRs (Workflow 1), check the remote URL to determine which GitHub repo to query with `gh pr list`.
+7. Commits for changes in a nested repo must be made from within that repo, not from the parent.
+
+**Example — creating a worktree in a nested repo:**
+```bash
+cd services/home-agent
+git fetch origin
+git worktree add -b feat/my-feature worktrees/feat-my-feature origin/main
+# Work in: services/home-agent/worktrees/feat-my-feature/
 ```
 
 ## Worktree Directory Convention
@@ -201,7 +232,7 @@ Display the current worktree state with useful context.
 - **gitignore**: Ensure `worktrees/` is in `.gitignore`. Check and add it if missing.
 - **Bare repos**: If the repository is a bare clone, worktrees are the primary way to work. Adjust paths accordingly.
 - **Locked worktrees**: If a worktree is locked (`git worktree lock`), do not remove it without asking.
-- **Nested repos**: Worktrees should not be created inside other worktrees.
+- **Nested repos**: See "Nested Repository Handling" section above. Always check which repo the user intends before creating worktrees. Never create a parent-repo worktree for nested-repo work.
 
 ## Output Summary
 
