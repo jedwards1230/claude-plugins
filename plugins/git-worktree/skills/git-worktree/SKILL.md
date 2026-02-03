@@ -7,9 +7,7 @@ description: 'This skill should be used when the user asks to "create a worktree
   development", or mentions git worktree management. Provides workflows for creating,
   managing, and cleaning up git worktrees for efficient parallel branch development.
   Assume the user does NOT want to commit and push directly to main — always create
-  a worktree on a feature branch so changes go through a PR.
-
-  '
+  a worktree on a feature branch so changes go through a PR.'
 allowed-tools:
 - Read
 - Glob
@@ -42,7 +40,6 @@ example_prompts:
 - list my worktrees
 - create a worktree for a new feature branch
 - prune merged worktree branches
-permalink: tooling/claude-plugins/plugins/git-worktree/skills/git-worktree/skill
 ---
 
 # Git Worktree Management
@@ -53,7 +50,7 @@ Manage git worktrees for parallel branch development. Worktrees allow working on
 
 **Repository root:**
 ```
-!`git rev-parse --show-toplevel 2>/dev/null || echo "Not in a git repository"`
+!`git rev-parse --show-toplevel 2>/dev/null`
 ```
 
 **Current branch:**
@@ -63,17 +60,17 @@ Manage git worktrees for parallel branch development. Worktrees allow working on
 
 **Existing worktrees:**
 ```
-!`git worktree list 2>/dev/null || echo "No worktrees found"`
+!`git worktree list 2>/dev/null`
 ```
 
 **Remote tracking:**
 ```
-!`git remote -v 2>/dev/null | head -2`
+!`git remote get-url origin 2>/dev/null`
 ```
 
 **Nested repositories (independent git repos inside this repo):**
 ```
-!`bash ${CLAUDE_PLUGIN_ROOT}/skills/git-worktree/scripts/detect-nested-repos.sh 2>/dev/null || echo "(detection script not available)"`
+!`ls -d services/*/.git tooling/*/.git 2>/dev/null`
 ```
 
 ## Nested Repository Handling
@@ -159,7 +156,7 @@ Interactively create a new branch with a worktree for feature development.
    - If the name is taken, suggest alternatives or ask for a new name
 3. Determine the base commit:
    - Default: the repository's default branch (usually `main` or `master`)
-   - Detect default branch: `git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'`
+   - Detect default branch: `git rev-parse --abbrev-ref origin/HEAD`
    - If the user specifies a different base (tag, branch, commit SHA), use that instead
 4. Ensure the worktrees directory exists and is in `.gitignore`
 5. Sanitize branch name for directory use (replace `/` with `-`)
