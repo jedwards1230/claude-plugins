@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "4.0.2"
+    "version": "5.0.0"
   },
   "plugins": [
     {
@@ -30,6 +30,12 @@
       "source": "./plugins/git-worktree",
       "description": "Git worktree workflow management for parallel branch development",
       "version": "0.2.1"
+    },
+    {
+      "name": "review-team",
+      "source": "./plugins/review-team",
+      "description": "Dynamic review team composition with specialized agents for collaborative code review",
+      "version": "1.0.0"
     }
   ]
 }
