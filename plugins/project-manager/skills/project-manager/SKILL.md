@@ -66,34 +66,26 @@ The plugin includes scripts in `${CLAUDE_PLUGIN_ROOT}/scripts/` for common multi
 | `find-stale.sh [--days 30] [repo...]` | Find issues with no recent activity |
 | `verify-closable.sh [repo...]` | Find open issues with merged PRs |
 
-All scripts source `repos.sh` for the shared repo registry.
+All scripts read the repo list from `.claude/rules/plugins/project-manager.yml` in the project root (via `yq`). If the config is missing, scripts error with setup instructions.
 
 ## Repo Registry
 
-All tracked repositories and their GitHub organizations:
+The tracked repos, owners, scopes, descriptions, and board names are defined in the project's `.claude/rules/plugins/project-manager.yml` config file. This file is loaded into agent context via `.claude/rules/plugins/project-manager.md` (which @imports the YAML).
 
-| Repo | Owner | Scope | Description |
-|------|-------|-------|-------------|
-| `home-orchestration` | jedwards1230 | infra | Ansible/K8s homelab infrastructure |
-| `hagen` | hagen-ai | service | AI agent framework (Go) |
-| `libro` | jedwards1230 | service | Audiobook service |
-| `mcp-proxy-web` | jedwards1230 | service | MCP proxy web UI |
-| `openclaw` | jedwards1230 | service | AI messaging gateway fork |
-| `openclaw-charts` | jedwards1230 | service | OpenClaw Helm charts |
-| `claude-plugins` | jedwards1230 | tooling | Claude Code plugins |
-| `release-workflows` | jedwards1230 | tooling | Reusable GitHub Actions |
-| `kickstart.nvim` | jedwards1230 | tooling | Neovim config |
-| `lilbro-tf` | jedwards1230 | infra | OpenTofu infrastructure |
+**Required project files:**
+- `.claude/rules/plugins/project-manager.md` — rules file with @import
+- `.claude/rules/plugins/project-manager.yml` — YAML config with repo list
 
-### Quick Reference
-
-```bash
-# List issues across a repo
-gh issue list --repo jedwards1230/home-orchestration --state open
-
-# List issues across hagen (different org)
-gh issue list --repo hagen-ai/hagen --state open
+**YAML format:**
+```yaml
+repos:
+  - repo: owner/repo-name
+    scope: infra|service|tooling
+    description: Short description
+    board: GitHub Project Board Title
 ```
+
+If the repo registry is not in your context, ask the user to create these files.
 
 ## Label Taxonomy
 

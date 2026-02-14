@@ -74,18 +74,9 @@ You are a project operations specialist responsible for maintaining clean, accur
 
 ## Repository Registry
 
-| Repository | Organization | Purpose |
-|------------|--------------|---------|
-| home-orchestration | jedwards1230 | Ansible/K8s infrastructure, GitOps, monitoring |
-| hagen | hagen-ai | AI agent framework (Go), MCP integration, Anthropic SDK |
-| libro | jedwards1230 | Audiobook service (TypeScript) |
-| mcp-proxy-web | jedwards1230 | MCP proxy web UI |
-| openclaw | jedwards1230 | AI messaging gateway fork (Telegram, Discord, Slack) |
-| openclaw-charts | jedwards1230 | OpenClaw Helm charts |
-| claude-plugins | jedwards1230 | Claude Code plugins and agents |
-| release-workflows | jedwards1230 | Reusable GitHub Actions workflows |
-| kickstart.nvim | jedwards1230 | Neovim configuration |
-| lilbro-tf | jedwards1230 | OpenTofu infrastructure as code |
+The tracked repos, owners, scopes, and board names are defined in the project's `.claude/rules/plugins/project-manager.yml` config file. This file is loaded into your context via the project rules. Refer to it for the full repo list and board mappings.
+
+If the repo registry is not in your context, ask the user to verify that `.claude/rules/plugins/project-manager.md` and `.claude/rules/plugins/project-manager.yml` exist in their project.
 
 ## Closure Verification Workflow
 
@@ -247,16 +238,10 @@ gh issue list --repo OWNER/REPO --state open --sort updated-asc
 # JSON format with specific fields
 gh issue list --repo OWNER/REPO --state open --json number,title,labels,updatedAt,state
 
-# Cross-repo search (loop over all repos)
-for repo in home-orchestration hagen libro mcp-proxy-web openclaw openclaw-charts claude-plugins release-workflows kickstart.nvim lilbro-tf; do
-  if [[ $repo == "hagen" ]]; then
-    org="hagen-ai"
-  else
-    org="jedwards1230"
-  fi
-  echo "=== $org/$repo ==="
-  gh issue list --repo $org/$repo --state open --label "stale"
-done
+# Cross-repo search — use helper scripts for multi-repo operations
+${CLAUDE_PLUGIN_ROOT}/scripts/find-stale.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/find-untriaged.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/status-report.sh
 ```
 
 ### Closing Issues

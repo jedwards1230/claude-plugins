@@ -8,24 +8,14 @@ check_gh_auth
 
 mapfile -t repos < <(filter_repos "$@")
 
-# Map of owner/repo -> board title
-declare -A BOARD_TITLES=(
-  ["jedwards1230/home-orchestration"]="Homelab Infra"
-  ["hagen-ai/hagen"]="Hagen Roadmap"
-  ["jedwards1230/libro-client"]="Libro Backlog"
-  ["jedwards1230/mcp-proxy-web"]="MCP Proxy Backlog"
-  ["jedwards1230/openclaw"]="OpenClaw Backlog"
-  ["jedwards1230/openclaw-charts"]="OpenClaw Charts Backlog"
-  ["jedwards1230/claude-plugins"]="Plugins Backlog"
-  ["jedwards1230/release-workflows"]="Release Workflows Backlog"
-  ["jedwards1230/kickstart.nvim"]="Nvim Config Backlog"
-  ["jedwards1230/lilbro-tf"]="Terraform Backlog"
-)
-
 create_project() {
   local repo="$1"
   local owner="${repo%%/*}"
-  local title="${BOARD_TITLES[$repo]:-$(echo "${repo##*/}" | sed 's/-/ /g') Backlog}"
+  local title
+  title=$(get_board_title "$repo")
+  if [[ -z "$title" || "$title" == "null" ]]; then
+    title="$(echo "${repo##*/}" | sed 's/-/ /g') Backlog"
+  fi
 
   echo "=== Creating project '$title' for $owner ==="
 
