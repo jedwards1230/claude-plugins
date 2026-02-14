@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "5.0.0"
+    "version": "6.0.0"
   },
   "plugins": [
     {
@@ -36,6 +36,12 @@
       "source": "./plugins/review-team",
       "description": "Dynamic review team composition with specialized agents for collaborative code review",
       "version": "1.0.0"
+    },
+    {
+      "name": "project-manager",
+      "source": "./plugins/project-manager",
+      "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup",
+      "version": "0.1.0"
     }
   ]
 }
