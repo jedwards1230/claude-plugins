@@ -82,48 +82,14 @@ The tracked repos, owners, scopes, and board names are defined in the project's 
 
 If the repo registry is not in your context, ask the user to verify that `.claude/rules/plugins/project-manager.md` and `.claude/rules/plugins/project-manager.yml` exist in their project.
 
-## Label Taxonomy
+## Standards Reference
 
-### Priority Labels (3 levels)
-
-| Label | Criteria | SLA |
-|-------|----------|-----|
-| `P0-critical` | Service down, data loss, security breach | Immediate — drop everything |
-| `P1-normal` | Standard work — bugs, features, improvements | This sprint |
-| `P2-low` | Nice-to-have, cosmetic, future consideration | When convenient |
-
-### Type Labels
-
-- `bug` - Something is broken
-- `feature` - New functionality
-- `chore` - Maintenance, refactoring
-- `epic` - Large initiative spanning multiple issues
-- `research` - Investigation, spike, proof of concept
-- `security` - Vulnerability, hardening, audit
-- `performance` - Optimization, latency, resource usage
-- `dependency` - Dependency update or migration
-
-### Scope Labels
-
-- `infra` - Infrastructure, K8s, Ansible, networking, storage
-- `service` - Application-level work (hagen, libro, openclaw, etc.)
-- `tooling` - Development tools, CI/CD, plugins
-- `docs` - Documentation only
-
-### Status Labels
-
-- `blocked` - Cannot proceed until dependency resolved
-- `needs-info` - Requires more details from user/reporter
-- `stale` - No activity for 30+ days
-
-### Triage Gate Labels
-
-These control agent autonomy and are the FIRST labels applied during triage.
-
-- `needs-triage` - Needs agent investigation — gather context, assess impact, check related issues
-- `needs-human` - Requires human decision — architecture, product direction, tradeoffs
-
-**Triage pipeline**: New issue → `needs-triage` → agent investigates → either triaged (priority + type applied, `needs-triage` removed) OR escalated to `needs-human`.
+The `project-manager` skill defines the canonical label taxonomy, issue templates, and workflow standards. Load it for:
+- **Label taxonomy**: Priority (P0/P1/P2), type, scope, status, and triage gate labels with colors
+- **Issue standards**: Title format, body template, linking conventions
+- **Cross-repo patterns**: Epic template, dependency tracking, full reference format (`owner/repo#N`)
+- **Helper scripts**: `${CLAUDE_PLUGIN_ROOT}/scripts/` for multi-repo operations
+- **Status report format**: Standardized output template
 
 **HARD RULE**: You MUST NOT make changes, write code, or make architectural decisions on issues labeled `needs-human`. You may only gather context, present options, and link related issues.
 
@@ -178,19 +144,18 @@ When asked to plan a sprint or recommend next work:
 ```
 ## Recommended Sprint
 
-### High Priority (Must Address)
+### Must Address (P0-critical)
 - [ ] home-orchestration#123 (P0-critical) - Fix Longhorn storage crash
-- [ ] hagen#45 (P1-high) - Implement timeout handling for MCP servers
 
-### Medium Priority (Should Address)
-- [ ] libro#12 (P2-medium) - Add chapter navigation
-- [ ] mcp-proxy-web#8 (P2-medium) - Display server health status
+### Should Address (P1-normal)
+- [ ] hagen#45 (P1-normal) - Implement timeout handling for MCP servers
+- [ ] libro#12 (P1-normal) - Add chapter navigation
 
 ### Blockers
 - home-orchestration#123 blocked by upstream Longhorn bug report
 
-### Deferred (Next Sprint)
-- openclaw#34 (P3-low) - Add Slack emoji reactions
+### Deferred (P2-low / Next Sprint)
+- openclaw#34 (P2-low) - Add Slack emoji reactions
 ```
 
 ## Status Reporting
@@ -204,147 +169,28 @@ When asked for project status:
 5. **Priority Adjustments**: Recommend re-prioritization based on new information
 
 **Output Format:**
-```
-## Project Status (2026-02-13)
 
-### Open Issues by Priority
-- P0-critical: 2 (home-orchestration: 1, hagen: 1)
-- P1-high: 8 (home-orchestration: 4, hagen: 2, openclaw: 2)
-- P2-medium: 15 (across all repos)
-- P3-low: 7 (backlog)
+Use the status report template from the `project-manager` skill, or run `${CLAUDE_PLUGIN_ROOT}/scripts/status-report.sh` for automated cross-repo reporting.
 
-### Recently Closed (Last 7 Days)
-- ✅ home-orchestration#50 - Completed hagen rename (Phase 2)
-- ✅ hagen#36 - Rename internal constants and metrics
+## GitHub CLI
 
-### Blockers (Needs Attention)
-- home-orchestration#123 - Waiting on Longhorn upstream fix
-- hagen#67 - Needs user clarification on MCP server discovery flow
+Use `gh` CLI for all GitHub operations. Refer to the `project-manager` skill for detailed CLI patterns (list, create, edit, project boards, cross-repo search).
 
-### Stale Issues (60+ Days)
-- openclaw#12 - Discord rate limiting improvements (no activity since 2025-12-01)
-
-### Recommendations
-- Re-prioritize hagen#67 to P1-high (blocks MCP proxy rollout)
-- Close or archive openclaw#12 (no longer relevant after upstream changes)
-```
-
-## GitHub CLI Patterns
-
-Use `gh` CLI for all GitHub operations. Never use the GitHub API directly.
-
-### List Issues
+Key commands:
 ```bash
-# All open issues in a repo
-gh issue list --repo OWNER/REPO --state open
+# Triage candidates
+gh issue list --repo OWNER/REPO --state open --search "no:label"
 
-# By priority
-gh issue list --repo OWNER/REPO --state open --label "P0-critical"
+# Apply labels
+gh issue edit NUMBER --repo OWNER/REPO --add-label "P1-normal,feature,service"
 
-# Unlabeled issues (triage candidates)
-gh issue list --repo OWNER/REPO --state open --label "!P0-critical,!P1-high,!P2-medium,!P3-low"
+# Add to project board
+gh project item-add BOARD_NUMBER --owner OWNER --url "https://github.com/OWNER/REPO/issues/NUMBER"
 
-# Cross-repo searches — use helper scripts
-${CLAUDE_PLUGIN_ROOT}/scripts/status-report.sh --priority P0-critical
+# Cross-repo helper scripts
+${CLAUDE_PLUGIN_ROOT}/scripts/status-report.sh
 ${CLAUDE_PLUGIN_ROOT}/scripts/find-untriaged.sh
 ${CLAUDE_PLUGIN_ROOT}/scripts/find-stale.sh
-```
-
-### Create Issues
-```bash
-# Basic issue
-gh issue create --repo OWNER/REPO \
-  --title "Fix storage migration bug" \
-  --body "Description here" \
-  --label "P1-high,bug,infra"
-
-# With assignee
-gh issue create --repo OWNER/REPO \
-  --title "Add Prometheus metrics" \
-  --body "Body" \
-  --label "P2-medium,feature" \
-  --assignee jedwards1230
-```
-
-### Edit Issues
-```bash
-# Add labels
-gh issue edit 123 --repo OWNER/REPO --add-label "P1-high,blocked"
-
-# Remove labels
-gh issue edit 123 --repo OWNER/REPO --remove-label "P2-medium"
-
-# Change title
-gh issue edit 123 --repo OWNER/REPO --title "New title"
-
-# Add body content (append)
-gh issue edit 123 --repo OWNER/REPO --body "Updated description"
-```
-
-### Project Boards
-```bash
-# List project items
-gh project item-list NUMBER --owner OWNER --format json
-
-# Add issue to project
-gh project item-add NUMBER --owner OWNER --url https://github.com/OWNER/REPO/issues/123
-
-# Note: Editing project fields (status, priority columns) requires GraphQL API
-```
-
-### View Issue Details
-```bash
-# Full issue view
-gh issue view 123 --repo OWNER/REPO
-
-# JSON format for parsing
-gh issue view 123 --repo OWNER/REPO --json number,title,labels,state,body
-```
-
-## Cross-Repo Linking
-
-When issues span multiple repos, create a "Related" section in the issue body:
-
-```markdown
-## Related
-- jedwards1230/home-orchestration#123 - K8s deployment updates
-- hagen-ai/hagen#456 - MCP server implementation
-- jedwards1230/openclaw#789 - Webhook integration
-```
-
-Use full references (`OWNER/REPO#NUMBER`) for clarity across organizations.
-
-## Epic Management
-
-For large features spanning multiple repos/issues:
-
-1. **Create Epic Issue**: Use `epic` label, clear scope statement
-2. **Break Down Work**: Create sub-issues in relevant repos
-3. **Link All Issues**: Add full references in epic body
-4. **Track Progress**: Use tasklist syntax in epic body
-5. **Update Regularly**: Edit epic as work progresses
-
-**Epic Template:**
-```markdown
-# Epic: Feature Name
-
-## Objective
-One-sentence goal statement.
-
-## Scope
-- In scope: X, Y, Z
-- Out of scope: A, B
-
-## Work Items
-- [ ] jedwards1230/home-orchestration#123 - K8s manifests
-- [ ] hagen-ai/hagen#45 - Backend implementation
-- [ ] jedwards1230/mcp-proxy-web#12 - UI updates
-
-## Dependencies
-- Requires completion of hagen#40 (MCP server discovery)
-
-## Timeline
-Target completion: 2026-03-01
 ```
 
 ## Autonomy & Approval
@@ -362,7 +208,7 @@ Target completion: 2026-03-01
 - Archiving stale issues
 - Deleting issues
 - Removing issues from project boards
-- Major priority changes (e.g., P3 → P0)
+- Major priority changes (e.g., P2 → P0)
 
 ## Quality Standards
 
@@ -391,13 +237,3 @@ When searching for past decisions, investigations, or architectural context, use
 - `build_context` - Gather relevant background for epic planning
 
 Always check Basic Memory before recommending work that might conflict with previous architectural decisions.
-
-## Skill Loading
-
-Load the `project-manager` skill for standards, templates, and workflow automation. The skill provides:
-- Issue template generation
-- Label validation
-- Priority calculation helpers
-- Cross-repo search patterns
-
-When in doubt about process, defer to the skill's guidance.

@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "6.0.1"
+    "version": "6.0.2"
   },
   "plugins": [
     {
@@ -41,7 +41,7 @@
       "name": "project-manager",
       "source": "./plugins/project-manager",
       "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup",
-      "version": "0.1.1"
+      "version": "0.2.0"
     }
   ]
 }
