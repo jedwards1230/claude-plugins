@@ -43,7 +43,11 @@ description: 'Standards and workflows for project management across all homelab 
 
   '
 allowed-tools:
-- Bash
+- Bash(${CLAUDE_PLUGIN_ROOT}/scripts/*)
+- Bash(gh issue *)
+- Bash(gh pr *)
+- Bash(gh project *)
+- Bash(gh repo *)
 - Read
 - Glob
 - Grep

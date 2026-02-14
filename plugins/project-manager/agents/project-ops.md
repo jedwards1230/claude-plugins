@@ -221,75 +221,21 @@ gh issue list --repo OWNER/REPO --state open --label "blocked" --json number,tit
    gh issue comment NUMBER --repo OWNER/REPO --body "Unblocked — #123 has been resolved."
    ```
 
-## GitHub CLI Patterns
+## GitHub CLI
 
-### Querying Issues
+Refer to the `project-manager` skill for the full CLI reference. Key ops-specific commands:
 
 ```bash
-# All open issues
-gh issue list --repo OWNER/REPO --state open
+# Close with comment (always explain why)
+gh issue close NUMBER --repo OWNER/REPO --comment "Resolved by OWNER/REPO#PR_NUMBER (merged DATE)"
 
-# By label
-gh issue list --repo OWNER/REPO --state open --label "stale"
+# Archive project board item
+gh project item-archive PROJECT_NUMBER --owner OWNER --id ITEM_ID
 
-# Sorted by update time (oldest first)
-gh issue list --repo OWNER/REPO --state open --sort updated-asc
-
-# JSON format with specific fields
-gh issue list --repo OWNER/REPO --state open --json number,title,labels,updatedAt,state
-
-# Cross-repo search — use helper scripts for multi-repo operations
-${CLAUDE_PLUGIN_ROOT}/scripts/find-stale.sh
+# Cross-repo helper scripts
+${CLAUDE_PLUGIN_ROOT}/scripts/verify-closable.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/find-stale.sh --days 30
 ${CLAUDE_PLUGIN_ROOT}/scripts/find-untriaged.sh
-${CLAUDE_PLUGIN_ROOT}/scripts/status-report.sh
-```
-
-### Closing Issues
-
-```bash
-# Close with comment
-gh issue close NUMBER --repo OWNER/REPO --comment "Resolved by OWNER/REPO#PR_NUMBER"
-
-# Close without comment (not recommended)
-gh issue close NUMBER --repo OWNER/REPO
-```
-
-### Searching for Linked PRs
-
-```bash
-# Find merged PRs that close an issue
-gh pr list --repo OWNER/REPO --state merged --search "closes #N OR fixes #N OR resolves #N"
-
-# Get PR details including body
-gh pr view NUMBER --repo OWNER/REPO --json number,title,body,mergedAt,closedAt
-
-# Get PR diff summary (for verification)
-gh pr diff NUMBER --repo OWNER/REPO
-```
-
-### Project Board Operations
-
-```bash
-# List project items (requires project number and owner)
-gh project item-list NUMBER --owner OWNER --format json
-
-# Archive a completed item
-gh project item-archive NUMBER --owner OWNER --id ITEM_ID
-
-# Note: Editing project fields (status columns) requires GraphQL API
-```
-
-### Viewing Issue Details
-
-```bash
-# Human-readable view
-gh issue view NUMBER --repo OWNER/REPO
-
-# JSON view for parsing
-gh issue view NUMBER --repo OWNER/REPO --json number,title,body,labels,state,updatedAt,createdAt
-
-# Get all comments on an issue
-gh issue view NUMBER --repo OWNER/REPO --json comments
 ```
 
 ## Safety Rules and Approval Gates
@@ -348,7 +294,7 @@ When asked to "clean up issues in REPO":
    ### Stale Issues
    - 🟡 #345 - Marked stale (30 days)
    - 🟡 #456 - Marked stale (30 days)
-   - ❌ #567 - Closed as stale (60+ days, P3)
+   - ❌ #567 - Closed as stale (60+ days, P2-low)
 
    ### Hygiene Issues Found
    - 5 issues missing priority labels
@@ -357,7 +303,7 @@ When asked to "clean up issues in REPO":
 
    ### Requires Manual Review
    - #234 and #235 may be duplicates
-   - #678 (P1-high) is 45 days stale — should we close it?
+   - #678 (P1-normal) is 45 days stale — should we close it?
    ```
 
 ## Quality Standards
@@ -367,16 +313,6 @@ When asked to "clean up issues in REPO":
 3. **Be Conservative**: When in doubt, ask the user instead of closing autonomously
 4. **Report First, Act Second**: For bulk operations, show the user what you found before taking action
 5. **Respect Priority**: Never close P0/P1 issues without explicit approval
-
-## Skill Loading
-
-Load the `project-manager` skill for standards, label taxonomy, and workflow patterns. The skill provides:
-- Label validation rules
-- Priority decision matrix
-- Issue template standards
-- Cross-repo search patterns
-
-When in doubt about process, defer to the project-manager skill's guidance.
 
 ## Output Format
 
