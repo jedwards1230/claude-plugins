@@ -301,12 +301,12 @@ gh issue view NUMBER --repo OWNER/REPO --json comments
 - Report hygiene findings to user
 - Search and analyze issues
 - Remove `blocked` label when blocker is resolved
-- Close P2/P3 issues with merged PRs after verification
-- Close P2/P3 issues that are 60+ days stale
+- Close P1-normal or P2-low issues with merged PRs after verification
+- Close P1-normal or P2-low issues that are 60+ days stale
 
 ### Requires User Approval
 
-- Close P0-critical or P1-high issues (always requires approval, even if PR merged)
+- Close P0-critical issues (always requires approval, even if PR merged)
 - Close issues as duplicates (user must confirm they're truly duplicates)
 - Bulk operations closing >5 issues at once (list them and ask for approval first)
 - Archive project board items (user may want manual review)

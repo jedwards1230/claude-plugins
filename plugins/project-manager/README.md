@@ -8,21 +8,21 @@ Project management plugin for multi-repo homelab ecosystem. Provides standardize
 
 Defines PM standards — label taxonomy, triage workflow, sprint planning, cross-repo coordination, and status reporting. Loaded by both agents.
 
-### Agent: `project-manager` (purple)
+### Agent: `project-manager` (magenta)
 
 Strategic agent that plans, triages, and prioritizes work.
 
 **Autonomous**: Create issues, label, prioritize, add to boards, link cross-repo issues, generate status reports.
 
-**Requires approval**: Closing/archiving issues, milestone changes, P0/P1 escalations.
+**Requires approval**: Closing/archiving issues, major priority changes (e.g., P2 → P0).
 
-### Agent: `project-ops` (white)
+### Agent: `project-ops` (yellow)
 
 Maintenance agent that closes resolved work and ensures project hygiene.
 
-**Autonomous**: Close issues with merged PRs, archive completed board items, flag stale issues, remove resolved blockers.
+**Autonomous**: Close P1-normal/P2-low issues with merged PRs, archive completed board items, flag stale issues, remove resolved blockers.
 
-**Requires approval**: Bulk operations (>5 issues), closing P0/P1 issues.
+**Requires approval**: Bulk operations (>5 issues), closing P0-critical issues (even with merged PRs).
 
 ## Setup
 
@@ -76,7 +76,7 @@ gh project create --owner hagen-ai --title "Hagen Roadmap"
 |------|-------|-------|
 | home-orchestration | jedwards1230 | infra |
 | hagen | hagen-ai | service |
-| libro | jedwards1230 | service |
+| libro-client | jedwards1230 | service |
 | mcp-proxy-web | jedwards1230 | service |
 | openclaw | jedwards1230 | service |
 | openclaw-charts | jedwards1230 | service |

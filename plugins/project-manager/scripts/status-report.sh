@@ -92,9 +92,12 @@ echo "### Summary"
 printf "| %-35s | P0 | P1 | P2 | Total |\n" "Repository"
 printf "| %-35s | -- | -- | -- | ----- |\n" "---"
 for repo in "${repos[@]}"; do
-  p0=$(gh issue list --repo "$repo" --state open --label "P0-critical" --json number 2>/dev/null | jq length)
-  p1=$(gh issue list --repo "$repo" --state open --label "P1-normal" --json number 2>/dev/null | jq length)
-  p2=$(gh issue list --repo "$repo" --state open --label "P2-low" --json number 2>/dev/null | jq length)
+  p0=$(gh issue list --repo "$repo" --state open --label "P0-critical" --json number 2>/dev/null || echo "[]")
+  p0=$(echo "$p0" | jq length)
+  p1=$(gh issue list --repo "$repo" --state open --label "P1-normal" --json number 2>/dev/null || echo "[]")
+  p1=$(echo "$p1" | jq length)
+  p2=$(gh issue list --repo "$repo" --state open --label "P2-low" --json number 2>/dev/null || echo "[]")
+  p2=$(echo "$p2" | jq length)
   total=$((p0 + p1 + p2))
   printf "| %-35s | %2d | %2d | %2d | %5d |\n" "$repo" "$p0" "$p1" "$p2" "$total"
 done

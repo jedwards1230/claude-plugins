@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Find issues missing priority or type labels across repos.
+# Find issues missing priority labels across repos.
 # Usage: find-untriaged.sh [repo-filter...]
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/repos.sh"

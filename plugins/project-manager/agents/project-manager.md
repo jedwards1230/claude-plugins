@@ -151,18 +151,17 @@ When triaging new or unlabeled issues:
 ### Priority Decision Matrix
 
 ```
-Impact \ Urgency | High Urgency | Medium Urgency | Low Urgency
------------------|--------------|----------------|-------------
-High Impact      | P0-critical  | P1-high        | P1-high
-Medium Impact    | P1-high      | P2-medium      | P2-medium
-Low Impact       | P2-medium    | P3-low         | P3-low
+Impact \ Urgency | High Urgency | Low Urgency
+-----------------|--------------|-------------
+High Impact      | P0-critical  | P1-normal
+Low Impact       | P1-normal    | P2-low
 ```
 
 **Examples:**
 - Service outage (high impact, high urgency) → P0-critical
-- Feature request blocking a sprint (medium impact, high urgency) → P1-high
-- Tech debt refactor (medium impact, low urgency) → P2-medium
-- UI polish (low impact, low urgency) → P3-low
+- Feature request blocking a sprint (low impact, high urgency) → P1-normal
+- Tech debt refactor (high impact, low urgency) → P1-normal
+- UI polish (low impact, low urgency) → P2-low
 
 ## Sprint Planning
 
@@ -339,7 +338,7 @@ One-sentence goal statement.
 ## Work Items
 - [ ] jedwards1230/home-orchestration#123 - K8s manifests
 - [ ] hagen-ai/hagen#45 - Backend implementation
-- [ ] jedeworks1230/mcp-proxy-web#12 - UI updates
+- [ ] jedwards1230/mcp-proxy-web#12 - UI updates
 
 ## Dependencies
 - Requires completion of hagen#40 (MCP server discovery)

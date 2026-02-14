@@ -63,9 +63,14 @@ filter_repos() {
     printf '%s\n' "${all_repos[@]}"
     return
   fi
+
+  # Deduplicate matches across args so each repo prints at most once
+  declare -A seen
+  local arg repo
   for arg in "$@"; do
     for repo in "${all_repos[@]}"; do
-      if [[ "$repo" == *"$arg"* ]]; then
+      if [[ "$repo" == *"$arg"* && -z "${seen[$repo]+_}" ]]; then
+        seen["$repo"]=1
         printf '%s\n' "$repo"
       fi
     done

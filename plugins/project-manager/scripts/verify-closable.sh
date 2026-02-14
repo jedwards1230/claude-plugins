@@ -12,7 +12,7 @@ echo ""
 
 total=0
 for repo in "${repos[@]}"; do
-  # Get recently merged PRs (last 30 days)
+  # Get recently merged PRs (last 50, no date filter — gh doesn't support date ranges natively)
   prs=$(gh pr list --repo "$repo" --state merged --json number,title,body,mergedAt --limit 50 2>/dev/null || echo "[]")
   pr_count=$(echo "$prs" | jq length)
 
@@ -30,24 +30,41 @@ for repo in "${repos[@]}"; do
     pr_body=$(echo "$line" | jq -r '.body // ""')
     merged_at=$(echo "$line" | jq -r '.mergedAt | split("T")[0]')
 
-    # Find issue references in PR body and title (closes #N, fixes #N, resolves #N)
-    refs=$(echo "$pr_body $pr_title" | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+' | grep -oE '#[0-9]+' | tr -d '#' || true)
+    # Find issue references in PR body and title
+    # Matches: closes #N, fixes #N, resolves #N, and cross-repo forms like Closes owner/repo#N
+    refs=$(echo "$pr_body $pr_title" | grep -oiE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[: ]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+' || true)
 
-    for issue_num in $refs; do
+    while IFS= read -r ref; do
+      [[ -z "$ref" ]] && continue
+
+      # Extract optional owner/repo and issue number
+      if [[ "$ref" =~ [#]([0-9]+)$ ]]; then
+        issue_num="${BASH_REMATCH[1]}"
+      else
+        continue
+      fi
+
+      # Check for cross-repo reference (owner/repo#N)
+      if [[ "$ref" =~ ([[:alnum:]_.-]+/[[:alnum:]_.-]+)#[0-9]+$ ]]; then
+        ref_repo="${BASH_REMATCH[1]}"
+      else
+        ref_repo="$repo"
+      fi
+
       # Skip duplicates
-      key="${repo}#${issue_num}"
+      key="${ref_repo}#${issue_num}"
       if [[ -n "${seen_issues[$key]+x}" ]]; then
         continue
       fi
       seen_issues["$key"]=1
 
       # Check if issue is still open
-      state=$(gh issue view "$issue_num" --repo "$repo" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+      state=$(gh issue view "$issue_num" --repo "$ref_repo" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
       if [[ "$state" == "OPEN" ]]; then
-        closable+=("$repo#$issue_num (PR #$pr_num merged $merged_at)")
+        closable+=("$ref_repo#$issue_num (PR $repo#$pr_num merged $merged_at)")
         total=$((total + 1))
       fi
-    done
+    done <<< "$refs"
   done < <(echo "$prs" | jq -c '.[]')
 
   if [[ ${#closable[@]} -gt 0 ]]; then

@@ -20,13 +20,13 @@ create_project() {
   echo "=== Creating project '$title' for $owner ==="
 
   # Check if project already exists (safe jq variable passing)
-  local existing
+  local existing project_number
   existing=$(gh project list --owner "$owner" --format json 2>/dev/null \
     | jq -r --arg title "$title" '[.projects[] | select(.title == $title) | .number] | first // empty' 2>/dev/null || echo "")
 
   if [[ -n "$existing" ]]; then
     echo "  Project '$title' already exists (number: $existing), skipping creation."
-    local project_number="$existing"
+    project_number="$existing"
   else
     project_number=$(gh project create --owner "$owner" --title "$title" --format json | jq -r '.number')
     echo "  Created project #$project_number"
