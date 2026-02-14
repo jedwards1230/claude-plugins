@@ -1,6 +1,6 @@
 {
   "name": "project-manager",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup using GitHub Issues and Project boards",
-  "author": "jedwards1230"
+  "author": { "name": "jedwards1230" }
 }
