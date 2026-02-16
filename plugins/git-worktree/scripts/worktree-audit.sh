@@ -10,12 +10,20 @@ set -euo pipefail
 ROOT="" NO_GH=false NO_FETCH=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --root) ROOT="$2"; shift 2 ;; --no-gh) NO_GH=true; shift ;;
+    --root)
+      if [[ $# -lt 2 || "$2" == --* ]]; then
+        echo "Error: --root requires a path argument" >&2; exit 1
+      fi
+      ROOT="$2"; shift 2 ;;
+    --no-gh) NO_GH=true; shift ;;
     --no-fetch) NO_FETCH=true; shift ;; *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 if [[ -z "$ROOT" ]]; then
   ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "Not in a git repo" >&2; exit 1; }
+fi
+if ! git -C "$ROOT" rev-parse --git-dir &>/dev/null; then
+  echo "Error: --root must point to a valid git repository: $ROOT" >&2; exit 1
 fi
 
 GH_AVAILABLE=true
@@ -74,7 +82,7 @@ audit_repo() {
       "worktree "*) [[ -n "$path" && "$first" == false ]] && { wt_paths+=("$path"); wt_branches+=("$branch"); }
         path="${line#worktree }"; branch="" ;;
       "branch "*) branch="${line#branch refs/heads/}" ;;
-      "detached") [[ "$first" == false ]] && { detached_notes+=("$path"); path=""; } ;;
+      "detached") [[ "$first" == false ]] && { detached_notes+=("$path"); path=""; branch=""; } ;;
       "") if [[ -n "$path" && "$first" == false ]]; then wt_paths+=("$path"); wt_branches+=("$branch")
           elif [[ -n "$path" ]]; then first=false; fi; path="" branch="" ;;
     esac
@@ -104,13 +112,13 @@ audit_repo() {
 
     local remote_exists="no" git_merged="no" squash_merged="no" merged_display="no"
     [[ -n "$(git -C "$repo" branch -r --list "origin/$br" 2>/dev/null)" ]] && remote_exists="yes"
-    echo "$merged_branches" | grep -qx "$br" 2>/dev/null && git_merged="yes"
+    echo "$merged_branches" | grep -Fqx "$br" 2>/dev/null && git_merged="yes"
 
     if [[ "$git_merged" == "yes" ]]; then merged_display="git"
     elif [[ "$NO_GH" == false && "$GH_AVAILABLE" == true && -n "$gh_remote" ]]; then
       local pr; pr="$(gh pr list --repo "$gh_remote" --state merged --head "$br" --json headRefName --limit 1 2>/dev/null)" || true
       [[ -n "$pr" && "$pr" != "[]" ]] && { squash_merged="yes"; merged_display="squash"; }
-    elif [[ "$NO_GH" == true && "$git_merged" == "no" ]]; then merged_display="skip"; fi
+    elif [[ "$git_merged" == "no" && ( "$NO_GH" == true || "$GH_AVAILABLE" == false ) ]]; then merged_display="skip"; fi
 
     local dirty=0; dirty="$(git -C "$wt" status --porcelain 2>/dev/null | wc -l)"; dirty="${dirty// /}"
     local commit; commit="$(git -C "$wt" log -1 --format="%h %s" 2>/dev/null)" || commit="(no commits)"
