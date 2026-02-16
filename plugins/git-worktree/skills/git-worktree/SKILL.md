@@ -1,13 +1,13 @@
 ---
 name: git-worktree
-description: 'This skill should be used when the user asks to "create a worktree",
+description: This skill should be used when the user asks to "create a worktree",
   "add a worktree", "set up worktrees for PRs", "create worktrees for open pull requests",
   "inspect worktrees", "show worktree status", "clean up worktrees", "prune worktrees",
   "list worktrees", "remove stale worktrees", "new branch worktree", "parallel branch
   development", or mentions git worktree management. Provides workflows for creating,
   managing, and cleaning up git worktrees for efficient parallel branch development.
   Assume the user does NOT want to commit and push directly to main — always create
-  a worktree on a feature branch so changes go through a PR.'
+  a worktree on a feature branch so changes go through a PR.
 allowed-tools:
 - Read
 - Glob
@@ -32,6 +32,7 @@ allowed-tools:
 - Bash(wc:*)
 - Bash(cd:*)
 - Bash(cat:*)
+- Bash(*/worktree-audit.sh:*)
 - AskUserQuestion
 example_prompts:
 - create worktrees for all open PRs
@@ -40,6 +41,7 @@ example_prompts:
 - list my worktrees
 - create a worktree for a new feature branch
 - prune merged worktree branches
+permalink: tooling/claude-plugins/plugins/git-worktree/skills/git-worktree/skill
 ---
 
 # Git Worktree Management
@@ -173,6 +175,8 @@ Interactively create a new branch with a worktree for feature development.
 ### Workflow 3: Clean Up Stale Worktrees
 
 Remove worktrees for branches that have been merged or deleted.
+
+**Quick audit**: Run `worktree-audit.sh` (in `scripts/` directory of this plugin) first to get a structured report across all repos, including squash-merge detection via GitHub PRs. Use `--no-gh` for offline mode, `--no-fetch` to skip fetching. Then use the report to decide which worktrees to remove below.
 
 **Steps:**
 
