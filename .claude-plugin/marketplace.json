@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "6.0.3"
+    "version": "6.0.4"
   },
   "plugins": [
     {
@@ -29,7 +29,7 @@
       "name": "git-worktree",
       "source": "./plugins/git-worktree",
       "description": "Git worktree workflow management for parallel branch development",
-      "version": "0.3.0"
+      "version": "0.3.1"
     },
     {
       "name": "review-team",
