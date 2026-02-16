@@ -3,11 +3,10 @@ name: git-worktree
 description: This skill should be used when the user asks to "create a worktree",
   "add a worktree", "set up worktrees for PRs", "create worktrees for open pull requests",
   "inspect worktrees", "show worktree status", "clean up worktrees", "prune worktrees",
-  "list worktrees", "remove stale worktrees", "new branch worktree", "parallel branch
-  development", or mentions git worktree management. Provides workflows for creating,
-  managing, and cleaning up git worktrees for efficient parallel branch development.
-  Assume the user does NOT want to commit and push directly to main — always create
-  a worktree on a feature branch so changes go through a PR.
+  "audit worktrees", "worktree audit", "list worktrees", "remove stale worktrees",
+  "new branch worktree", "parallel branch development", or mentions git worktree
+  management. Provides workflows for creating, managing, auditing, and cleaning up
+  git worktrees for efficient parallel branch development.
 allowed-tools:
 - Read
 - Glob
@@ -32,12 +31,13 @@ allowed-tools:
 - Bash(wc:*)
 - Bash(cd:*)
 - Bash(cat:*)
-- Bash(*/worktree-audit.sh:*)
+- Bash(${CLAUDE_PLUGIN_ROOT}/scripts/worktree-audit.sh*)
 - AskUserQuestion
 example_prompts:
 - create worktrees for all open PRs
 - set up a new worktree for this branch
 - clean up stale worktrees
+- audit my worktrees
 - list my worktrees
 - create a worktree for a new feature branch
 - prune merged worktree branches
@@ -47,6 +47,8 @@ permalink: tooling/claude-plugins/plugins/git-worktree/skills/git-worktree/skill
 # Git Worktree Management
 
 Manage git worktrees for parallel branch development. Worktrees allow working on multiple branches simultaneously without stashing or switching, each in its own directory.
+
+**Default behavior**: Assume the user does NOT want to commit and push directly to main — always create a worktree on a feature branch so changes go through a PR.
 
 ## Current Repository State (Injected)
 
@@ -176,30 +178,30 @@ Interactively create a new branch with a worktree for feature development.
 
 Remove worktrees for branches that have been merged or deleted.
 
-**Quick audit**: Run `worktree-audit.sh` (in `scripts/` directory of this plugin) first to get a structured report across all repos, including squash-merge detection via GitHub PRs. Use `--no-gh` for offline mode, `--no-fetch` to skip fetching. Then use the report to decide which worktrees to remove below.
-
 **Steps:**
 
-1. Fetch latest remote state: `git fetch --all --prune`
-2. List all worktrees: `git worktree list --porcelain`
-3. Identify the main working tree (first entry) — this is never removed
-4. For each non-main worktree:
-   - Extract the branch name from the worktree entry
-   - Check if merged: `git branch --merged main` (or the default branch)
-   - Check if remote-deleted: `git branch -r --list origin/<branch>` — empty means deleted
-   - Check for uncommitted changes: `git -C <worktree-path> status --porcelain`
-   - Check if locked: `git worktree lock` status in porcelain output
-   - Categorize as: stale (merged + no changes), orphaned (remote-deleted), active, or dirty
-5. Present findings to the user using AskUserQuestion:
-   - List stale and orphaned worktrees with their status
-   - Flag any with uncommitted changes as requiring explicit confirmation
+1. Run the audit script to get a structured report across all repos:
+   ```bash
+   ${CLAUDE_PLUGIN_ROOT}/scripts/worktree-audit.sh
+   ```
+   - Use `--no-gh` to skip GitHub PR checks (faster/offline mode)
+   - Use `--no-fetch` to skip `git fetch --all --prune` (use cached state)
+   - The script discovers the root repo and all nested repos automatically
+   - Output classifies each worktree: STALE (merged, clean), STALE-DIRTY (merged, uncommitted changes), ORPHANED (remote-deleted, not merged), ACTIVE
+2. Review the audit report. For each non-ACTIVE worktree:
+   - STALE: Safe to remove (branch is merged, no uncommitted changes)
+   - STALE-DIRTY: Merged but has uncommitted changes — requires explicit user approval
+   - ORPHANED: Remote branch deleted but not merged — ask user before removing
+3. Present findings to the user using AskUserQuestion:
+   - List stale and orphaned worktrees with their status from the audit
+   - Flag STALE-DIRTY entries as requiring explicit confirmation
    - Allow the user to select which to remove
-6. For confirmed removals:
-   - Remove worktree: `git worktree remove worktrees/<name>`
+4. For confirmed removals:
+   - Remove worktree: `git worktree remove worktrees/<name>` (use `--force` for dirty)
    - Delete the local branch if merged: `git branch -d <branch-name>`
    - If branch is not merged and user confirms: `git branch -D <branch-name>`
-7. Run `git worktree prune` to clean up stale administrative entries
-8. Report the summary table of actions taken
+5. Run `git worktree prune` to clean up stale administrative entries
+6. Report the summary table of actions taken
 
 **Safety rules:**
 - Never force-remove a worktree with uncommitted changes without explicit user approval
