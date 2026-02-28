@@ -1,0 +1,12 @@
+{
+  "name": "claude-plugins",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "postStartCommand": "bash .devcontainer/entrypoint.sh",
+  "customizations": {
+    "vscode": {
+      "terminal.integrated.defaultProfile.linux": "bash"
+    }
+  }
+}
