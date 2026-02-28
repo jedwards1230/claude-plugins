@@ -5,10 +5,10 @@
 # In Claude Code Web each session starts from a clean ephemeral container,
 # so tools that are not in the image must be installed here.
 
-set -euo pipefail
+set +e  # Never exit on error in session-start
 
 if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
-  echo "[hook:session-start] Running in Claude Code Web — installing tools..."
+  echo "[session-start] Running in Claude Code Web — installing tools..." >&2
 
   # Install jq if missing
   if ! command -v jq &>/dev/null; then
@@ -17,7 +17,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
 
   # Install yq if missing
   if ! command -v yq &>/dev/null; then
-    curl -fsSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+    curl -fsSL https://github.com/mikefarah/yq/releases/download/v4.52.4/yq_linux_amd64 \
       -o /usr/local/bin/yq && chmod +x /usr/local/bin/yq
   fi
 
@@ -26,9 +26,9 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
     apt-get update -qq && apt-get install -y --no-install-recommends shellcheck
   fi
 
-  echo "[hook:session-start] Tools ready."
+  echo "[session-start] Tools ready." >&2
 else
-  echo "[hook:session-start] Running in local devcontainer — tools pre-installed."
+  echo "[session-start] Running in local devcontainer — tools pre-installed." >&2
 fi
 
 # Always exit 0 — never block the session from starting
