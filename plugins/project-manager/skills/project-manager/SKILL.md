@@ -152,7 +152,7 @@ Apply these labels consistently across ALL repos. Use `${CLAUDE_PLUGIN_ROOT}/scr
 | Label | Color | Description |
 |-------|-------|-------------|
 | `infra` | `#1d76db` | Infrastructure, K8s, Ansible, networking |
-| `service` | `#0e8a16` | Application services (hagen, libro, etc.) |
+| `service` | `#0e8a16` | Application services (kova, libro, etc.) |
 | `tooling` | `#e4e669` | Developer tools, CI/CD, plugins |
 | `docs` | `#0075ca` | Documentation only |
 
@@ -312,7 +312,7 @@ For work spanning multiple repos, create an epic issue in the primary repo:
 
 ### Sub-Issues
 - [ ] jedwards1230/home-orchestration#N — K8s manifests
-- [ ] hagen-ai/hagen#N — Agent implementation
+- [ ] kova-land/kova#N — Agent implementation
 - [ ] jedwards1230/mcp-proxy-web#N — UI updates
 
 ### Status

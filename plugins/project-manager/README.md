@@ -47,7 +47,7 @@ gh label create "P0-critical" --repo $REPO --color "b60205" --description "Servi
 
 ```bash
 gh project create --owner jedwards1230 --title "Homelab Infra"
-gh project create --owner hagen-ai --title "Hagen Roadmap"
+gh project create --owner kova-land --title "Kova Roadmap"
 # ... one per repo
 ```
 
@@ -55,7 +55,7 @@ gh project create --owner hagen-ai --title "Hagen Roadmap"
 
 ```
 # Triage new issues
-"Triage the new issues in hagen"
+"Triage the new issues in kova"
 
 # Sprint planning
 "What should I work on next?"
@@ -75,7 +75,7 @@ gh project create --owner hagen-ai --title "Hagen Roadmap"
 | Repo | Owner | Scope |
 |------|-------|-------|
 | home-orchestration | jedwards1230 | infra |
-| hagen | hagen-ai | service |
+| kova | kova-land | service |
 | libro-client | jedwards1230 | service |
 | mcp-proxy-web | jedwards1230 | service |
 | openclaw | jedwards1230 | service |

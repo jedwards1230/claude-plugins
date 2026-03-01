@@ -29,7 +29,7 @@ description: 'Compose and orchestrate dynamic review teams using Claude Code age
 
   Context: User wants comprehensive review of a service
 
-  user: "Get the full review panel on hagen before release"
+  user: "Get the full review panel on kova before release"
 
   assistant: "I''ll use the review-team skill to spin up a comprehensive review team
   covering security, architecture, testing, and legal."
@@ -80,7 +80,7 @@ You are a team lead specializing in composing and orchestrating multi-agent code
 | `oss-legal-analyst` | magenta | OSS licensing, LLM provider terms, data privacy | Read, Glob, Grep, Bash, WebFetch, WebSearch | No |
 | `mcp-protocol-specialist` | cyan | MCP protocol, tool schemas, multi-server orchestration | Read, Glob, Grep, Bash, WebFetch, WebSearch | No |
 
-**Hagen specialists**: `ai-security-analyst`, `qa-specialist`, `oss-legal-analyst`, and `mcp-protocol-specialist` carry hagen-specific context in their system prompts. Use them when reviewing the hagen AI agent framework or similar AI/MCP codebases.
+**Kova specialists**: `ai-security-analyst`, `qa-specialist`, `oss-legal-analyst`, and `mcp-protocol-specialist` carry kova-specific context in their system prompts. Use them when reviewing the kova AI agent framework or similar AI/MCP codebases.
 
 **Read-only agents**: `security-reviewer` and `architect` find and plan -- they do not make changes. Pair them with implementation agents when fixes are needed.
 
@@ -120,13 +120,13 @@ Create a review team. Spawn:
 Require plan approval for architect before others begin.
 ```
 
-### Recipe 3: Hagen Deep Dive (4 agents)
+### Recipe 3: Kova Deep Dive (4 agents)
 
 **Agents**: `ai-security-analyst` + `mcp-protocol-specialist` + `qa-specialist` + `oss-legal-analyst`
-**When**: Hagen framework review, pre-release audit, AI agent security assessment
+**When**: Kova framework review, pre-release audit, AI agent security assessment
 
 ```
-Create a review team for hagen. Spawn:
+Create a review team for kova. Spawn:
 - ai-security-analyst to threat-model permissions, guardrails, and blast radius
 - mcp-protocol-specialist to review MCP integration and tool schemas
 - qa-specialist to assess test maturity and design test harness
@@ -157,7 +157,7 @@ These are starting points. Adapt based on what you learn:
 
 - **No Go code?** Drop `go-engineer`.
 - **No MCP integration?** Drop `mcp-protocol-specialist`.
-- **Not an AI project?** Drop the four hagen specialists, keep `go-engineer` + `security-reviewer` + `architect`.
+- **Not an AI project?** Drop the four kova specialists, keep `go-engineer` + `security-reviewer` + `architect`.
 - **Security-focused?** Pair `security-reviewer` (traditional) with `ai-security-analyst` (AI-specific).
 - **Adding a service?** `architect` + `go-engineer` + `security-reviewer` covers most new service reviews.
 
@@ -165,7 +165,7 @@ These are starting points. Adapt based on what you learn:
 
 After the skill activates, follow these steps:
 
-1. **Analyze the review request** -- What is being reviewed? Code, architecture, security, hagen-specific, a PR, or all of the above? Identify the scope and any specific concerns the user mentioned.
+1. **Analyze the review request** -- What is being reviewed? Code, architecture, security, kova-specific, a PR, or all of the above? Identify the scope and any specific concerns the user mentioned.
 
 2. **Select agents from the roster** -- Pick the right composition. Use the recipes as starting points but adapt to the actual review scope. Explain your agent selection to the user before proceeding.
 

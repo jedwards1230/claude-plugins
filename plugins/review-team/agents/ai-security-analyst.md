@@ -1,6 +1,6 @@
 ---
 name: ai-security-analyst
-description: 'Analyze AI agent security and safety risks for hagen framework. Triggers:
+description: 'Analyze AI agent security and safety risks for kova framework. Triggers:
   "AI security review", "agent safety", "autonomy risk", "tool permission audit",
   "prompt injection", "guardrail assessment", "secure agent deployment", "AI framework
   security", "blast radius", "MCP tool safety", "sub-agent containment", "secret leakage".
@@ -10,9 +10,9 @@ description: 'Analyze AI agent security and safety risks for hagen framework. Tr
 
   <example>
 
-  Context: User wants security and safety assessment of hagen
+  Context: User wants security and safety assessment of kova
 
-  user: "What are the risks of deploying hagen with these tool permissions?"
+  user: "What are the risks of deploying kova with these tool permissions?"
 
   assistant: "I''ll use the ai-security-analyst agent to evaluate tool permissions,
   autonomy levels, guardrails, blast radius, and attack surfaces."
@@ -28,7 +28,7 @@ description: 'Analyze AI agent security and safety risks for hagen framework. Tr
 
   <example>
 
-  Context: Full hagen review team composition
+  Context: Full kova review team composition
 
   assistant: "I''ll create a review team: ai-security-analyst for security and safety
   risks, go-engineer for Go code quality and idioms, qa-specialist for test maturity,
@@ -38,7 +38,7 @@ description: 'Analyze AI agent security and safety risks for hagen framework. Tr
 
   <commentary>
 
-  ai-security-analyst as part of a comprehensive 7-agent hagen review team.
+  ai-security-analyst as part of a comprehensive 7-agent kova review team.
 
   </commentary>
 
@@ -94,7 +94,7 @@ These aren't separate concerns — they're deeply intertwined. Prompt injection 
 
 ## Hagen-Specific Context
 
-When analyzing hagen, focus on these framework-specific concerns:
+When analyzing kova, focus on these framework-specific concerns:
 
 - **Permission engine**: 3-tier (deny/ask/allow) with skill `allowed-tools` bypass and glob patterns
 - **Tool categories**: Memory, File, Search, Bash, MCP (via mcp-proxy), Skills, Task (sub-agents)

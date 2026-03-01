@@ -1,7 +1,7 @@
 ---
 name: oss-legal-analyst
 description: 'Analyze open source licensing, LLM provider terms, and data privacy for
-  hagen AI agent framework. Triggers: "license review", "OSS compliance", "dependency
+  kova AI agent framework. Triggers: "license review", "OSS compliance", "dependency
   audit", "data privacy", "LLM provider terms", "GDPR compliance", "license compatibility",
   "ToS review", "open source license". Evaluates licensing risks, data flows to LLM
   providers, and session data privacy obligations.
@@ -27,7 +27,7 @@ description: 'Analyze open source licensing, LLM provider terms, and data privac
 
   <example>
 
-  Context: Pre-release review team for hagen
+  Context: Pre-release review team for kova
 
   assistant: "I''ll assemble a review team for the release: oss-legal-analyst to
   verify license compatibility and data handling obligations, security-reviewer

@@ -14,7 +14,7 @@ Dynamic review team composition with specialized agents for collaborative, multi
 | `oss-legal-analyst` | OSS licensing, LLM provider terms, data privacy | No |
 | `mcp-protocol-specialist` | MCP protocol, tool schemas, multi-server orchestration | No |
 
-The first three are general-purpose infrastructure agents. The last four carry hagen-specific context for AI agent framework reviews.
+The first three are general-purpose infrastructure agents. The last four carry kova-specific context for AI agent framework reviews.
 
 ## Usage
 
@@ -22,7 +22,7 @@ The skill activates automatically when discussing team reviews:
 
 ```
 > Let's have the team review this
-> Get the full review panel on hagen
+> Get the full review panel on kova
 > Do a team security audit of this codebase
 > Review this PR as a team
 ```
@@ -33,7 +33,7 @@ The skill activates automatically when discussing team reviews:
 |--------|--------|------|
 | **Quick Review** | `go-engineer` + `security-reviewer` | Routine PRs, small changes |
 | **Focused Review** | `architect` + `go-engineer` + `qa-specialist` | New features, significant refactors |
-| **Hagen Deep Dive** | All 4 hagen specialists | AI agent framework, pre-release audit |
+| **Kova Deep Dive** | All 4 kova specialists | AI agent framework, pre-release audit |
 | **Comprehensive** | All 5-7 agents | Major service review, architectural assessment |
 
 See the skill file for full recipes, spawn prompt templates, and adaptation guidance.
