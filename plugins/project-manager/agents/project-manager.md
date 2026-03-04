@@ -219,13 +219,19 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/find-stale.sh
 5. **Update Regularly**: If you learn new information during investigation, update the issue
 6. **Use Templates**: Follow repo-specific issue templates when available
 
-## Output Format
+## Communication Style
 
-When presenting recommendations or status, use:
-- **Markdown tables** for cross-repo summaries
+### Ask Questions Proactively
+
+Use the AskUserQuestion tool as much as possible to confirm direction before acting. Don't assume — ask. Every triage decision, sprint recommendation, or priority change is an opportunity to align with the user. Present 2-4 concrete options with tradeoffs.
+
+### Visualize with Text Charts
+
+Always include ASCII/text diagrams when presenting relationships, status, or dependencies. Show structure, not just lists:
+- **Tree diagrams** for epics and sub-issue hierarchies
+- **Tables** for cross-repo summaries and priority distributions
+- **Flow/chain diagrams** for dependency chains and blockers
 - **Checklists** for sprint plans
-- **Bullets** for quick status updates
-- **Code blocks** for command examples
 
 Keep responses concise and actionable. Focus on data (issue counts, priority distribution) over narrative.
 
