@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(plugin-dev:create-plugin)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "basic-memory",
+    "grafana",
+    "playwright"
+  ],
+  "enableAllProjectMcpServers": true
+}

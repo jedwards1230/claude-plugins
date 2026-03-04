@@ -57,6 +57,37 @@ allowed-tools:
 
 This skill defines how we manage work across the homelab ecosystem. Both the `project-manager` and `project-ops` agents load these standards. You can also invoke this skill directly for ad-hoc project management tasks.
 
+## Behavioral Guidelines
+
+### Ask Questions Proactively
+
+Use the AskUserQuestion tool frequently to clarify priorities, confirm assumptions, and gather preferences before acting. Don't guess — ask. Examples:
+- Before triaging: "These 3 issues look like duplicates — should I merge them or keep them separate?"
+- Before sprint planning: "Do you want to focus on debt reduction or new features this sprint?"
+- Before closing: "This issue has no linked PR but the feature exists — was it done manually?"
+
+### Visualize with Text Charts
+
+When presenting status, dependencies, or relationships, include ASCII/text diagrams to show how things connect at a high level. Don't just list — show structure:
+
+```
+Repo Health Overview
+┌──────────────────────┬───────┬───────┬───────┬─────────┐
+│ Repo                 │ P0    │ P1    │ P2    │ Stale   │
+├──────────────────────┼───────┼───────┼───────┼─────────┤
+│ home-orchestration   │ 0     │ 3     │ 5     │ 2       │
+│ kova                 │ 1     │ 4     │ 2     │ 0       │
+│ claude-plugins       │ 0     │ 1     │ 3     │ 1       │
+└──────────────────────┴───────┴───────┴───────┴─────────┘
+
+Dependency Chain
+  kova#45 (blocked)
+    └── blocked by: home-orchestration#200 (in progress)
+          └── blocked by: mcp-proxy-web#12 (done ✓) ← ready to unblock!
+```
+
+Use tree diagrams for epics/sub-issues, tables for cross-repo summaries, and flow diagrams for dependency chains.
+
 ## Helper Scripts
 
 The plugin includes scripts in `${CLAUDE_PLUGIN_ROOT}/scripts/` for common multi-repo operations:
@@ -288,12 +319,110 @@ For work spanning multiple repos, create an epic issue in the primary repo:
 In progress — 1/3 complete
 ```
 
-### Dependency Tracking
+### Sub-Issues (Native GitHub)
 
-When issue A blocks issue B across repos:
-1. Add `blocked` label to issue B
-2. Add comment to B: "Blocked by owner/repo#N"
-3. Add comment to A: "Blocks owner/repo#N"
+Use GitHub's GraphQL API for parent/child relationships. The `gh issue view --json` command does NOT support `subIssues` or `parent` fields — use GraphQL queries instead.
+
+```bash
+# Get an issue's node ID (needed for all GraphQL mutations below)
+gh issue view NUMBER --repo OWNER/REPO --json id --jq '.id'
+
+# Add an existing issue as a sub-issue of a parent
+gh api graphql -f query='
+mutation {
+  addSubIssue(input: {
+    issueId: "PARENT_NODE_ID"
+    subIssueId: "CHILD_NODE_ID"
+  }) { issue { number title } subIssue { number title } }
+}'
+
+# Remove a sub-issue from its parent
+gh api graphql -f query='
+mutation {
+  removeSubIssue(input: {
+    issueId: "PARENT_NODE_ID"
+    subIssueId: "CHILD_NODE_ID"
+  }) { issue { number } subIssue { number } }
+}'
+
+# List sub-issues of a parent
+gh api graphql -f query='
+{
+  repository(owner: "OWNER", name: "REPO") {
+    issue(number: PARENT_NUMBER) {
+      subIssues(first: 50) {
+        nodes { number title state }
+      }
+    }
+  }
+}' --jq '.data.repository.issue.subIssues.nodes[] | "\(.number) \(.title) (\(.state))"'
+
+# Get parent of a child issue
+gh api graphql -f query='
+{
+  repository(owner: "OWNER", name: "REPO") {
+    issue(number: CHILD_NUMBER) {
+      parent { number title repository { nameWithOwner } }
+    }
+  }
+}'
+```
+
+### Issue Relationships (Blocking / Blocked By)
+
+Use GitHub's native blocking relationship tracking via GraphQL:
+
+```bash
+# Mark issue B as blocked by issue A (A must finish before B can proceed)
+# issueId = the blocked issue, blockingIssueId = the issue that blocks it
+gh api graphql -f query='
+mutation {
+  addBlockedBy(input: {
+    issueId: "BLOCKED_ISSUE_NODE_ID"
+    blockingIssueId: "BLOCKING_ISSUE_NODE_ID"
+  }) { issue { number title } blockingIssue { number title } }
+}'
+
+# Remove a blocking relationship
+gh api graphql -f query='
+mutation {
+  removeBlockedBy(input: {
+    issueId: "BLOCKED_ISSUE_NODE_ID"
+    blockingIssueId: "BLOCKING_ISSUE_NODE_ID"
+  }) { issue { number } }
+}'
+
+# Query what an issue blocks and what blocks it
+gh api graphql -f query='
+{
+  repository(owner: "OWNER", name: "REPO") {
+    issue(number: NUMBER) {
+      blocking(first: 10) { nodes { number title state } }
+      blockedBy(first: 10) { nodes { number title state } }
+    }
+  }
+}'
+```
+
+### Dependency Tracking (Cross-Repo Fallback)
+
+When native GraphQL relationships don't work across repo boundaries, fall back to label + comment tracking:
+1. Add `blocked` label to the blocked issue
+2. Add comment to blocked issue: "Blocked by owner/repo#N"
+3. Add comment to blocking issue: "Blocks owner/repo#N"
+
+### Relationship Visualization
+
+When reporting on dependencies, include a text diagram showing how issues connect:
+
+```
+Epic: Improve Observability (#100)
+├── home-orchestration#101 — Add Tempo traces to Traefik
+│   └── blocks: mcp-proxy-web#45 (needs trace context)
+├── home-orchestration#102 — Grafana dashboard for traces
+│   └── blocked by: #101 (needs traces flowing first)
+└── claude-plugins#30 — Add trace correlation to investigate skill
+```
 
 ## Status Reporting
 
