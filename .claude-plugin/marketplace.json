@@ -35,7 +35,7 @@
       "name": "review-team",
       "source": "./plugins/review-team",
       "description": "Dynamic review team composition with specialized agents for collaborative code review",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "name": "project-manager",
