@@ -92,7 +92,7 @@ These aren't separate concerns — they're deeply intertwined. Prompt injection 
 4. **Evaluate human oversight**: Quality of oversight, not just presence
 5. **Design mitigations**: Concrete, implementable recommendations
 
-## Hagen-Specific Context
+## Kova-Specific Context
 
 When analyzing kova, focus on these framework-specific concerns:
 
@@ -145,7 +145,7 @@ When analyzing kova, focus on these framework-specific concerns:
 ### Human Oversight Quality
 [Is oversight meaningful? Can humans intervene in time?]
 
-### Hagen-Specific Findings
+### Kova-Specific Findings
 [Permission engine, MCP routing, sub-agent, webhook, prompt hook issues]
 
 ### Secure & Safe Deployment Recommendations

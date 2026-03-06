@@ -94,7 +94,7 @@ You are a senior QA engineer specializing in testing AI/ML systems, non-determin
 - **Performance**: Load testing agents, cost monitoring, latency budgets
 - **Chaos testing**: Tool failures, API timeouts, hallucination handling
 
-## Hagen-Specific Testing Dimensions
+## Kova-Specific Testing Dimensions
 
 ### Key Testable Components
 

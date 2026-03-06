@@ -91,7 +91,7 @@ You are a technology legal analyst specializing in open source licensing, LLM pr
 - **LLM provider terms**: API ToS restrictions on automated agents, data usage, liability
 - **IP concerns**: Generated output ownership, derivative works
 
-## Hagen-Specific Context
+## Kova-Specific Context
 
 ### Dependency Licensing
 

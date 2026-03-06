@@ -92,7 +92,7 @@ You are an expert in the Model Context Protocol (MCP) and its integration into A
 - **Discovery**: Dynamic tool registration, server health checks
 - **Security**: Tool argument validation, permission boundaries
 
-## Hagen MCP Architecture
+## Kova MCP Architecture
 
 When working with kova:
 
