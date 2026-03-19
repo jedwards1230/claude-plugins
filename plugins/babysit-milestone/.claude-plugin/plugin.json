@@ -1,0 +1,9 @@
+{
+  "name": "babysit-milestone",
+  "version": "1.0.0",
+  "description": "Orchestrate GitHub milestone deployment — discover issues, spawn agents, monitor PRs, fix failures, clean up",
+  "author": {
+    "name": "jedwards1230"
+  },
+  "skills": ["babysit-milestone"]
+}

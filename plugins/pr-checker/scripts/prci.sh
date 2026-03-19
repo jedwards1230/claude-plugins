@@ -11,9 +11,16 @@ main() {
     repo_flag="-R $2"
     shift 2
   fi
+  # If no PR numbers provided, default to all open PRs
   if [ -z "${1:-}" ]; then
-    echo "Usage: prci [-R owner/repo] <pr_num> [pr_num...]"
-    exit 1
+    local pr_nums
+    pr_nums=$(gh pr list $repo_flag --state open --json number --jq '.[].number' 2>/dev/null)
+    if [ -z "$pr_nums" ]; then
+      echo "No open PRs found."
+      exit 0
+    fi
+    # shellcheck disable=SC2086
+    set -- $pr_nums
   fi
 
   # Resolve repo owner/name for GraphQL queries

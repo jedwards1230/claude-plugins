@@ -28,7 +28,15 @@ Check GitHub PR CI status, unresolved review threads, and reviewer verdicts in o
 
 ## Usage
 
-### Check PRs in the current repo
+### Check all open PRs in the current repo
+
+If no PR numbers are provided, checks all open PRs in the current repo (or the repo passed via `-R`).
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh
+```
+
+### Check specific PRs in the current repo
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh <pr_num> [pr_num...]
@@ -37,7 +45,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh <pr_num> [pr_num...]
 ### Check PRs in a different repo
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R owner/repo <pr_num> [pr_num...]
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R owner/repo [pr_num...]
 ```
 
 ## Status Reference

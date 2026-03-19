@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.0.0"
+    "version": "8.0.0"
   },
   "plugins": [
     {
@@ -47,6 +47,12 @@
       "name": "pr-checker",
       "source": "./plugins/pr-checker",
       "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
+      "version": "1.1.0"
+    },
+    {
+      "name": "babysit-milestone",
+      "source": "./plugins/babysit-milestone",
+      "description": "Orchestrate GitHub milestone deployment — discover issues, spawn agents, monitor PRs, fix failures, clean up",
       "version": "1.0.0"
     }
   ]
