@@ -66,9 +66,9 @@ main() {
         --jq '[.[] | select(.user.login == "github-actions[bot]") | select(.body | test("Claude finished|PR Review"))] | last | .body // empty' 2>/dev/null || echo "")
       if [ -n "$review_comment" ]; then
         if echo "$review_comment" | grep -q "⚠️\|issue.*found\|needs.*update\|needs.*change\|Missing.*test\|documentation.*needed"; then
-          review_issues=$(echo "$review_comment" | grep -o "\*\*Status\*\*: ⚠️.*" | head -1 | sed 's/\*\*Status\*\*: ⚠️ *//')
+          review_issues=$(echo "$review_comment" | grep -o "\*\*Status\*\*: ⚠️.*" | head -1 | sed 's/\*\*Status\*\*: ⚠️ *//' || true)
           if [ -z "$review_issues" ]; then
-            review_issues=$(echo "$review_comment" | grep -o "⚠️[^*]*" | head -1 | sed 's/^⚠️ *//')
+            review_issues=$(echo "$review_comment" | grep -o "⚠️[^*]*" | head -1 | sed 's/^⚠️ *//' || true)
           fi
           review_verdict="warning"
         fi
