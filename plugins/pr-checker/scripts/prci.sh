@@ -30,9 +30,15 @@ main() {
   local has_waitci has_review review_missing unresolved_threads
   local review_verdict review_comment review_issues
   for pr in "$@"; do
-    # Skip merged/closed PRs
+    # Show merged/closed PRs briefly, then skip detailed checks
     pr_state=$(gh pr view "$pr" $repo_flag --json state -q .state 2>/dev/null || echo "UNKNOWN")
-    if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
+    if [ "$pr_state" = "MERGED" ]; then
+      echo "PR #$pr: MERGED"
+      echo
+      continue
+    elif [ "$pr_state" = "CLOSED" ]; then
+      echo "PR #$pr: CLOSED"
+      echo
       continue
     fi
 
