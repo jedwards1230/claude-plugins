@@ -176,6 +176,28 @@ check_pr() {
   fi
   [ "$review_missing" -eq 1 ] && echo "  PENDING review (not yet queued)"
   [ -n "$review_issues" ] && echo "  REVIEW $review_issues"
+
+  # Extract latest Claude reviewer comment (code review + docs sections)
+  local reviewer_summary=""
+  reviewer_summary=$(echo "$pr_node" | jq -r '
+    [.comments.nodes[] |
+      select(.body | test("Claude Code Reviewer|Claude finished")) |
+      .body
+    ] | last // empty' 2>/dev/null || echo "")
+
+  if [ -n "$reviewer_summary" ] && [ "$reviewer_summary" != "null" ]; then
+    # Extract just the Code Review and Documentation sections
+    local review_extract=""
+    review_extract=$(echo "$reviewer_summary" | awk '/^### Code Review/,/^---/' | head -40)
+    if [ -n "$review_extract" ]; then
+      echo "  ┌─── REVIEWER FEEDBACK ───"
+      echo "$review_extract" | while IFS= read -r line; do
+        echo "  │ $line"
+      done
+      echo "  └──────────────────────────"
+    fi
+  fi
+
   echo
 }
 
