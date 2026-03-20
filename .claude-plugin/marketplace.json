@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.0.1"
+    "version": "8.0.0"
   },
   "plugins": [
     {
@@ -47,7 +47,7 @@
       "name": "pr-checker",
       "source": "./plugins/pr-checker",
       "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
-      "version": "1.0.1"
+      "version": "2.0.0"
     }
   ]
 }
