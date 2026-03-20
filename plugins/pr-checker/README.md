@@ -14,9 +14,12 @@ Checks open PRs and reports:
 
 - **CI check status** -- passing, failing, pending, or in-progress
 - **Merge conflict detection** -- flags PRs with conflicts
+- **Reviewer detection** -- spots pending reviewers, changes requested, and review comments from any source (Copilot, Claude, humans)
 - **Unresolved review threads** -- count of open comment threads
-- **Reviewer verdicts** -- warnings from automated Claude reviewer comments
+- **Bot review warnings** -- detects when CI passes but a reviewer bot flagged issues
 - **Recently merged** -- shows PRs merged in the last 24 hours
+
+Uses a single GraphQL query per PR for fast execution.
 
 ## Usage
 
@@ -46,23 +49,45 @@ Checks open PRs and reports:
 ## Example output
 
 ```
-Checking 3 open PRs in kova-land/kova...
+Checking 4 open PRs in jedwards1230/home-orchestration...
 
-PR #623: ALL PASSING (4 checks)
+PR #259: ALL PASSING (1 checks) -- HAS MERGE CONFLICTS -- has review comments -- 6 unresolved threads
+  REVIEW review comments from claude
 
-PR #624: FAILING (1 failed, 1 pending)
-  FAIL lint
+PR #253: FAILING (1 failed) -- HAS MERGE CONFLICTS -- has review comments
+  FAIL review
+  REVIEW review comments from copilot-pull-request-reviewer, claude
 
-PR #625: IN PROGRESS (3 passed, 1 pending) -- HAS MERGE CONFLICTS
-  PENDING review (not yet queued)
+PR #235: FAILING (2 failed) -- awaiting review from jedwards1230 -- has review comments -- 6 unresolved threads
+  FAIL review
+  FAIL copilot-setup-steps
+  REVIEW review comments from copilot-pull-request-reviewer, claude
+
+PR #240: ALL PASSING (3 checks)
 
 Recently merged (last 24h):
-  #593 feat: kova init interactive setup wizard
-  #594 feat: WebSocket chat handler for admin API
-  #592 feat: CLI/stdin platform adapter
+  #258 feat: add monitoring dashboard
+  #257 fix: NFS mount recovery
 ```
+
+## Status reference
+
+| Status | Meaning |
+|--------|---------|
+| ALL PASSING | All CI checks passed |
+| FAILING | One or more checks failed |
+| IN PROGRESS | Checks still running or pending |
+| UNKNOWN | No check data available |
+| MERGED | PR was merged |
+| CLOSED | PR was closed without merging |
+| HAS MERGE CONFLICTS | Branch conflicts with base |
+| awaiting review from X | Reviewer requested but hasn't responded |
+| CHANGES REQUESTED | Reviewer formally requested changes |
+| has review comments | Reviewer left comments (not blocking) |
+| review flagged issues | Bot reviewer found warnings despite CI passing |
+| N unresolved threads | Open review comment threads |
 
 ## Requirements
 
 - `gh` (GitHub CLI) authenticated
-- Repository access for GraphQL queries (review threads, reviewer comments)
+- Repository access for GraphQL queries
