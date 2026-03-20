@@ -17,8 +17,12 @@ Private marketplace for reusable Claude Code plugins.
 | Plugin | Description |
 |--------|-------------|
 | [dream](plugins/dream/) | Basic-memory knowledge base maintenance |
+| [git-worktree](plugins/git-worktree/) | Git worktree workflow management for parallel branch development |
 | [grafana-dashboards](plugins/grafana-dashboards/) | Grafana dashboard creation and management for Kubernetes |
+| [pr-checker](plugins/pr-checker/) | Check PR CI status, reviewer verdicts, merge conflicts, and review threads |
+| [project-manager](plugins/project-manager/) | Project management across multiple GitHub repos — triage, planning, tracking |
 | [remember](plugins/remember/) | Memory management for storing and retrieving knowledge |
+| [review-team](plugins/review-team/) | Dynamic review team composition with specialized agents |
 
 ## Development
 
