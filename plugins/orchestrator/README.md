@@ -29,7 +29,7 @@ Uses a single GraphQL query per PR for fast execution.
 
 | Skill | Triggers |
 |-------|----------|
-| `orchestrate` | "orchestrate", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs" |
+| `agent-loop` | "agent-loop", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs" |
 | `pr-checker` | "check PR", "PR status", "CI status", "prci", "are PRs passing" |
 
 ## Hooks
@@ -40,7 +40,7 @@ Uses a single GraphQL query per PR for fast execution.
 
 ## When it activates
 
-The orchestrate skill triggers on keywords like "orchestrate", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs".
+The agent-loop skill triggers on keywords like "agent-loop", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs".
 
 The pr-checker skill triggers on keywords like "check PR", "PR status", "CI status", "prci", "check pull requests".
 
@@ -54,7 +54,7 @@ The pr-checker skill triggers on keywords like "check PR", "PR status", "CI stat
 ### Orchestration
 
 ```
-orchestrate the v0.16.0 milestone
+agent-loop the v0.16.0 milestone
 implement these 6 issues in parallel
 babysit the open PRs until they merge
 ```

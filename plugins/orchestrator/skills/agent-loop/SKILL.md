@@ -1,5 +1,5 @@
 ---
-name: orchestrate
+name: agent-loop
 description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-based
   parallel implementation, and proactive pipeline management. Triggers: "orchestrate",
   "manage PRs", "milestone", "dispatch agents", "parallel implementation", "wave",
