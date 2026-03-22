@@ -106,3 +106,13 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/home-orchestration
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R kova-land/kova
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
 ```
+
+## Proactive Behavior
+
+When acting as an orchestrator managing multiple PRs:
+
+- **After pushing**: Always start a `/loop 5m /pr-checker` cron to monitor CI status across all repos with open PRs
+- **When reviews come in**: Immediately dispatch fix agents to address ALL reviewer findings (code issues, docs gaps, nits) — don't just report them
+- **Goal is reviewer all-clear**: Keep iterating fixes until the reviewer gives LGTM with no issues. codecov/patch failures alone are acceptable, but reviewer findings must be addressed
+- **Check all repos**: Run the checker against every repo where you have open PRs, not just the current one
+- **React to status changes**: When a PR goes from IN PROGRESS to FAILING or ALL PASSING, take appropriate action (fix failures, notify user PRs are ready to merge)
