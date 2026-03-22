@@ -47,7 +47,7 @@
       "name": "pr-checker",
       "source": "./plugins/pr-checker",
       "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
-      "version": "2.1.0"
+      "version": "2.2.0"
     }
   ]
 }
