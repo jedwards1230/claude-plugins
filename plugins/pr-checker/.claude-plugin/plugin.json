@@ -1,6 +1,6 @@
 {
   "name": "pr-checker",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
   "author": {
     "name": "jedwards1230"
