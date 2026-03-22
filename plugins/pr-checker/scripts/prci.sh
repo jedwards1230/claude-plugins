@@ -29,7 +29,7 @@ check_pr() {
             nodes { author { login } state }
           }
           commits(last: 1) {
-            nodes { commit { statusCheckRollup {
+            nodes { commit { committedDate statusCheckRollup {
               contexts(first: 100) {
                 nodes {
                   ... on CheckRun { name, status, conclusion }
@@ -39,7 +39,7 @@ check_pr() {
             } } }
           }
           comments(last: 20) {
-            nodes { author { login } body }
+            nodes { author { login } body createdAt }
           }
     } } }" 2>/dev/null || echo "{}")
 
@@ -178,23 +178,45 @@ check_pr() {
   [ -n "$review_issues" ] && echo "  REVIEW $review_issues"
 
   # Extract latest Claude reviewer comment (code review + docs sections)
-  local reviewer_summary=""
-  reviewer_summary=$(echo "$pr_node" | jq -r '
+  # Also check if the review is stale (commits pushed after the review)
+  local reviewer_comment=""
+  reviewer_comment=$(echo "$pr_node" | jq '
     [.comments.nodes[] |
-      select(.body | test("Claude Code Reviewer|Claude finished")) |
-      .body
+      select(.body | test("Claude Code Reviewer|Claude finished"))
     ] | last // empty' 2>/dev/null || echo "")
 
-  if [ -n "$reviewer_summary" ] && [ "$reviewer_summary" != "null" ]; then
-    # Extract just the Code Review and Documentation sections
-    local review_extract=""
-    review_extract=$(echo "$reviewer_summary" | awk '/^### Code Review/,/^---/' | head -40)
-    if [ -n "$review_extract" ]; then
-      echo "  ┌─── REVIEWER FEEDBACK ───"
-      echo "$review_extract" | while IFS= read -r line; do
-        echo "  │ $line"
-      done
-      echo "  └──────────────────────────"
+  if [ -n "$reviewer_comment" ] && [ "$reviewer_comment" != "null" ]; then
+    local review_created_at latest_commit_date is_stale=0
+    review_created_at=$(echo "$reviewer_comment" | jq -r '.createdAt // empty' 2>/dev/null || echo "")
+    latest_commit_date=$(echo "$pr_node" | jq -r '.commits.nodes[0].commit.committedDate // empty' 2>/dev/null || echo "")
+
+    # Compare timestamps: if latest commit is newer than the review, it's stale
+    if [ -n "$review_created_at" ] && [ -n "$latest_commit_date" ]; then
+      if [[ "$latest_commit_date" > "$review_created_at" ]]; then
+        is_stale=1
+      fi
+    fi
+
+    local reviewer_body=""
+    reviewer_body=$(echo "$reviewer_comment" | jq -r '.body // empty' 2>/dev/null || echo "")
+
+    if [ "$is_stale" -eq 1 ]; then
+      # Stale review: show truncated single-line summary
+      local first_line=""
+      first_line=$(echo "$reviewer_body" | awk '/^### Code Review/{found=1; next} found && /[^ ]/{print; exit}')
+      [ -z "$first_line" ] && first_line=$(echo "$reviewer_body" | head -1)
+      echo "  REVIEW (stale -- fixes pushed since review): ${first_line:0:120}"
+    else
+      # Fresh review: show full extracted feedback
+      local review_extract=""
+      review_extract=$(echo "$reviewer_body" | awk '/^### Code Review/,/^---/' | head -40)
+      if [ -n "$review_extract" ]; then
+        echo "  ┌─── REVIEWER FEEDBACK ───"
+        echo "$review_extract" | while IFS= read -r line; do
+          echo "  │ $line"
+        done
+        echo "  └──────────────────────────"
+      fi
     fi
   fi
 
