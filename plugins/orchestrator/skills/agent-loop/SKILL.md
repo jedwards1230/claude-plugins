@@ -368,6 +368,16 @@ If you need user input (via AskUserQuestion) and get no response for >1 monitori
 
 ---
 
+## PR Hygiene
+
+**Keep PR titles and descriptions current.** After pushing significant fixes or adding features to a PR, update the title and body via `gh pr edit` to reflect the current state. Reviewers and the user should be able to understand the PR's scope from the title alone.
+
+```bash
+gh pr edit <number> --title "new title" --body "updated description"
+```
+
+---
+
 ## Anti-Patterns
 
 | Wrong | Right |

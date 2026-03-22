@@ -27,6 +27,19 @@ Uses a single GraphQL query per PR for fast execution.
 
 ## Skills
 
+| Skill | When to Use | What It Controls |
+|-------|------------|-----------------|
+| `agent-loop` | Starting a milestone sprint, managing parallel implementation waves | Full session lifecycle: planning, dispatch, task tracking, wave management, merge ordering |
+| `pr-checker` | Monitoring CI status, checking review feedback, one-off PR status checks | PR CI/review monitoring, stale review detection, cross-repo status |
+
+### How they relate
+
+- **`agent-loop`** is the **session controller** -- it runs the whole show autonomously after initial planning. It handles issue analysis, dependency graphs, wave organization, agent dispatch, review response, and pipeline advancement.
+- **`pr-checker`** is the **monitoring tool** -- it checks CI status, review threads, and merge readiness for open PRs. It is used by `agent-loop` internally as part of its continuous monitoring loop.
+- **You do not need both skills active simultaneously.** When `agent-loop` is running, it invokes `pr-checker` as needed. Use `pr-checker` standalone for quick one-off status checks outside of a full orchestration session.
+
+### Triggers
+
 | Skill | Triggers |
 |-------|----------|
 | `agent-loop` | "agent-loop", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs" |
@@ -37,12 +50,6 @@ Uses a single GraphQL query per PR for fast execution.
 | Hook | Event | Trigger |
 |------|-------|---------|
 | `git-push-reminder` | PostToolUse (Bash) | Reminds to start a PR monitoring loop after `git push` |
-
-## When it activates
-
-The agent-loop skill triggers on keywords like "agent-loop", "milestone", "dispatch agents", "wave", "pipeline", "manage PRs", "babysit PRs".
-
-The pr-checker skill triggers on keywords like "check PR", "PR status", "CI status", "prci", "check pull requests".
 
 ## Dependencies
 
