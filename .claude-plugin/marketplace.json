@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.5.0"
+    "version": "8.0.0"
   },
   "plugins": [
     {
@@ -40,7 +40,7 @@
     {
       "name": "project-manager",
       "source": "./plugins/project-manager",
-      "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup",
+      "description": "Project management across multiple GitHub repos \u2014 triage, planning, tracking, and cleanup",
       "version": "0.3.1"
     },
     {
@@ -48,6 +48,12 @@
       "source": "./plugins/pr-checker",
       "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
       "version": "2.3.0"
+    },
+    {
+      "name": "orchestrator",
+      "source": "./plugins/orchestrator",
+      "description": "Multi-repo PR lifecycle, milestone orchestration, wave-based parallel implementation, and proactive pipeline management",
+      "version": "0.1.0"
     }
   ]
 }
