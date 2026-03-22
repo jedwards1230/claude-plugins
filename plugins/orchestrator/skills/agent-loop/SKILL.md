@@ -61,15 +61,7 @@ description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-
 
   '
 allowed-tools:
-  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh*)
-  - Bash(gh pr *)
-  - Bash(gh issue *)
-  - Bash(gh api *)
-  - Bash(gh repo *)
-  - Bash(git worktree *)
-  - Bash(git branch *)
-  - Bash(git checkout *)
-  - Bash(git push *)
+  - Bash
   - Read
   - Glob
   - Grep
