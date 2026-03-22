@@ -1,0 +1,8 @@
+{
+  "name": "orchestrator",
+  "version": "1.0.0",
+  "description": "Multi-repo PR lifecycle, milestone orchestration, wave-based parallel implementation, CI/review monitoring, and proactive pipeline management",
+  "author": {
+    "name": "jedwards1230"
+  }
+}

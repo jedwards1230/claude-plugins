@@ -135,6 +135,13 @@ validate_plugin() {
     base_marketplace_version=$(get_marketplace_version "$plugin_name" "$base_ref")
     head_marketplace_version=$(get_marketplace_version "$plugin_name" "HEAD")
 
+    # Check if plugin was removed (no plugin.json AND no marketplace entry in HEAD)
+    if [[ -z "$head_plugin_version" && -z "$head_marketplace_version" ]]; then
+        info "Plugin removed - skipping validation"
+        PLUGIN_RESULTS+=("${plugin_name}|pass|Removed (was ${base_plugin_version:-unknown})")
+        return 0
+    fi
+
     # Check if plugin.json exists in HEAD
     if [[ -z "$head_plugin_version" ]]; then
         error "plugin.json not found or missing version for ${plugin_name}"
