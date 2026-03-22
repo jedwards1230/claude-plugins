@@ -14,13 +14,13 @@ description: 'Continuous autonomous milestone execution: plan once, then dispatc
   user: "Implement the v0.16.0 milestone — 8 issues across kova and home-orchestration"
 
   assistant: "I''ll orchestrate this milestone. Let me analyze the issues, identify
-  dependencies, and organize into waves for your approval. After that, I execute continuously
+  dependencies, and organize into waves. Then I execute continuously
   until everything is merged."
 
   <commentary>
 
   Skill activates for milestone-scale coordination. Agent plans waves, presents the
-  plan ONCE for approval, then runs autonomously — dispatching agents, fixing reviews,
+  plans the waves, then runs autonomously — dispatching agents, fixing reviews,
   advancing waves — until the milestone is complete.
 
   </commentary>
@@ -84,7 +84,7 @@ Continuously execute a milestone: plan once, get approval, then run autonomously
 
 ## Core Principle
 
-**Ask once, then execute.** The planning phase is the only time you ask for direction. After the user approves the plan, maintain a constant stream of work. Never idle. Never ask "should I continue?" — just continue.
+**Plan, then execute.** Build the wave plan, present it for visibility, then start immediately. Do not ask for approval to begin — just begin. Maintain a constant stream of work. Never idle. Never ask "should I continue?" — just continue.
 
 ---
 
@@ -125,14 +125,14 @@ Wave 3 (sequential): #106            — depends on wave 2
 - Cross-repo issues are usually parallelizable
 - When in doubt, serialize — a blocked agent wastes more time than a short wait
 
-### Present the Plan for Approval
+### Build the Plan and Execute
 
-Use TaskCreate to formalize the plan, then present it clearly:
+Use TaskCreate to formalize the plan, then **start wave 1 immediately** — do not wait for approval:
 
 ```
 TaskCreate: "Milestone v0.16.0 — 6 issues, 3 waves"
 
-Wave 1 (parallel, start immediately):
+Wave 1 (parallel, starting now):
   - #101: <title> [kova-land/kova]
   - #102: <title> [kova-land/kova]
   - #103: <title> [jedwards1230/home-orchestration]
@@ -143,11 +143,9 @@ Wave 2 (parallel, after wave 1 merges):
 
 Wave 3 (sequential, after wave 2):
   - #106: <title> — blocked by #104, #105
-
-Estimated: 3 review cycles. Ready to start?
 ```
 
-**This is the last time you ask.** After approval, execute the entire plan autonomously.
+Present the plan for visibility, then dispatch wave 1 agents in the same response. Do not ask "Ready to start?" — just start.
 
 ---
 
