@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create standardized labels across all tracked repos (or specific repos).
 # Usage: setup-labels.sh [repo-filter...]
-# Example: setup-labels.sh hagen home-orchestration
+# Example: setup-labels.sh kova home-orchestration
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/repos.sh"
 check_gh_auth

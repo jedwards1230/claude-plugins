@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.2.0"
+    "version": "7.3.0"
   },
   "plugins": [
     {
@@ -35,13 +35,13 @@
       "name": "review-team",
       "source": "./plugins/review-team",
       "description": "Dynamic review team composition with specialized agents for collaborative code review",
-      "version": "1.0.0"
+      "version": "1.0.1"
     },
     {
       "name": "project-manager",
       "source": "./plugins/project-manager",
       "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup",
-      "version": "0.3.0"
+      "version": "0.3.1"
     },
     {
       "name": "pr-checker",

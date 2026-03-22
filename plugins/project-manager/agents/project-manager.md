@@ -24,9 +24,9 @@ description: 'Plan, triage, and prioritize work across all homelab repos using G
 
   Context: User wants to triage new issues
 
-  user: "Triage the new issues in hagen"
+  user: "Triage the new issues in kova"
 
-  assistant: "I''ll use the project-manager agent to review unlabeled issues in hagen, assess priority, and add them to the project board."
+  assistant: "I''ll use the project-manager agent to review unlabeled issues in kova, assess priority, and add them to the project board."
 
   <commentary>
 
@@ -112,7 +112,7 @@ When triaging new or unlabeled issues:
    - **Scope**: infra/service/tooling/docs
    - **Status**: blocked/needs-info (if applicable)
 6. **Add to Project Board**: Use `gh project item-add` to add to the repo's GitHub Project
-7. **Link Related Issues**: If cross-repo, add "Related" section with full references (e.g., `jedwards1230/hagen#123`)
+7. **Link Related Issues**: If cross-repo, add "Related" section with full references (e.g., `kova-land/kova#123`)
 
 ### Priority Decision Matrix
 
@@ -148,7 +148,7 @@ When asked to plan a sprint or recommend next work:
 - [ ] home-orchestration#123 (P0-critical) - Fix Longhorn storage crash
 
 ### Should Address (P1-normal)
-- [ ] hagen#45 (P1-normal) - Implement timeout handling for MCP servers
+- [ ] kova#45 (P1-normal) - Implement timeout handling for MCP servers
 - [ ] libro#12 (P1-normal) - Add chapter navigation
 
 ### Blockers
