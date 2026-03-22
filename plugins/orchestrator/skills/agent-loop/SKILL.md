@@ -127,22 +127,19 @@ Wave 3 (sequential): #106            — depends on wave 2
 
 ### Build the Plan and Execute
 
-Use TaskCreate to formalize the plan, then **start wave 1 immediately** — do not wait for approval:
+Use TaskCreate to formalize the plan — **one task per GitHub issue, not one task for the whole milestone**:
+
+- Each task subject must include the issue number and title: `"#101: Add streaming support [kova-land/kova]"`
+- Set `blockedBy` dependencies between tasks that mirror the wave dependencies
+- Mark tasks `done` as their PRs merge (not when the PR is opened)
 
 ```
-TaskCreate: "Milestone v0.16.0 — 6 issues, 3 waves"
-
-Wave 1 (parallel, starting now):
-  - #101: <title> [kova-land/kova]
-  - #102: <title> [kova-land/kova]
-  - #103: <title> [jedwards1230/home-orchestration]
-
-Wave 2 (parallel, after wave 1 merges):
-  - #104: <title> — blocked by #101
-  - #105: <title> — blocked by #102
-
-Wave 3 (sequential, after wave 2):
-  - #106: <title> — blocked by #104, #105
+TaskCreate: "#101: <title> [kova-land/kova]"          → wave 1
+TaskCreate: "#102: <title> [kova-land/kova]"          → wave 1
+TaskCreate: "#103: <title> [jedwards1230/home-orchestration]"  → wave 1
+TaskCreate: "#104: <title>" blockedBy=#101            → wave 2
+TaskCreate: "#105: <title>" blockedBy=#102            → wave 2
+TaskCreate: "#106: <title>" blockedBy=#104,#105       → wave 3
 ```
 
 Present the plan for visibility, then dispatch wave 1 agents in the same response. Do not ask "Ready to start?" — just start.
@@ -292,13 +289,31 @@ When a PR has CI green + reviewer approval:
 
 ### Wave Transitions
 
+Waves are **soft groupings for planning, not hard gates for execution.** The real constraint is per-issue dependencies. Apply this rule continuously:
+
+> **If an issue's blockers have merged PRs, dispatch its agent NOW — in this response.**
+
+Do not wait for an entire wave to finish. If 3 of 6 wave 1 items have merged and that unblocks wave 2 items, start those wave 2 items immediately. Do not report "wave 1 still in progress, here's what's next" and pause — dispatch the unblocked agents in the same response without asking.
+
 When a wave's PRs merge:
 
 1. Use TaskUpdate to mark completed issues as `done`
-2. Rebase any dependent branches onto the updated main
-3. Dispatch agents for the next wave immediately — do not ask "ready for wave 2?"
-4. Start monitoring the new PRs
-5. Report what you did: "Wave 1 complete. Wave 2 dispatched: #104, #105."
+2. Check the task list for any issue whose blockers are now all `done` — start it immediately
+3. Rebase any dependent branches onto the updated main
+4. Dispatch agents for all newly-unblocked issues in the same response — **never ask "ready for wave 2?"**
+5. Start monitoring the new PRs
+6. Report what you did in the same response: "PR #101 merged → #104 unblocked → dispatching agent for #104 now."
+
+**The wrong pattern:**
+```
+"Wave 1 is complete. Wave 2 consists of #104 and #105. Ready to start wave 2?"
+```
+
+**The right pattern:**
+```
+"PR #101 merged. #104 was blocked by #101 — dispatching agent for #104 now.
+PR #102 is still in review; #105 (blocked by #102) will start when it merges."
+```
 
 ### Cross-Repo Coordination
 
@@ -382,6 +397,9 @@ gh pr edit <number> --title "new title" --body "updated description"
 |-------|-------|
 | Report review findings and wait | Dispatch fix agents immediately |
 | Ask "should I start wave 2?" | Start wave 2 when wave 1 merges |
+| Wait for all of wave 1 to merge before starting any wave 2 issue | Start each issue the moment its own blockers merge |
+| One TaskCreate for the whole milestone | One TaskCreate per GitHub issue with blockedBy dependencies |
+| "Wave 1 complete. Here's wave 2. Ready?" | "PR merged → #104 unblocked → dispatching #104 now." |
 | Check one repo at a time | Check all repos in parallel |
 | Wait for user to notice CI failure | Fix it, report what you did |
 | Push PRs without monitoring | Start a cron after every push |
