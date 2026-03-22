@@ -1,10 +1,10 @@
 ---
 name: agent-loop
 description: 'Continuous autonomous milestone execution: plan once, then dispatch agents,
-  monitor PRs, fix reviews, and advance waves without stopping. Triggers: "orchestrate",
+  monitor PRs, fix reviews, and advance work without stopping. Triggers: "orchestrate",
   "manage PRs", "milestone", "dispatch agents", "parallel implementation", "wave",
   "pipeline", "monitor PRs", "coordinate work", "run the pipeline", "implement milestone",
-  "start wave", "babysit PRs".
+  "babysit PRs".
 
 
   <example>
@@ -14,14 +14,15 @@ description: 'Continuous autonomous milestone execution: plan once, then dispatc
   user: "Implement the v0.16.0 milestone — 8 issues across kova and home-orchestration"
 
   assistant: "I''ll orchestrate this milestone. Let me analyze the issues, identify
-  dependencies, and organize into waves. Then I execute continuously
-  until everything is merged."
+  dependencies, and create tasks with blockedBy relationships. Then I execute continuously
+  until everything is merged — dispatching each issue the moment its blockers clear."
 
   <commentary>
 
-  Skill activates for milestone-scale coordination. Agent plans waves, presents the
-  plans the waves, then runs autonomously — dispatching agents, fixing reviews,
-  advancing waves — until the milestone is complete.
+  Skill activates for milestone-scale coordination. Agent groups issues into waves only
+  to organize TaskCreate calls and set blockedBy dependencies. After planning, execution
+  is entirely dependency-driven — each task starts when its blockers are done, not when
+  a named wave completes.
 
   </commentary>
 
@@ -30,16 +31,16 @@ description: 'Continuous autonomous milestone execution: plan once, then dispatc
 
   <example>
 
-  Context: Agent has a plan approved and PRs are in flight
+  Context: A PR merges, unblocking downstream tasks
 
-  assistant: "Wave 1 PRs are all green with reviewer approval. Merging is ready — here
-  is the order. Meanwhile, I''m already dispatching wave 2 agents into worktrees."
+  assistant: "PR #101 merged. #104 was blocked by #101 — dispatching agent for #104
+  now. PR #102 is still in review; #105 will start when it merges."
 
   <commentary>
 
-  The orchestrator never idles. While announcing merge readiness for wave 1, it has
-  already started wave 2 work. It asks for merge approval but does not wait to start
-  unblocked work.
+  After planning, waves are irrelevant. The orchestrator reacts to individual PR merges:
+  mark task done, call TaskList to find newly unblocked tasks, dispatch agents for them
+  immediately. No wave announcements, no waiting for a whole group to finish.
 
   </commentary>
 
@@ -74,7 +75,7 @@ example_prompts:
   - "implement these 6 issues in parallel"
   - "manage my open PRs"
   - "start the pipeline for this milestone"
-  - "dispatch agents for wave 2"
+  - "dispatch agents for unblocked issues"
   - "babysit the open PRs until they merge"
 ---
 
@@ -110,9 +111,9 @@ Read each issue body and labels. Look for:
 - Logical ordering (API before UI, schema before queries)
 - Cross-repo dependencies (K8s manifest depends on service code)
 
-### Organize into Waves
+### Organize into Waves (Planning Convenience Only)
 
-Group issues so everything within a wave can run in parallel.
+Group issues so everything within a group can run in parallel. This grouping exists only to organize your `TaskCreate` calls and set `blockedBy` dependencies — it has no role in execution.
 
 ```
 Wave 1 (parallel): #101, #102, #103  — independent foundation work
@@ -125,27 +126,26 @@ Wave 3 (sequential): #106            — depends on wave 2
 - Cross-repo issues are usually parallelizable
 - When in doubt, serialize — a blocked agent wastes more time than a short wait
 
+> **Waves are a planning convenience for setting up `blockedBy` dependencies. After tasks are created, waves are irrelevant — execution is purely dependency-driven.** Each task starts the moment its own blockers are done, regardless of what else is still running in the same "wave."
+
 ### Build the Plan and Execute
 
-Use TaskCreate to formalize the plan, then **start wave 1 immediately** — do not wait for approval:
+Use TaskCreate to formalize the plan — **one task per GitHub issue, not one task for the whole milestone**:
+
+- Each task subject must include the issue number and title: `"#101: Add streaming support [kova-land/kova]"`
+- Set `blockedBy` dependencies between tasks that mirror the wave grouping above
+- Mark tasks `done` as their PRs merge (not when the PR is opened)
 
 ```
-TaskCreate: "Milestone v0.16.0 — 6 issues, 3 waves"
-
-Wave 1 (parallel, starting now):
-  - #101: <title> [kova-land/kova]
-  - #102: <title> [kova-land/kova]
-  - #103: <title> [jedwards1230/home-orchestration]
-
-Wave 2 (parallel, after wave 1 merges):
-  - #104: <title> — blocked by #101
-  - #105: <title> — blocked by #102
-
-Wave 3 (sequential, after wave 2):
-  - #106: <title> — blocked by #104, #105
+TaskCreate: "#101: <title> [kova-land/kova]"          → no blockers
+TaskCreate: "#102: <title> [kova-land/kova]"          → no blockers
+TaskCreate: "#103: <title> [jedwards1230/home-orchestration]"  → no blockers
+TaskCreate: "#104: <title>" blockedBy=#101            → blocked until #101 merges
+TaskCreate: "#105: <title>" blockedBy=#102            → blocked until #102 merges
+TaskCreate: "#106: <title>" blockedBy=#104,#105       → blocked until both merge
 ```
 
-Present the plan for visibility, then dispatch wave 1 agents in the same response. Do not ask "Ready to start?" — just start.
+Present the plan for visibility, then dispatch all tasks with no blockers in the same response. Do not ask "Ready to start?" — just start.
 
 ---
 
@@ -216,8 +216,8 @@ WHILE milestone has open issues:
   5. For each CI failure: dispatch fix agent immediately
   6. For each review with findings: dispatch fix agent for ALL findings immediately
   7. For each PR with reviewer approval + CI green: add to merge-ready queue
-  8. For each merged PR: mark task complete, check what's unblocked, dispatch next wave
-  9. If all current wave agents are done and PRs are in review: check if next wave can start early
+  8. For each merged PR: mark task done → call TaskList → dispatch agents for any task whose blockedBy are now all done
+  9. Do not wait for a group to finish — each task starts the moment its own blockers clear
   10. TaskUpdate with current status
 ```
 
@@ -290,15 +290,34 @@ When a PR has CI green + reviewer approval:
 
 ## Phase 4: Advance (Without Asking)
 
-### Wave Transitions
+### Dependency-Driven Execution
 
-When a wave's PRs merge:
+After planning, **waves no longer exist.** Execution is driven entirely by the `blockedBy` relationships in your task list. Apply this rule on every PR merge:
 
-1. Use TaskUpdate to mark completed issues as `done`
-2. Rebase any dependent branches onto the updated main
-3. Dispatch agents for the next wave immediately — do not ask "ready for wave 2?"
+> **PR merges → mark task done → call TaskList → any task whose blockedBy list is now all done is ready → dispatch its agent NOW, in this response.**
+
+That is the entire loop. There is no "wave 2 starts" — there is only "task X is no longer blocked."
+
+When a PR merges:
+
+1. Use TaskUpdate to mark the completed task as `done`
+2. Call TaskList and look for any task whose every `blockedBy` entry is now `done`
+3. For each newly-unblocked task: rebase its branch onto updated main, dispatch its agent immediately
 4. Start monitoring the new PRs
-5. Report what you did: "Wave 1 complete. Wave 2 dispatched: #104, #105."
+5. Report what you did in the same response: "PR #101 merged → #104 unblocked → dispatching agent for #104 now."
+
+Do not wait for a group of PRs to all merge before acting. Each task starts the moment its own blockers clear, regardless of what else is still running.
+
+**The wrong pattern:**
+```
+"Wave 1 is complete. Wave 2 consists of #104 and #105. Ready to start wave 2?"
+```
+
+**The right pattern:**
+```
+"PR #101 merged → #104 unblocked → dispatching agent for #104 now.
+PR #102 is still in review; #105 will start when it merges."
+```
 
 ### Cross-Repo Coordination
 
@@ -352,7 +371,7 @@ If you need user input (via AskUserQuestion) and get no response for >1 monitori
 - Rebase branches with conflicts
 - Resolve review threads after fixes land
 - Start monitoring crons after every push
-- Start the next wave after merges
+- Dispatch newly-unblocked tasks after merges
 - Create follow-up issues for out-of-scope findings
 
 ### ASK using AskUserQuestion:
@@ -381,11 +400,16 @@ gh pr edit <number> --title "new title" --body "updated description"
 | Wrong | Right |
 |-------|-------|
 | Report review findings and wait | Dispatch fix agents immediately |
-| Ask "should I start wave 2?" | Start wave 2 when wave 1 merges |
+| Think in waves during execution | Use TaskList blockedBy as the execution engine |
+| "Wave 1 complete, starting wave 2" | "PR merged → task done → unblocked tasks dispatched" |
+| Ask "should I start wave 2?" | Dispatch the next task the moment its blockers merge |
+| Wait for all of wave 1 to merge before starting any wave 2 issue | Start each task the moment its own blockers clear |
+| One TaskCreate for the whole milestone | One TaskCreate per GitHub issue with blockedBy dependencies |
+| "Wave 1 complete. Here's wave 2. Ready?" | "PR #101 merged → #104 unblocked → dispatching #104 now." |
 | Check one repo at a time | Check all repos in parallel |
 | Wait for user to notice CI failure | Fix it, report what you did |
 | Push PRs without monitoring | Start a cron after every push |
-| Serialize independent issues | Organize into parallel waves |
+| Serialize independent issues | Organize into parallel groups when planning |
 | Use `.claude/worktrees/` | Use `worktrees/<branch>/` from repo root |
 | Merge without asking | Announce readiness, get explicit approval |
 | Stop the loop to ask a question | Use AskUserQuestion and keep working |
@@ -403,7 +427,7 @@ gh pr edit <number> --title "new title" --body "updated description"
 **Always do proactively:**
 - Dispatch fix agents for every review finding
 - Start monitoring crons after every push
-- Advance to the next wave when the current wave merges
+- Dispatch newly-unblocked tasks when blockers merge
 - Rebase branches when conflicts appear
 - Flag cross-PR failure patterns
 - Remind the user when their input is blocking progress
@@ -423,5 +447,5 @@ gh pr edit <number> --title "new title" --body "updated description"
 | React | Fix review findings | Dispatch fix agent |
 | React | Resolve review threads | `gh api graphql` |
 | Advance | Merge (with approval) | AskUserQuestion, then `gh pr merge` |
-| Advance | Start next wave | Dispatch new agents (no asking) |
+| Advance | Dispatch unblocked tasks (no asking) | TaskList → dispatch agents |
 | Complete | Close milestone | AskUserQuestion, then `gh api` |
