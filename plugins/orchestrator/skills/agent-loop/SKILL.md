@@ -1,7 +1,7 @@
 ---
 name: agent-loop
-description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-based
-  parallel implementation, and proactive pipeline management. Triggers: "orchestrate",
+description: 'Continuous autonomous milestone execution: plan once, then dispatch agents,
+  monitor PRs, fix reviews, and advance waves without stopping. Triggers: "orchestrate",
   "manage PRs", "milestone", "dispatch agents", "parallel implementation", "wave",
   "pipeline", "monitor PRs", "coordinate work", "run the pipeline", "implement milestone",
   "start wave", "babysit PRs".
@@ -14,12 +14,14 @@ description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-
   user: "Implement the v0.16.0 milestone — 8 issues across kova and home-orchestration"
 
   assistant: "I''ll orchestrate this milestone. Let me analyze the issues, identify
-  dependencies, organize into waves, and start dispatching implementation agents."
+  dependencies, and organize into waves for your approval. After that, I execute continuously
+  until everything is merged."
 
   <commentary>
 
-  Skill activates for milestone-scale coordination. Agent plans waves, creates worktrees,
-  dispatches parallel agents, and monitors the full PR lifecycle.
+  Skill activates for milestone-scale coordination. Agent plans waves, presents the
+  plan ONCE for approval, then runs autonomously — dispatching agents, fixing reviews,
+  advancing waves — until the milestone is complete.
 
   </commentary>
 
@@ -28,15 +30,16 @@ description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-
 
   <example>
 
-  Context: Agent has pushed PRs and needs to monitor them
+  Context: Agent has a plan approved and PRs are in flight
 
-  assistant: "All 4 PRs are pushed. Starting monitoring loop to track CI status and
-  reviews across all repos."
+  assistant: "Wave 1 PRs are all green with reviewer approval. Merging is ready — here
+  is the order. Meanwhile, I''m already dispatching wave 2 agents into worktrees."
 
   <commentary>
 
-  After pushing, the orchestrator starts a /loop to monitor CI and review status,
-  and reacts to results without waiting for user nudges.
+  The orchestrator never idles. While announcing merge readiness for wave 1, it has
+  already started wave 2 work. It asks for merge approval but does not wait to start
+  unblocked work.
 
   </commentary>
 
@@ -47,17 +50,18 @@ description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-
 
   Context: Reviews came in on open PRs
 
-  assistant: "Reviewer flagged 3 issues on PR #45 and 1 doc gap on PR #46. Dispatching
-  fix agents for both PRs now."
+  assistant: "Reviewer flagged 3 issues on PR #45 and 1 doc gap on PR #46. Fix agents
+  dispatched for both. I''ll resolve the threads once fixes land."
 
   <commentary>
 
-  Orchestrator reacts to review feedback by immediately dispatching fix agents — does
-  not just report findings.
+  Orchestrator reacts to review feedback by immediately dispatching fix agents. It does
+  not report findings and wait — it acts and reports what it did.
 
   </commentary>
 
   </example>
+
 
   '
 allowed-tools:
@@ -74,43 +78,41 @@ example_prompts:
   - "babysit the open PRs until they merge"
 ---
 
-# Orchestrator
+# Agent Loop
 
-Coordinate multi-issue milestones across repos: plan waves, dispatch parallel agents, monitor PR lifecycle, react to reviews, and keep the pipeline moving without idle time.
+Continuously execute a milestone: plan once, get approval, then run autonomously until every issue has a merged PR or the user stops you.
 
-## Mindset
+## Core Principle
 
-You are the conductor, not the performer. Your job is to:
-1. **Plan** what work can run in parallel
-2. **Dispatch** agents to do the work
-3. **Monitor** CI and reviews continuously
-4. **React** to results immediately — fix failures, address reviews, announce readiness
-5. **Advance** the pipeline as soon as work unblocks
+**Ask once, then execute.** The planning phase is the only time you ask for direction. After the user approves the plan, maintain a constant stream of work. Never idle. Never ask "should I continue?" — just continue.
 
-**Never idle.** If you are waiting for something, check if anything else can be started. If everything is in flight, start a monitoring loop.
+---
 
-## Phase 1: Analyze and Plan
+## Phase 1: Plan (The ONE Time You Ask)
+
+This phase happens once at session start. Be thorough but fast.
 
 ### Gather the Work
 
 ```bash
 # List milestone issues
-gh issue list --repo OWNER/REPO --milestone "MILESTONE" --state open --json number,title,labels,assignees
+gh issue list --repo OWNER/REPO --milestone "MILESTONE" --state open --json number,title,labels,assignees,body
 
-# Or list specific issues
+# Or fetch specific issues
 gh issue view NUMBER --repo OWNER/REPO --json title,body,labels
 ```
 
 ### Identify Dependencies
 
-Read each issue's body and labels. Look for:
+Read each issue body and labels. Look for:
 - Explicit "blocked by" or "depends on" references
-- Shared files that would cause merge conflicts
+- Shared files that would cause merge conflicts (check file paths)
 - Logical ordering (API before UI, schema before queries)
+- Cross-repo dependencies (K8s manifest depends on service code)
 
 ### Organize into Waves
 
-Group issues into waves where each wave contains issues that can run in parallel (no file conflicts, no dependencies within the wave).
+Group issues so everything within a wave can run in parallel.
 
 ```
 Wave 1 (parallel): #101, #102, #103  — independent foundation work
@@ -118,47 +120,48 @@ Wave 2 (parallel): #104, #105        — depends on wave 1
 Wave 3 (sequential): #106            — depends on wave 2
 ```
 
-**Rules for wave planning:**
-- Issues touching the same files MUST be in different waves
-- Cross-repo issues are usually parallelizable (different repos = no conflicts)
-- Within a repo, check for overlapping file paths before parallelizing
-- Smaller waves are better than blocked agents — when in doubt, serialize
+**Wave rules:**
+- Issues touching the same files go in different waves
+- Cross-repo issues are usually parallelizable
+- When in doubt, serialize — a blocked agent wastes more time than a short wait
 
-### Create Task Tracking
+### Present the Plan for Approval
 
-Use TaskCreate to track the overall milestone and individual issues:
+Use TaskCreate to formalize the plan, then present it clearly:
 
 ```
 TaskCreate: "Milestone v0.16.0 — 6 issues, 3 waves"
-  - Wave 1: #101 (in_progress), #102 (in_progress), #103 (in_progress)
-  - Wave 2: #104 (pending), #105 (pending)
-  - Wave 3: #106 (pending)
+
+Wave 1 (parallel, start immediately):
+  - #101: <title> [kova-land/kova]
+  - #102: <title> [kova-land/kova]
+  - #103: <title> [jedwards1230/home-orchestration]
+
+Wave 2 (parallel, after wave 1 merges):
+  - #104: <title> — blocked by #101
+  - #105: <title> — blocked by #102
+
+Wave 3 (sequential, after wave 2):
+  - #106: <title> — blocked by #104, #105
+
+Estimated: 3 review cycles. Ready to start?
 ```
 
-## Phase 2: Dispatch Implementation Agents
+**This is the last time you ask.** After approval, execute the entire plan autonomously.
 
-### Worktree Convention
+---
 
-Every feature branch gets its own worktree:
+## Phase 2: Execute (Continuous, Autonomous)
 
-```bash
-# In the target repo
-git worktree add worktrees/<branch-name> -b <branch-name>
-```
+After approval, the loop begins. It does not stop until the milestone is done.
 
-Use `worktrees/<branch>/` from the repo root — NOT `.claude/worktrees/`.
+### Dispatch Implementation Agents
 
-### Spawn Agents
+For each issue in the current wave:
 
-For each issue in the current wave, spawn a Task agent with:
-1. **Clear deliverable**: "Implement issue #N: <title>"
-2. **Working directory**: The worktree path
-3. **Context**: Issue body, acceptance criteria, relevant file paths
-4. **Constraints**: Which files to touch, which to avoid
-
-Use `run_in_background` for all implementation agents so they run in parallel.
-
-### Agent Spawn Template
+1. Create a worktree: `git worktree add worktrees/<branch-name> -b <branch-name>`
+   - Use `worktrees/<branch>/` from the repo root — NOT `.claude/worktrees/`
+2. Spawn a Task agent with `run_in_background`:
 
 ```
 Implement issue OWNER/REPO#N: <title>
@@ -176,58 +179,72 @@ Working directory: /path/to/repo/worktrees/<branch>/
 - path/to/file2.go
 
 ## Constraints
-- Do NOT modify <shared files>
+- Do NOT modify <shared files that other agents touch>
 - Run tests before committing: <test command>
 - Run linter before committing: <lint command>
-- Create a PR when done with: gh pr create --title "<type>: <description>" --body "Closes OWNER/REPO#N"
+- Create a PR when done: gh pr create --title "<type>: <description>" --body "Closes OWNER/REPO#N"
 ```
 
-## Phase 3: Monitor and React
+3. Use TaskUpdate to mark the issue `in_progress`
 
-### Start Monitoring Loop
+**Dispatch ALL wave agents simultaneously.** Do not wait for one to finish before starting the next.
 
-After pushing PRs, immediately start a monitoring loop using the built-in PR checker:
+### Start Monitoring Immediately
 
+After dispatching agents, start a cron to track CI and reviews:
+
+```
+CronCreate: "pr-monitor" interval=5m
+  ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh
+```
+
+Or use the built-in checker:
 ```
 /loop 5m /pr-checker
 ```
 
-Or run it directly:
+**Every push gets a cron.** No exceptions.
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh
+### The Core Loop
+
+This runs continuously after wave dispatch:
+
+```
+WHILE milestone has open issues:
+  1. Check agent completion status
+  2. Check CI status on all open PRs (all repos)
+  3. Check review status on all open PRs
+  4. For each completed agent: verify PR was created, start monitoring
+  5. For each CI failure: dispatch fix agent immediately
+  6. For each review with findings: dispatch fix agent for ALL findings immediately
+  7. For each PR with reviewer approval + CI green: add to merge-ready queue
+  8. For each merged PR: mark task complete, check what's unblocked, dispatch next wave
+  9. If all current wave agents are done and PRs are in review: check if next wave can start early
+  10. TaskUpdate with current status
 ```
 
-This checks CI status and review threads across all repos with open PRs.
+**Do not break out of this loop to ask questions.** If you need user input, use AskUserQuestion and keep the loop running.
 
-### When to Start Loops
-- **After pushing any PR**: Start `/loop 5m /pr-checker` immediately
-- **After dispatching agents**: Start `/loop 2m check agent status` to track completion
-- **During review cycles**: Keep the loop running until all PRs are merged or session ends
+---
 
-### When to Stop Loops
-- All PRs in the current scope are merged
-- Session is ending
-- User explicitly asks to stop
+## Phase 3: React (Immediately, Always)
 
-### React to CI Results
+### CI Failures
 
-| CI Status | Action |
-|-----------|--------|
-| ALL PASSING | Announce "PR #N is green and ready for review/merge" |
-| FAILING | Read the failure, dispatch a fix agent immediately |
-| IN PROGRESS | Wait for next loop iteration |
-| HAS MERGE CONFLICTS | Rebase the branch, push force if needed |
+| Status | Action |
+|--------|--------|
+| PASSING | Add to merge-ready announcement |
+| FAILING | Read the failure log. Dispatch a fix agent into the same worktree. Do not report and wait. |
+| IN PROGRESS | Continue to next PR |
+| MERGE CONFLICT | Rebase the branch, force-push, re-monitor |
 
-### React to Reviews
+### Review Feedback
 
-When reviews come in:
+When reviews arrive:
 
-1. **Read ALL review comments** — not just threads, check the review body too
-2. **Categorize findings**: code issues, docs gaps, nits, questions
-3. **Dispatch fix agents immediately** for ALL findings — do not just report them
-4. **After fixes are pushed**: Re-run `/pr-checker` to verify
-5. **Resolve threads** via GraphQL after fixes are pushed and verified
+1. Read ALL review comments — body, inline comments, and suggestion blocks
+2. Dispatch a fix agent immediately for ALL findings. Do not cherry-pick.
+3. After the fix agent pushes, resolve threads via GraphQL:
 
 ```bash
 # Get unresolved threads
@@ -248,7 +265,7 @@ gh api graphql -f query='
   }
 }' | jq -r '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
 
-# Resolve a thread after fixing
+# Resolve after fix is pushed
 gh api graphql -f query='
 mutation {
   resolveReviewThread(input: {threadId: "THREAD_ID"}) {
@@ -257,62 +274,114 @@ mutation {
 }'
 ```
 
-### Goal: Reviewer All-Clear
+4. Re-run `/pr-checker` to verify CI still passes after fixes
 
-Keep iterating fixes until the reviewer gives LGTM with no issues. `codecov/patch` failures alone are acceptable, but reviewer findings must be addressed.
+**Goal: reviewer all-clear on every PR.** `codecov/patch` failures alone are acceptable. Reviewer findings are not.
 
-## Phase 4: Advance the Pipeline
+**Stale reviews:** If a review is >24h old with no response after fixes, note it in your status update but do not re-dump the full review body.
 
-### Merge Ordering
+### Merge Readiness
 
-When PRs are ready to merge:
+When a PR has CI green + reviewer approval:
+- Announce it with the recommended merge order (dependencies first)
+- Use AskUserQuestion with the merge list and a "merge all in this order?" option
+- **Never merge without explicit user approval**
+- While waiting for merge approval, keep working on everything else
 
-1. **Identify dependencies** — merge foundation PRs first
-2. **Check for conflicts** — if PR B depends on PR A, merge A first and rebase B
-3. **Announce readiness** — tell the user which PRs are ready and in what order
-4. **Never merge without user approval** — announce and wait
+---
 
-```
-PRs ready to merge (recommended order):
-1. PR #101 — foundation refactor (no dependencies)
-2. PR #102 — API changes (no dependencies)
-3. PR #103 — depends on #101, rebase needed after #101 merges
-```
+## Phase 4: Advance (Without Asking)
 
-### Unblock Next Waves
+### Wave Transitions
 
 When a wave's PRs merge:
 
-1. **Immediately start the next wave** — don't wait for the user to say "start wave 2"
-2. **Rebase dependent branches** if needed
-3. **Update task tracking** — mark completed, start in-progress
+1. Use TaskUpdate to mark completed issues as `done`
+2. Rebase any dependent branches onto the updated main
+3. Dispatch agents for the next wave immediately — do not ask "ready for wave 2?"
+4. Start monitoring the new PRs
+5. Report what you did: "Wave 1 complete. Wave 2 dispatched: #104, #105."
 
-### Cross-Repo Awareness
+### Cross-Repo Coordination
 
-When working across multiple repos:
-- Run `/pr-checker` against every repo with open PRs, not just the current one
-- Track which repo each PR belongs to
-- Dependencies can span repos — a K8s manifest PR might depend on a service code PR
+- Run `/pr-checker` against EVERY repo with open PRs, not just the current one
+- Track which repo each PR belongs to in your task list
+- Dependencies can span repos — merge the upstream repo's PR first
 
 ```bash
-# Check all repos with open PRs
+# Check all repos
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R kova-land/kova
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/home-orchestration
 ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
 ```
+
+---
+
+## Phase 5: Complete (Milestone-Driven Termination)
+
+The loop runs until one of:
+- **All milestone issues have merged PRs** — propose closing the milestone and tagging the release
+- **The user stops it** — clean up worktrees, summarize remaining work
+
+### When All Issues Are Done
+
+```
+All 6 issues merged. Milestone v0.16.0 is complete.
+
+Merged PRs:
+- kova-land/kova#201: <title>
+- kova-land/kova#202: <title>
+- jedwards1230/home-orchestration#45: <title>
+...
+
+Recommend: close milestone and tag v0.16.0 release. Proceed?
+```
+
+### When Blocked
+
+If you need user input (via AskUserQuestion) and get no response for >1 monitoring cycle:
+- Remind them what's waiting: "Blocked on: merge approval for PRs #201, #202. Everything else is done."
+- Keep monitoring other PRs — do not stop the loop just because one question is pending
+
+---
+
+## When to Ask vs When to Act
+
+### ACT without asking:
+- Dispatch agents for unblocked issues
+- Fix reviewer feedback (dispatch fix agents)
+- Fix CI failures
+- Rebase branches with conflicts
+- Resolve review threads after fixes land
+- Start monitoring crons after every push
+- Start the next wave after merges
+- Create follow-up issues for out-of-scope findings
+
+### ASK using AskUserQuestion:
+- Merge approval (always — provide the merge order and a recommendation)
+- Architectural decisions with real tradeoffs (present 2-3 options with pros/cons)
+- Scope changes ("Issue #105 is larger than expected — defer to next milestone?")
+- Ambiguous requirements that code can't resolve
+- Milestone closure and release tagging
+
+**When asking, be specific.** Use AskUserQuestion with concrete options and your recommendation. Do not bury questions in output text — grab the user's attention.
+
+---
 
 ## Anti-Patterns
 
 | Wrong | Right |
 |-------|-------|
 | Report review findings and wait | Dispatch fix agents immediately |
-| Ask "should I start wave 2?" | Start wave 2 as soon as wave 1 merges |
-| Check one repo at a time | Check all repos with open PRs in parallel |
-| Wait for user to notice CI failure | Fix it and report what you did |
-| Create PRs without monitoring | Always start a `/loop` after pushing |
+| Ask "should I start wave 2?" | Start wave 2 when wave 1 merges |
+| Check one repo at a time | Check all repos in parallel |
+| Wait for user to notice CI failure | Fix it, report what you did |
+| Push PRs without monitoring | Start a cron after every push |
 | Serialize independent issues | Organize into parallel waves |
 | Use `.claude/worktrees/` | Use `worktrees/<branch>/` from repo root |
-| Merge PRs without asking | Announce readiness, wait for approval |
+| Merge without asking | Announce readiness, get explicit approval |
+| Stop the loop to ask a question | Use AskUserQuestion and keep working |
+| Re-dump stale review text | Note it, move on |
 
 ## Safety Rails
 
@@ -320,27 +389,31 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
 - Merge PRs without explicit user approval
 - Force-push to main/master
 - Start work that contradicts user's stated plan
-- Close issues without user approval
-- Run destructive git operations (reset --hard, clean -f)
+- Close issues or milestones without approval
+- Run destructive git operations on main (reset --hard, clean -f)
 
 **Always do proactively:**
-- Start monitoring loops after pushing
-- Dispatch fix agents for review feedback
-- Announce when PRs are ready to merge
-- Start next wave when current wave merges
-- Flag patterns of failures across PRs
-- Rebase branches when conflicts are detected
+- Dispatch fix agents for every review finding
+- Start monitoring crons after every push
+- Advance to the next wave when the current wave merges
+- Rebase branches when conflicts appear
+- Flag cross-PR failure patterns
+- Remind the user when their input is blocking progress
 
 ## Quick Reference
 
-| Phase | Key Action | Tool |
-|-------|-----------|------|
+| Phase | Action | Tool |
+|-------|--------|------|
 | Plan | Analyze issues, find dependencies | `gh issue list/view` |
-| Plan | Organize waves | TaskCreate |
-| Dispatch | Create worktrees | `git worktree add` |
-| Dispatch | Spawn agents | Task agent with `run_in_background` |
-| Monitor | Track CI/reviews | `/loop 5m /pr-checker` |
-| React | Fix review findings | Dispatch fix agents |
-| React | Fix CI failures | Dispatch fix agents |
-| Advance | Announce merge readiness | Report to user |
-| Advance | Start next wave | Dispatch new agents |
+| Plan | Organize waves, present plan | TaskCreate, output to user |
+| Plan | Get approval (ONE time) | Wait for user response |
+| Execute | Create worktrees | `git worktree add` |
+| Execute | Spawn parallel agents | Agent with `run_in_background` |
+| Execute | Track progress | TaskUpdate |
+| Monitor | Track CI and reviews | CronCreate / `/loop 5m /pr-checker` |
+| React | Fix CI failures | Dispatch fix agent |
+| React | Fix review findings | Dispatch fix agent |
+| React | Resolve review threads | `gh api graphql` |
+| Advance | Merge (with approval) | AskUserQuestion, then `gh pr merge` |
+| Advance | Start next wave | Dispatch new agents (no asking) |
+| Complete | Close milestone | AskUserQuestion, then `gh api` |
