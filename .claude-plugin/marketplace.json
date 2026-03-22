@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "8.0.0"
+    "version": "9.0.0"
   },
   "plugins": [
     {
@@ -44,16 +44,10 @@
       "version": "0.3.1"
     },
     {
-      "name": "pr-checker",
-      "source": "./plugins/pr-checker",
-      "description": "Check GitHub PR CI status, review threads, and reviewer verdicts",
-      "version": "2.3.0"
-    },
-    {
       "name": "orchestrator",
       "source": "./plugins/orchestrator",
-      "description": "Multi-repo PR lifecycle, milestone orchestration, wave-based parallel implementation, and proactive pipeline management",
-      "version": "0.1.0"
+      "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management",
+      "version": "1.0.0"
     }
   ]
 }

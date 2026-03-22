@@ -61,6 +61,7 @@ description: 'Multi-repo PR lifecycle management, milestone orchestration, wave-
 
   '
 allowed-tools:
+  - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh*)
   - Bash(gh pr *)
   - Bash(gh issue *)
   - Bash(gh api *)
@@ -193,10 +194,16 @@ Working directory: /path/to/repo/worktrees/<branch>/
 
 ### Start Monitoring Loop
 
-After pushing PRs, immediately start a monitoring loop:
+After pushing PRs, immediately start a monitoring loop using the built-in PR checker:
 
 ```
 /loop 5m /pr-checker
+```
+
+Or run it directly:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh
 ```
 
 This checks CI status and review threads across all repos with open PRs.
@@ -297,9 +304,9 @@ When working across multiple repos:
 
 ```bash
 # Check all repos with open PRs
-/pr-checker -R kova-land/kova
-/pr-checker -R jedwards1230/home-orchestration
-/pr-checker -R jedwards1230/claude-plugins
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R kova-land/kova
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/home-orchestration
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
 ```
 
 ## Anti-Patterns

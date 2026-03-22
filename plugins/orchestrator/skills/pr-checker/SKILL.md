@@ -12,7 +12,7 @@ example_prompts:
   - "are my PRs passing?"
   - "prci"
   - "check PR status for kova-land/kova"
-permalink: tooling/claude-plugins/plugins/pr-checker/skills/pr-checker/skill
+permalink: tooling/claude-plugins/plugins/orchestrator/skills/pr-checker/skill
 ---
 
 # PR Checker
