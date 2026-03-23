@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.8.0"
+    "version": "7.9.0"
   },
   "plugins": [
     {
@@ -47,7 +47,7 @@
       "name": "orchestrator",
       "source": "./plugins/orchestrator",
       "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management",
-      "version": "1.0.2"
+      "version": "1.0.3"
     }
   ]
 }

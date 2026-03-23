@@ -246,6 +246,30 @@ show_recent_merges() {
   echo
 }
 
+show_recent_releases() {
+  local repo_flag="$1"
+
+  # Fetch recent releases (last 7 days)
+  local releases
+  releases=$(gh release list $repo_flag --limit 10 --json tagName,publishedAt,isPrerelease,isDraft 2>/dev/null || echo "[]")
+
+  local since
+  since=$(date -u -v-7d '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo "")
+  [ -z "$since" ] && return
+
+  local recent
+  recent=$(echo "$releases" | jq -r --arg since "$since" '
+    [.[] | select(.publishedAt >= $since and .isDraft == false)] | sort_by(.publishedAt) | reverse | .[] |
+    "  \(.tagName)\(if .isPrerelease then " (pre-release)" else "" end)  \(.publishedAt[:10])"
+  ' 2>/dev/null)
+
+  [ -z "$recent" ] && return
+
+  echo "Recent releases (last 7 days):"
+  echo "$recent"
+  echo
+}
+
 main() {
   local repo_flag=""
   if [ "${1:-}" = "-R" ]; then
@@ -289,9 +313,10 @@ main() {
     check_pr "$pr" "$repo_owner" "$repo_name"
   done
 
-  # Show recent merges when checking all open PRs (no explicit numbers given)
+  # Show recent merges and releases when checking all open PRs (no explicit numbers given)
   if [ $# -eq 0 ]; then
     show_recent_merges "$repo_flag"
+    show_recent_releases "$repo_flag"
   fi
 }
 
