@@ -1,0 +1,98 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/scripts/session-setup.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-fmt.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-vet-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running go vet and tests..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-lint.sh\"",
+            "timeout": 90,
+            "statusMessage": "Running golangci-lint..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-vet-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running go vet and tests..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-lint.sh\"",
+            "timeout": 90,
+            "statusMessage": "Running golangci-lint..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-vet-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running go vet and tests..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-lint.sh\"",
+            "timeout": 90,
+            "statusMessage": "Running golangci-lint..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-vet-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running go vet and tests..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PLUGIN_ROOT/hooks/go-lint.sh\"",
+            "timeout": 90,
+            "statusMessage": "Running golangci-lint..."
+          }
+        ]
+      }
+    ]
+  }
+}
