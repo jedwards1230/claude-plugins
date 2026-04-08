@@ -4,19 +4,28 @@ set -euo pipefail
 
 INPUT=$(cat)
 
-# Prevent infinite loops
-if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
-  exit 0
+# Prevent infinite loops — guard against missing jq
+if command -v jq &>/dev/null; then
+  if [ "$(echo "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)" = "true" ]; then
+    exit 0
+  fi
 fi
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Find merge base against default branch
+BASE=""
+for candidate in main master; do
+  BASE=$(git merge-base HEAD "$candidate" 2>/dev/null || true)
+  [ -n "$BASE" ] && break
+done
+
 # Check for Go files modified in working tree, staged, or recent commits on branch
 MODIFIED=$(
   {
-    git diff --name-only 2>/dev/null
-    git diff --name-only --cached 2>/dev/null
-    git diff --name-only "$(git merge-base HEAD main 2>/dev/null || echo HEAD~1)" HEAD 2>/dev/null
+    git diff --name-only 2>/dev/null || true
+    git diff --name-only --cached 2>/dev/null || true
+    [ -n "$BASE" ] && git diff --name-only "$BASE" HEAD 2>/dev/null || true
   } | sort -u
 )
 [ -z "$MODIFIED" ] && exit 0
