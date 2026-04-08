@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "7.9.0"
+    "version": "8.0.0"
   },
   "plugins": [
     {
@@ -48,6 +48,12 @@
       "source": "./plugins/orchestrator",
       "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management",
       "version": "1.0.3"
+    },
+    {
+      "name": "go-quality",
+      "source": "./plugins/go-quality",
+      "description": "Go quality gates — auto-format, vet, test, and lint on every turn",
+      "version": "0.1.0"
     }
   ]
 }
