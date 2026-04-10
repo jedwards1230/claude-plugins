@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "9.0.0"
+    "version": "10.0.0"
   },
   "plugins": [
     {
@@ -42,6 +42,12 @@
       "source": "./plugins/go-quality",
       "description": "Go quality gates — auto-format, vet, test, and lint on every turn",
       "version": "0.1.0"
+    },
+    {
+      "name": "home-wiki",
+      "source": "./plugins/home-wiki",
+      "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki",
+      "version": "0.0.1"
     }
   ]
 }
