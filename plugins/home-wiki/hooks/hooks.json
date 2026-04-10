@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Review the work you just completed in this turn. Based on what was discussed, decided, or discovered, does anything in the Home Wiki need to be created or updated? Consider: new services, architecture changes, infrastructure decisions, research findings, guides, or corrections to existing pages. If yes, briefly note what should be updated (but do not update it now — just flag it). If nothing is relevant, say nothing."
+            "prompt": "Review what just happened this turn. Is there anything worth capturing in the Home Wiki? If yes, briefly note what. If not, say nothing."
           }
         ]
       }
