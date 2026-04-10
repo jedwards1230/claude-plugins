@@ -1,3 +1,14 @@
 {
-  "hooks": []
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Review what just happened this turn. Is there anything worth capturing in the Home Wiki? If yes, briefly note what. If not, say nothing."
+          }
+        ]
+      }
+    ]
+  }
 }
