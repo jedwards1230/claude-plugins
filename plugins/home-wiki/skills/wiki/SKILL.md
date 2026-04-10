@@ -14,6 +14,7 @@ A shared Obsidian vault for organizational knowledge — homelab, projects,
 recipes, research, guides. Accessible to all agents and family members.
 
 - **Web UI**: https://wiki.lilbro.cloud
+- **Repo**: https://github.com/jedwards1230/home-wiki
 - **Schema**: **Always read before any wiki work** — `curl -s https://wiki.lilbro.cloud/meta/schema.md`
 
 ## Reading Content
