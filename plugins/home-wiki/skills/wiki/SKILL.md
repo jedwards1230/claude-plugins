@@ -8,72 +8,46 @@ description: >-
   "wiki page", "write to wiki".
 ---
 
-# Home Wiki Agent Manual
+# Home Wiki
 
-The Home Wiki is a shared Obsidian vault for organizational knowledge -- homelab,
-projects, recipes, research, guides. Accessible to all agents and family members.
+A shared Obsidian vault for organizational knowledge — homelab, projects,
+recipes, research, guides. Accessible to all agents and family members.
 
 - **Web UI**: https://wiki.lilbro.cloud
-- **Schema**: Always read before any wiki work -- `wiki.lilbro.cloud/meta/schema.md`
+- **Schema**: **Always read before any wiki work** — `curl -s https://wiki.lilbro.cloud/meta/schema.md`
 
-## Access Patterns
+## Reading Content
 
-| Method | URL/Tool | Use |
-|--------|----------|-----|
-| MCP tools | `wiki_*` tools (auto-configured by this plugin) | Primary agent interface |
-| Plain markdown | `wiki.lilbro.cloud/path.md` | Token-efficient reads via WebFetch |
-| HTML | `wiki.lilbro.cloud/path` | Human-readable links |
-| Raw files | `wiki.lilbro.cloud/raw/path` | Source documents, PDFs, images |
+| URL | Purpose |
+|-----|---------|
+| `wiki.lilbro.cloud/path.md` | Plain markdown (agent access) |
+| `wiki.lilbro.cloud/path` | Rendered HTML (human links) |
+| `wiki.lilbro.cloud/raw/path` | Native source files (PDFs, images, raw text) |
 
-## Principles
+## Writing Content
 
-1. **Metadata over structure.** Tags and frontmatter organize -- not folders.
-2. **Human-readable, agent-maintained.** Pages read like a person wrote them.
-3. **Compile, don't copy.** Synthesize sources into cross-referenced wiki pages.
-4. **Link liberally.** Every concept mention should be a wikilink `[[like-this]]`.
-5. **Small, focused pages.** 300-800 words. Split beyond 1,000.
+All reads and writes go through the HTTP API or MCP tools.
 
-## Required Frontmatter
+### HTTP API (`wiki.lilbro.cloud/api/`)
 
-Every wiki page must have:
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/pages/{path}` | GET | Read a page |
+| `/api/pages/{path}` | PUT | Create or update a page |
+| `/api/pages/{path}` | PATCH | Partial find-and-replace edits |
+| `/api/pages/{path}` | DELETE | Delete a page |
+| `/api/pages` | GET | List pages (optional `?prefix=`) |
+| `/api/search` | GET | Full-text search (`?q=&limit=&engine=`) |
+| `/api/recent` | GET | Recently modified pages (`?limit=`) |
+| `/api/directory` | GET | All pages with title/tags metadata |
+| `/api/lint` | GET | Run mechanical lint checks |
+| `/api/ingest` | GET | List unprocessed raw sources |
+| `/api/log` | GET | Activity log |
+| `/api/activity` | POST | Append activity entry |
 
-```yaml
----
-title: Page Title
-tags:
-  - domain-tag
-date: 2026-04-06
----
-```
+### MCP Tools
 
-Optional: `description:` (under 100 chars), `source:` (url:/repo:/vault: prefix), `status:` (stub|wip|complete).
-
-## Tag Domains
-
-| Domain | Use for |
-|--------|---------|
-| `homelab` | Infrastructure, services, cluster |
-| `research` | Academic/reference knowledge |
-| `project` | Active development work |
-| `food` | Recipes, meal prep, cooking |
-| `guide` | How-to for family/future reference |
-| `reference` | Books, tools, places |
-| `career` | Professional development |
-| `meta` | Wiki operations, schema |
-
-## Naming Conventions
-
-- Kebab-case filenames: `home-assistant.md`
-- Title case in `title` frontmatter
-- No `# H1` headings (Quartz renders the title from frontmatter)
-- Wikilinks: `[[page-name]]` or `[[page-name|Display Text]]`
-
-## Activity Logging
-
-After any wiki operation, log via `wiki_activity` MCP tool or `POST /api/activity`.
-Two-tier system: daily files at `meta/activity/YYYY-MM-DD.md` and an index at `meta/log.md`.
-
-## Key MCP Tools
+Available via `mcp.lilbro.cloud/wiki/mcp`.
 
 | Tool | Purpose |
 |------|---------|
@@ -83,9 +57,11 @@ Two-tier system: daily files at `meta/activity/YYYY-MM-DD.md` and an index at `m
 | `wiki_create_page` | Create a new wiki page |
 | `wiki_update_page` | Replace page content |
 | `wiki_patch_page` | Partial page update (find-and-replace) |
+| `wiki_delete_page` | Delete a page |
 | `wiki_ingest` | List unprocessed raw sources |
 | `wiki_ingest_generate` | AI-assisted ingestion of raw sources |
 | `wiki_lint` | Check pages for mechanical issues |
+| `wiki_lint_log` | Lint the activity log |
 | `wiki_activity` | Log wiki operations |
 | `wiki_log` | View activity log |
 | `wiki_log_day` | View specific day's activity |
@@ -93,10 +69,16 @@ Two-tier system: daily files at `meta/activity/YYYY-MM-DD.md` and an index at `m
 | `wiki_directory_generate` | Regenerate the directory index |
 | `wiki_recent` | Recently modified pages |
 
+## When to Use the Wiki
+
+When knowledge is worth sharing beyond this repo or this machine — write it
+to the wiki. Repo-local auto-memory is for repo-specific context (build
+commands, tool paths, project patterns); the wiki is for everything else
+(architecture decisions, research, investigations, guides).
+
 ## Referencing Wiki Content
 
-- **To agents**: use `.md` suffix URLs for reads, MCP tools for writes
+- **To agents**: use `.md` suffix URLs for reads, API/MCP for writes
 - **To user**: use web URLs (e.g., `https://wiki.lilbro.cloud/meta/schema`)
-- **Raw sources**: always provide full URL with extension
-
-For the complete, canonical schema: `wiki.lilbro.cloud/meta/schema.md`
+- **Raw sources**: always provide full URL with extension — raw files aren't
+  in the Quartz sidebar, direct links are the only way to access them
