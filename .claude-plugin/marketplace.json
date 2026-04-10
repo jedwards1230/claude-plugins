@@ -4,50 +4,43 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "10.0.1"
+    "version": "10.0.2"
   },
   "plugins": [
     {
       "name": "grafana-dashboards",
       "source": "./plugins/grafana-dashboards",
-      "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments",
-      "version": "1.0.0"
+      "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments"
     },
     {
       "name": "git-worktree",
       "source": "./plugins/git-worktree",
-      "description": "Git worktree workflow management for parallel branch development",
-      "version": "0.3.1"
+      "description": "Git worktree workflow management for parallel branch development"
     },
     {
       "name": "review-team",
       "source": "./plugins/review-team",
-      "description": "Dynamic review team composition with specialized agents for collaborative code review",
-      "version": "1.0.1"
+      "description": "Dynamic review team composition with specialized agents for collaborative code review"
     },
     {
       "name": "project-manager",
       "source": "./plugins/project-manager",
-      "description": "Project management across multiple GitHub repos \u2014 triage, planning, tracking, and cleanup",
-      "version": "0.3.1"
+      "description": "Project management across multiple GitHub repos \u2014 triage, planning, tracking, and cleanup"
     },
     {
       "name": "orchestrator",
       "source": "./plugins/orchestrator",
-      "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management",
-      "version": "1.0.3"
+      "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management"
     },
     {
       "name": "go-quality",
       "source": "./plugins/go-quality",
-      "description": "Go quality gates — auto-format, vet, test, and lint on every turn",
-      "version": "0.1.0"
+      "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
     },
     {
       "name": "home-wiki",
       "source": "./plugins/home-wiki",
-      "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki",
-      "version": "0.0.4"
+      "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki"
     }
   ]
 }

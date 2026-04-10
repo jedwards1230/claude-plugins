@@ -2,8 +2,9 @@
 #
 # check-plugin-versions.sh
 #
-# Validates that plugin versions are properly bumped and consistent across
-# plugin.json and marketplace.json when plugin files are changed.
+# Validates that plugin versions are properly bumped in plugin.json when
+# plugin files are changed. Marketplace.json version fields are optional
+# (plugin.json is the source of truth per Claude Code docs).
 #
 # Usage: ./scripts/check-plugin-versions.sh <base-ref>
 #   base-ref: Git reference to compare against (e.g., origin/main)
@@ -150,21 +151,12 @@ validate_plugin() {
         return 1
     fi
 
-    # Check if marketplace entry exists in HEAD
-    if [[ -z "$head_marketplace_version" ]]; then
-        error "Missing marketplace.json entry for ${plugin_name}"
-        error "  Add an entry to .claude-plugin/marketplace.json plugins array"
-        ((ERRORS_FOUND++))
-        PLUGIN_RESULTS+=("${plugin_name}|fail|Missing marketplace.json entry")
-        return 1
-    fi
-
-    # Check version consistency between plugin.json and marketplace.json
-    if [[ "$head_plugin_version" != "$head_marketplace_version" ]]; then
+    # Check if marketplace entry exists in HEAD (version field is optional)
+    if [[ -n "$head_marketplace_version" && "$head_plugin_version" != "$head_marketplace_version" ]]; then
         error "Version mismatch for ${plugin_name}"
         error "  plugin.json version:     ${head_plugin_version}"
         error "  marketplace.json version: ${head_marketplace_version}"
-        error "  These versions must be identical"
+        error "  Remove the version from marketplace.json or make them identical"
         ((ERRORS_FOUND++))
         has_errors=1
         plugin_status="fail"
@@ -197,18 +189,20 @@ validate_plugin() {
         success "plugin.json version bumped: ${base_plugin_version} -> ${head_plugin_version}"
     fi
 
-    # Check that marketplace.json entry version was bumped
-    if [[ "$base_marketplace_version" == "$head_marketplace_version" ]]; then
-        error "marketplace.json entry version not bumped for ${plugin_name}"
-        error "  Base version:    ${base_marketplace_version}"
-        error "  Current version: ${head_marketplace_version}"
-        error "  Please update the version in .claude-plugin/marketplace.json"
-        ((ERRORS_FOUND++))
-        has_errors=1
-        plugin_status="fail"
-        plugin_details="${plugin_details:+${plugin_details}; }marketplace entry not bumped (${base_marketplace_version})"
-    else
-        success "marketplace.json entry version bumped: ${base_marketplace_version} -> ${head_marketplace_version}"
+    # Check marketplace.json entry version if present
+    if [[ -n "$head_marketplace_version" ]]; then
+        if [[ "$base_marketplace_version" == "$head_marketplace_version" ]]; then
+            error "marketplace.json entry version not bumped for ${plugin_name}"
+            error "  Base version:    ${base_marketplace_version}"
+            error "  Current version: ${head_marketplace_version}"
+            error "  Either bump it or remove it (plugin.json is the source of truth)"
+            ((ERRORS_FOUND++))
+            has_errors=1
+            plugin_status="fail"
+            plugin_details="${plugin_details:+${plugin_details}; }marketplace entry not bumped (${base_marketplace_version})"
+        else
+            success "marketplace.json entry version bumped: ${base_marketplace_version} -> ${head_marketplace_version}"
+        fi
     fi
 
     if [[ $has_errors -eq 0 ]]; then
@@ -261,9 +255,9 @@ print_fix_instructions() {
     echo ""
     echo "To fix version errors:"
     echo "  1. Bump the version in plugins/<name>/.claude-plugin/plugin.json"
-    echo "  2. Update the matching entry in .claude-plugin/marketplace.json"
-    echo "  3. Ensure both versions are identical"
-    echo "  4. Bump metadata.version in .claude-plugin/marketplace.json"
+    echo "  2. Bump metadata.version in .claude-plugin/marketplace.json"
+    echo "  Note: marketplace.json plugin entry versions are optional"
+    echo "        (plugin.json is the source of truth)"
 }
 
 # Write GitHub Actions job summary
@@ -316,9 +310,9 @@ write_summary() {
             echo "<summary>How to fix</summary>"
             echo ""
             echo "1. Bump the version in \`plugins/<name>/.claude-plugin/plugin.json\`"
-            echo "2. Update the matching entry in \`.claude-plugin/marketplace.json\`"
-            echo "3. Ensure both versions are identical"
-            echo "4. Bump \`metadata.version\` in \`.claude-plugin/marketplace.json\`"
+            echo "2. Bump \`metadata.version\` in \`.claude-plugin/marketplace.json\`"
+            echo ""
+            echo "Note: marketplace.json plugin entry versions are optional (plugin.json is the source of truth)."
             echo ""
             echo "**Version bump conventions for metadata.version:**"
             echo "- Plugin added/removed: Major bump (1.2.3 → 2.0.0)"
