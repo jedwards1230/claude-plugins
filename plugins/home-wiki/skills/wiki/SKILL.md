@@ -77,6 +77,14 @@ to the wiki. Repo-local auto-memory is for repo-specific context (build
 commands, tool paths, project patterns); the wiki is for everything else
 (architecture decisions, research, investigations, guides).
 
+### Proactive Wiki Capture
+
+During a session, if you discover insights that would benefit the broader
+knowledge base — architecture decisions, investigation findings, new
+processes, research — proactively suggest capturing them in the wiki. Don't
+wait to be asked. Brief is fine: "This finding about X might be worth adding
+to the wiki — want me to write it up?"
+
 ## Referencing Wiki Content
 
 - **To agents**: use `.md` suffix URLs for reads, API/MCP for writes
