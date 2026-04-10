@@ -47,7 +47,7 @@
       "name": "home-wiki",
       "source": "./plugins/home-wiki",
       "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki",
-      "version": "0.0.2"
+      "version": "0.0.3"
     }
   ]
 }
