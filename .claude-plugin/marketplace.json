@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "10.0.0"
+    "version": "10.0.1"
   },
   "plugins": [
     {
@@ -47,7 +47,7 @@
       "name": "home-wiki",
       "source": "./plugins/home-wiki",
       "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki",
-      "version": "0.0.1"
+      "version": "0.0.2"
     }
   ]
 }
