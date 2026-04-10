@@ -4,26 +4,14 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "8.0.0"
+    "version": "9.0.0"
   },
   "plugins": [
-    {
-      "name": "dream",
-      "source": "./plugins/dream",
-      "description": "Basic-memory knowledge base maintenance and optimization",
-      "version": "1.1.0"
-    },
     {
       "name": "grafana-dashboards",
       "source": "./plugins/grafana-dashboards",
       "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments",
       "version": "1.0.0"
-    },
-    {
-      "name": "remember",
-      "source": "./plugins/remember",
-      "description": "Memory management skill for storing and retrieving knowledge via basic-memory",
-      "version": "0.0.1"
     },
     {
       "name": "git-worktree",
