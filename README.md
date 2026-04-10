@@ -9,19 +9,18 @@ Private marketplace for reusable Claude Code plugins.
 /plugin marketplace add jedwards1230/claude-plugins
 
 # Install a plugin
-/plugin install dream@jedwards1230-plugins
+/plugin install git-worktree@jedwards1230-plugins
 ```
 
 ## Available Plugins
 
 | Plugin | Description |
 |--------|-------------|
-| [dream](plugins/dream/) | Basic-memory knowledge base maintenance |
 | [git-worktree](plugins/git-worktree/) | Git worktree workflow management for parallel branch development |
+| [go-quality](plugins/go-quality/) | Go quality gates — auto-format, vet, test, and lint on every turn |
 | [grafana-dashboards](plugins/grafana-dashboards/) | Grafana dashboard creation and management for Kubernetes |
-| [pr-checker](plugins/pr-checker/) | Check PR CI status, reviewer verdicts, merge conflicts, and review threads |
+| [orchestrator](plugins/orchestrator/) | Multi-repo PR lifecycle, milestone orchestration, and CI/review monitoring |
 | [project-manager](plugins/project-manager/) | Project management across multiple GitHub repos — triage, planning, tracking |
-| [remember](plugins/remember/) | Memory management for storing and retrieving knowledge |
 | [review-team](plugins/review-team/) | Dynamic review team composition with specialized agents |
 
 ## Development
