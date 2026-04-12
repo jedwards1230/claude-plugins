@@ -1,0 +1,8 @@
+{
+  "name": "homelab",
+  "version": "0.1.0",
+  "description": "Homelab infrastructure management — Kubernetes, Ansible, observability, and service operations",
+  "author": {
+    "name": "jedwards1230"
+  }
+}
