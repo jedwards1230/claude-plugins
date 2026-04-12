@@ -1,6 +1,6 @@
 ---
 name: authentik-api
-description: Use when querying or modifying Authentik SSO — listing users, groups, applications, providers, creating OIDC apps, auditing access policies, setting up forward auth or proxy providers, managing service accounts and policy bindings. Relevant for "authentik", "SSO", "OIDC setup", "identity provider", "ak list", "ak-setup-oidc", "restish authentik", "forward auth", "proxy provider", "policy binding", "service account".
+description: Use when querying or modifying Authentik SSO — listing users, groups, applications, providers, creating OIDC apps, auditing access policies, setting up forward auth or proxy providers, managing service accounts and policy bindings. Relevant for "authentik", "SSO", "OIDC setup", "identity provider", "ak list", "ak setup-oidc", "forward auth", "proxy provider", "policy binding", "service account".
 ---
 
 # Authentik API Operations
@@ -53,7 +53,7 @@ Forward auth requires: Authentik Proxy Provider, ExternalName service to outpost
 
 ## API Authentication
 
-Token lives in 1Password. Set it before any API call:
+Token is auto-fetched from 1Password when `AUTHENTIK_TOKEN` is not set. To override:
 
 ```bash
 export AUTHENTIK_TOKEN=$(op item get "Authentik homelab-token" --vault homelab --field token --reveal)
@@ -63,11 +63,11 @@ Base URL: `https://auth.lilbro.cloud`
 
 ## CLI Tools
 
-Two scripts in the home-orchestration repo at `scripts/`:
+Unified `ak` CLI in the home-orchestration repo at `scripts/ak`.
 
 ### `ak` — Authentik API CLI
 
-Thin curl wrapper that mirrors `/api/v3` paths with resource aliases and auto-pagination unwrapping.
+Thin curl wrapper that mirrors `/api/v3` paths with resource aliases and auto-pagination.
 
 ```bash
 ak list <resource> [--filter <jq>] [--query <qs>] [--raw]
@@ -75,10 +75,19 @@ ak get <resource> <id>
 ak create <resource> <json|@file>
 ak update <resource> <id> <json|@file>   # PUT (full replace)
 ak patch <resource> <id> <json|@file>    # PATCH (partial)
-ak delete <resource> <id>
+ak delete <resource> <id> [--yes|-y]
+ak setup-oidc <name> <redirect-uri> [options]
 ak GET|POST|PATCH|PUT|DELETE <path> [body]  # raw passthrough
 ak schema                                    # dump OpenAPI JSON
 ```
+
+**Flags:**
+- `--filter <jq>` — jq expression applied to `.results` array
+- `--query <qs>` — querystring appended to URL (e.g. `search=foo&page_size=100`)
+- `--raw` — skip jq formatting, print raw response (first page only)
+- `--yes / -y` — skip delete confirmation prompt
+
+**Notes:** `ak list` auto-paginates across all pages by default.
 
 ### Resource Aliases
 
@@ -99,18 +108,18 @@ ak schema                                    # dump OpenAPI JSON
 
 Unknown aliases pass through unchanged — you can use raw API paths directly.
 
-### `ak-setup-oidc` — Automated OIDC App Creation
+### `ak setup-oidc` — Automated OIDC App Creation
 
 Creates a complete OAuth2 provider + application, resolving all PKs dynamically (flows, scope mappings, signing key).
 
 ```bash
-ak-setup-oidc <name> <redirect-uri> [--slug <slug>] [--launch-url <url>] \
+ak setup-oidc <name> <redirect-uri> [--slug <slug>] [--launch-url <url>] \
   [--description <text>] [--scopes <list>] [--sub-mode <mode>]
 ```
 
 Example:
 ```bash
-ak-setup-oidc "Backstage" "https://backstage.lilbro.cloud/api/auth/authentik/handler/frame" \
+ak setup-oidc "Backstage" "https://backstage.lilbro.cloud/api/auth/authentik/handler/frame" \
   --slug backstage \
   --launch-url "https://backstage.lilbro.cloud" \
   --description "Developer portal"
@@ -118,7 +127,7 @@ ak-setup-oidc "Backstage" "https://backstage.lilbro.cloud/api/auth/authentik/han
 
 Outputs `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PROVIDER_PK`, `APP_SLUG`, and `ISSUER` — ready to feed into 1Password or K8s secrets.
 
-Restish is also configured (`~/.restish/apis.json`) but `ak` is preferred — restish may fail to resolve the inline `op` token expansion.
+> **Note:** `ak-setup-oidc` still works as a deprecated wrapper and will be removed in a future release.
 
 ## Common Workflows
 
@@ -137,7 +146,7 @@ ak list policies/bindings --filter '[.[] | {target, group_obj: .group_obj.name, 
 
 ### Create OIDC app for a new service
 ```bash
-ak-setup-oidc "Service Name" "https://service.lilbro.cloud/callback" \
+ak setup-oidc "Service Name" "https://service.lilbro.cloud/callback" \
   --slug service-name \
   --launch-url "https://service.lilbro.cloud"
 # Then store client_id/secret in 1Password
@@ -152,7 +161,7 @@ ak get providers/oauth2 <pk>
 
 ### Add a new app to Authentik
 
-1. Create OAuth2/OpenID Provider — use `ak-setup-oidc` for OIDC, or `ak create providers/proxy` for forward auth
+1. Create OAuth2/OpenID Provider — use `ak setup-oidc` for OIDC, or `ak create providers/proxy` for forward auth
 2. Create Application bound to the provider
 3. Add a group policy binding to the appropriate tier (see Identity Model above)
 4. If agents need access, add `service-accounts` to the policy binding
@@ -175,6 +184,6 @@ ak get providers/oauth2 <pk>
 ## Write Operations — Require User Approval
 
 Creating, updating, or deleting Authentik resources changes production SSO. Always confirm with the user before:
-- Creating providers or applications (`ak create`, `ak-setup-oidc`)
+- Creating providers or applications (`ak create`, `ak setup-oidc`)
 - Modifying group memberships or policy bindings (`ak patch`, `ak update`)
-- Deleting any resource (`ak delete` — has built-in confirmation prompt)
+- Deleting any resource (`ak delete` — prompts for confirmation unless `--yes` is passed)
