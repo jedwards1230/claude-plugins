@@ -15,21 +15,28 @@ n8n is also available via MCP tools at `mcp-lan.lilbro.cloud/n8n/mcp`. Prefer MC
 
 ## Authentication
 
-There is no dedicated `n8n` CLI wrapper script like `ak` or `harbor` — restish and curl are the options.
+n8n uses an API key passed via `x-n8n-api-key` header. There is no dedicated CLI wrapper like `ak` or `harbor` — use curl directly.
 
-### From OpenClaw agents
+Two separate API keys exist in 1Password for different environments:
 
-```bash
-restish n8n <operation>
-```
-
-The wrapper injects the API key from 1Password (`N8N API Key - lil-claw`).
+| Environment | 1Password Item | Vault | How it's used |
+|-------------|---------------|-------|---------------|
+| **Local dev** (laptop) | `N8N API Key` | `homelab` | Pass to curl manually |
+| **OpenClaw agents** (K8s) | `N8N API Key - lil-claw` | `home-agent` | Injected by `/nfs/openclaw/bin/restish` wrapper |
 
 ### From local dev
 
 ```bash
-curl -H "x-n8n-api-key: $(op item get 'N8N API Key' --vault homelab --field password --reveal)" \
-  https://n8n.lilbro.cloud/api/v1/workflows
+export N8N_API_KEY=$(op item get 'N8N API Key' --vault homelab --field password --reveal)
+curl -H "x-n8n-api-key: $N8N_API_KEY" https://n8n.lilbro.cloud/api/v1/workflows
+```
+
+### From OpenClaw agents
+
+OpenClaw has a restish wrapper at `/nfs/openclaw/bin/restish` that detects the first argument (`n8n`) and injects the API key from 1Password before calling restish:
+
+```bash
+restish n8n list-workflows
 ```
 
 Base URL: `https://n8n.lilbro.cloud/api/v1`
