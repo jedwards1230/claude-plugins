@@ -1,7 +1,7 @@
 {
   "name": "home-wiki",
-  "version": "0.0.4",
-  "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki",
+  "version": "0.0.5",
+  "description": "Home Wiki MCP tools and Stop hook for wiki capture prompts",
   "author": {
     "name": "jedwards1230"
   },
