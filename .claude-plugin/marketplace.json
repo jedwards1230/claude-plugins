@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "11.0.1"
+    "version": "11.0.2"
   },
   "plugins": [
     {
@@ -40,7 +40,7 @@
     {
       "name": "home-wiki",
       "source": "./plugins/home-wiki",
-      "description": "Home Wiki MCP tools and operating manual for AI agents interacting with the Obsidian vault wiki"
+      "description": "Home Wiki MCP tools and Stop hook for wiki capture prompts"
     },
     {
       "name": "homelab",
