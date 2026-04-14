@@ -24,7 +24,7 @@ Base URL: `https://registry.lilbro.cloud/api/v2.0`
 
 ## CLI Tool
 
-The `harbor` script lives in the home-orchestration repo at `scripts/harbor`. It wraps the Harbor v2.0 API with basic auth.
+The `harbor` script is bundled with this plugin at `${CLAUDE_PLUGIN_ROOT}/scripts/harbor`. It wraps the Harbor v2.0 API with basic auth.
 
 ### Commands
 
@@ -52,10 +52,10 @@ harbor registry delete <id>               # delete with confirmation
 | URL Pattern | Type |
 |-------------|------|
 | `docker.io` / `hub.docker.com` | `docker-hub` |
-| `ghcr.io` | `ghcr` |
-| `gcr.io` | `gcr` |
+| `ghcr.io` | `github-ghcr` |
+| `gcr.io` | `google-gcr` |
 | `quay.io` | `quay` |
-| `*.dkr.ecr.*.amazonaws.com` | `ecr` |
+| `*.dkr.ecr.*.amazonaws.com` | `aws-ecr` |
 | Other | `docker-registry` |
 
 ## Common Workflows

@@ -24,12 +24,13 @@ Activates on: `n8n`, `workflow automation`, `n8n workflow`, `n8n api`, `activate
 
 ## Prerequisites
 
-- `ak` and `ak-setup-oidc` scripts (in `home-orchestration/scripts/`)
-- `harbor` script (in `home-orchestration/scripts/`)
 - `op` (1Password CLI) for token/credential retrieval
 - `jq` for JSON processing
 - `curl` for API calls
+- `column` for formatted output (harbor)
 - `restish` (optional, for n8n from openclaw agents)
+
+The `ak` and `harbor` CLI scripts are bundled in `scripts/` and referenced via `${CLAUDE_PLUGIN_ROOT}/scripts/`.
 
 ## Usage
 

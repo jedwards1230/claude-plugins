@@ -1,0 +1,505 @@
+#!/usr/bin/env bash
+# ak — Authentik API CLI
+#
+# Mirrors the /api/v3 path structure with a thin curl wrapper.
+# Paginated list responses are auto-paginated and unwrapped to .results by default.
+#
+# Usage:
+#   ak list <resource> [--filter <jq>] [--query <qs>] [--raw]
+#   ak get <resource> <id>
+#   ak create <resource> <json|@file>
+#   ak update <resource> <id> <json|@file>   # PUT  (full replace)
+#   ak patch <resource> <id> <json|@file>    # PATCH (partial)
+#   ak delete <resource> <id> [--yes|-y]
+#   ak setup-oidc <name> <redirect-uri> [options]
+#   ak GET|POST|PATCH|PUT|DELETE <path> [body]  # raw passthrough
+#   ak schema                                    # dump OpenAPI JSON
+#
+# Flags:
+#   --filter <jq>   jq expression applied to .results array (list default: identity)
+#   --query <qs>    querystring appended to URL (e.g. search=foo&page_size=100)
+#   --raw           skip jq formatting, print raw response (first page only)
+#   --yes / -y      skip delete confirmation prompt
+#
+# setup-oidc options:
+#   --slug <slug>         Application slug (default: lowercased name)
+#   --launch-url <url>    Application launch URL (default: origin of redirect-uri)
+#   --description <text>  Application description
+#   --scopes <list>       Comma-separated extra scopes beyond openid,email,profile
+#   --sub-mode <mode>     Subject mode: hashed_user_id|user_id|user_uuid|... (default: hashed_user_id)
+#
+# Resource aliases → API sub-path:
+#   applications               → core/applications
+#   groups                     → core/groups
+#   users                      → core/users
+#   tokens                     → core/tokens
+#   flows                      → flows/instances
+#   outposts                   → outposts/instances
+#   outpost-connections/k8s    → outposts/service_connections/kubernetes
+#   outpost-connections/docker → outposts/service_connections/docker
+#   providers/all              → providers/all
+#   providers/oauth2           → providers/oauth2
+#   providers/proxy            → providers/proxy
+#   providers/saml             → providers/saml
+#   providers/ldap             → providers/ldap
+#   providers/radius           → providers/radius
+#   providers/scim             → providers/scim
+#   certificate-keypairs       → crypto/certificatekeypairs
+#   property-mappings/all      → propertymappings/all
+#   property-mappings/scope    → propertymappings/scope
+#   property-mappings/saml     → propertymappings/saml
+#   property-mappings/ldap     → propertymappings/ldap
+#   blueprints                 → managed/blueprints
+#   (unknown)                  → passed through unchanged
+#
+# Environment:
+#   AUTHENTIK_TOKEN   Bearer token (auto-fetched from 1Password if not set)
+#   AUTHENTIK_URL     Base URL (default: https://auth.lilbro.cloud)
+
+set -euo pipefail
+
+# ── dependency check ──────────────────────────────────────────────────────────
+
+for dep in curl jq; do
+  if ! command -v "$dep" &>/dev/null; then
+    echo "Error: $dep is required but not installed" >&2
+    exit 1
+  fi
+done
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+AUTHENTIK_URL="${AUTHENTIK_URL:-https://auth.lilbro.cloud}"
+BASE="${AUTHENTIK_URL}/api/v3"
+
+if [[ -z "${AUTHENTIK_TOKEN:-}" ]]; then
+  AUTHENTIK_TOKEN=$(op item get "Authentik homelab-token" --vault homelab --field token --reveal 2>/dev/null) || true
+  if [[ -z "${AUTHENTIK_TOKEN:-}" ]]; then
+    echo "Error: AUTHENTIK_TOKEN is not set and could not be fetched from 1Password" >&2
+    exit 1
+  fi
+fi
+
+TOKEN="$AUTHENTIK_TOKEN"
+
+# ── resource alias table ──────────────────────────────────────────────────────
+
+resolve() {
+  case "$1" in
+    applications)               echo "core/applications" ;;
+    groups)                     echo "core/groups" ;;
+    users)                      echo "core/users" ;;
+    tokens)                     echo "core/tokens" ;;
+    flows)                      echo "flows/instances" ;;
+    outposts)                   echo "outposts/instances" ;;
+    outpost-connections/k8s)    echo "outposts/service_connections/kubernetes" ;;
+    outpost-connections/docker) echo "outposts/service_connections/docker" ;;
+    providers/all)              echo "providers/all" ;;
+    providers/oauth2)           echo "providers/oauth2" ;;
+    providers/proxy)            echo "providers/proxy" ;;
+    providers/saml)             echo "providers/saml" ;;
+    providers/ldap)             echo "providers/ldap" ;;
+    providers/radius)           echo "providers/radius" ;;
+    providers/scim)             echo "providers/scim" ;;
+    certificate-keypairs)       echo "crypto/certificatekeypairs" ;;
+    property-mappings/all)      echo "propertymappings/all" ;;
+    property-mappings/scope)    echo "propertymappings/scope" ;;
+    property-mappings/saml)     echo "propertymappings/saml" ;;
+    property-mappings/ldap)     echo "propertymappings/ldap" ;;
+    blueprints)                 echo "managed/blueprints" ;;
+    *)                          echo "$1" ;;
+  esac
+}
+
+# ── core HTTP helper ──────────────────────────────────────────────────────────
+
+# api <METHOD> <path-with-optional-qs> [body] [--raw]
+# Authentik requires trailing slashes on the path component only.
+# Correctly handles paths with querystrings: path?qs → path/?qs
+api() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local raw="${4:-}"
+
+  # Add trailing slash to path component only (before any querystring)
+  if [[ "$path" == *\?* ]]; then
+    local p="${path%%\?*}"
+    local qs="?${path#*\?}"
+    [[ "$p" != */ ]] && p="${p}/"
+    path="${p}${qs}"
+  else
+    [[ "$path" != */ ]] && path="${path}/"
+  fi
+
+  local args=(-sS -w '\n%{http_code}' -X "$method"
+    -H "Authorization: Bearer $TOKEN"
+    -H "Accept: application/json")
+
+  if [[ -n "$body" ]]; then
+    args+=(-H "Content-Type: application/json")
+    if [[ "$body" == @* ]]; then
+      args+=(--data-binary "$body")
+    else
+      args+=(-d "$body")
+    fi
+  fi
+
+  local output http_code response
+  output=$(curl "${args[@]}" "${BASE}/${path}")
+  http_code="${output##*$'\n'}"
+  response="${output%$'\n'"$http_code"}"
+
+  if [[ "$http_code" -ge 400 ]]; then
+    echo "Error: HTTP $http_code" >&2
+    echo "$response" | jq -r 'if type == "object" then (.detail // .message // .) else . end' >&2
+    return 1
+  fi
+
+  if [[ -n "$raw" ]]; then
+    echo "$response"
+  else
+    echo "$response" | jq .
+  fi
+}
+
+# ── auto-paginating list helper ───────────────────────────────────────────────
+
+# api_list <resource> <query> <filter> [--raw]
+# Fetches all pages and concatenates .results, then applies the jq filter.
+# With --raw, returns only the first page's raw response.
+api_list() {
+  local resource="$1"
+  local query="$2"
+  local filter="$3"
+  local raw="${4:-}"
+
+  if [[ -n "$raw" ]]; then
+    api GET "${resource}${query}" "" "1"
+    return
+  fi
+
+  local all_results="[]"
+  local page=1
+  local sep="?"
+  [[ -n "$query" ]] && sep="&"
+
+  while true; do
+    local page_qs="${query}${sep}page=${page}"
+    local response
+    response=$(api GET "${resource}${page_qs}" "" "1")
+
+    local results
+    results=$(echo "$response" | jq -c '.results // []')
+    all_results=$(echo "$all_results" "$results" | jq -s '.[0] + .[1]')
+
+    local next
+    next=$(echo "$response" | jq -r '.pagination.next // 0')
+    if [[ "$next" == "0" || "$next" == "null" ]]; then
+      break
+    fi
+    page="$next"
+  done
+
+  echo "$all_results" | jq "$filter"
+}
+
+# ── setup-oidc subcommand ─────────────────────────────────────────────────────
+
+setup_oidc() {
+  [[ $# -lt 2 ]] && {
+    echo "Usage: ak setup-oidc <name> <redirect-uri> [options]"
+    echo ""
+    echo "Options:"
+    echo "  --slug <slug>         Application slug (default: lowercased name)"
+    echo "  --launch-url <url>    Application launch URL (default: origin of redirect-uri)"
+    echo "  --description <text>  Application description"
+    echo "  --scopes <list>       Comma-separated extra scopes beyond openid,email,profile"
+    echo "  --sub-mode <mode>     Subject mode (default: hashed_user_id)"
+    echo ""
+    echo "Output:"
+    echo "  OIDC_CLIENT_ID, OIDC_CLIENT_SECRET, PROVIDER_PK, APP_SLUG, ISSUER"
+    exit 1
+  }
+
+  local NAME="$1"; shift
+  local REDIRECT_URI="$1"; shift
+
+  local SLUG=""
+  local LAUNCH_URL=""
+  local DESCRIPTION=""
+  local EXTRA_SCOPES=""
+  local SUB_MODE="hashed_user_id"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --slug)        SLUG="$2";        shift 2 ;;
+      --launch-url)  LAUNCH_URL="$2";  shift 2 ;;
+      --description) DESCRIPTION="$2"; shift 2 ;;
+      --scopes)      EXTRA_SCOPES="$2"; shift 2 ;;
+      --sub-mode)    SUB_MODE="$2";    shift 2 ;;
+      *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+  done
+
+  # Derive defaults
+  [[ -z "$SLUG" ]] && SLUG="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')"
+  if [[ -z "$LAUNCH_URL" ]]; then
+    local redirect_rest="" redirect_scheme=""
+    if [[ "$REDIRECT_URI" == http://* ]]; then
+      redirect_scheme="http"
+      redirect_rest="${REDIRECT_URI#http://}"
+    elif [[ "$REDIRECT_URI" == https://* ]]; then
+      redirect_scheme="https"
+      redirect_rest="${REDIRECT_URI#https://}"
+    fi
+    if [[ -n "$redirect_scheme" && -n "$redirect_rest" ]]; then
+      LAUNCH_URL="${redirect_scheme}://${redirect_rest%%/*}"
+    fi
+  fi
+
+  local log_msg
+  log_msg() { echo "▸ $*" >&2; }
+  local fail_msg
+  fail_msg() { echo "Error: $*" >&2; exit 1; }
+
+  # lookup_managed <managed-name> — returns PK of matching property mapping
+  lookup_managed() {
+    local managed="$1"
+    api GET "propertymappings/all/?managed=${managed}&page_size=1" "" "1" \
+      | jq -r '.results[0].pk // empty'
+  }
+
+  # ── resolve environment PKs ─────────────────────────────────────────────────
+
+  log_msg "Resolving environment PKs..."
+
+  # Authorization flow (explicit consent)
+  local AUTH_FLOW
+  AUTH_FLOW=$(api GET "flows/instances/?designation=authorization&slug=default-provider-authorization-explicit-consent&page_size=1" "" "1" \
+    | jq -r '.results[0].pk // empty')
+  [[ -z "$AUTH_FLOW" ]] && AUTH_FLOW=$(api GET "flows/instances/?designation=authorization&page_size=10" "" "1" \
+    | jq -r '[.results[] | select(.slug | test("explicit|consent|authorization"))] | first | .pk // empty')
+  [[ -z "$AUTH_FLOW" ]] && fail_msg "Could not find an authorization flow. Check Authentik flows."
+
+  # Invalidation flow
+  local INVAL_FLOW
+  INVAL_FLOW=$(api GET "flows/instances/?designation=invalidation&slug=default-provider-invalidation-flow&page_size=1" "" "1" \
+    | jq -r '.results[0].pk // empty')
+  [[ -z "$INVAL_FLOW" ]] && INVAL_FLOW=$(api GET "flows/instances/?designation=invalidation&page_size=5" "" "1" \
+    | jq -r '.results[0].pk // empty')
+  [[ -z "$INVAL_FLOW" ]] && fail_msg "Could not find an invalidation flow."
+
+  # Standard OIDC scope mappings via managed names
+  local MAPPING_OPENID MAPPING_EMAIL MAPPING_PROFILE
+  MAPPING_OPENID=$(lookup_managed "goauthentik.io/providers/oauth2/scope-openid")
+  MAPPING_EMAIL=$(lookup_managed "goauthentik.io/providers/oauth2/scope-email")
+  MAPPING_PROFILE=$(lookup_managed "goauthentik.io/providers/oauth2/scope-profile")
+
+  [[ -z "$MAPPING_OPENID" ]]  && fail_msg "Could not find openid scope mapping."
+  [[ -z "$MAPPING_EMAIL" ]]   && fail_msg "Could not find email scope mapping."
+  [[ -z "$MAPPING_PROFILE" ]] && fail_msg "Could not find profile scope mapping."
+
+  # Signing key — prefer self-signed, fall back to first available
+  local SIGNING_KEY
+  SIGNING_KEY=$(api GET "crypto/certificatekeypairs/?has_key=true&page_size=20" "" "1" \
+    | jq -r '[.results[] | select(.name | test("self.sign|Self-Sign"; "i"))] | first | .pk // empty')
+  [[ -z "$SIGNING_KEY" ]] && SIGNING_KEY=$(api GET "crypto/certificatekeypairs/?has_key=true&page_size=1" "" "1" \
+    | jq -r '.results[0].pk // empty')
+  [[ -z "$SIGNING_KEY" ]] && fail_msg "Could not find a signing key with a private key."
+
+  log_msg "  auth_flow=$AUTH_FLOW"
+  log_msg "  inval_flow=$INVAL_FLOW"
+  log_msg "  openid=$MAPPING_OPENID  email=$MAPPING_EMAIL  profile=$MAPPING_PROFILE"
+  log_msg "  signing_key=$SIGNING_KEY"
+
+  # Build property_mappings array
+  local MAPPINGS="[\"$MAPPING_OPENID\",\"$MAPPING_EMAIL\",\"$MAPPING_PROFILE\""
+  if [[ -n "$EXTRA_SCOPES" ]]; then
+    local EXTRA
+    IFS=',' read -ra EXTRA <<< "$EXTRA_SCOPES"
+    local scope pk
+    for scope in "${EXTRA[@]}"; do
+      scope="${scope// /}"
+      pk=$(lookup_managed "goauthentik.io/providers/oauth2/scope-${scope}")
+      [[ -n "$pk" ]] && MAPPINGS+=",\"$pk\""
+    done
+  fi
+  MAPPINGS+="]"
+
+  # ── create provider ─────────────────────────────────────────────────────────
+
+  log_msg "Creating OAuth2 provider: $NAME..."
+
+  local PROVIDER_JSON
+  PROVIDER_JSON=$(jq -n \
+    --arg name "$NAME" \
+    --arg auth_flow "$AUTH_FLOW" \
+    --arg inval_flow "$INVAL_FLOW" \
+    --arg signing_key "$SIGNING_KEY" \
+    --arg sub_mode "$SUB_MODE" \
+    --arg redirect_uri "$REDIRECT_URI" \
+    --argjson mappings "$MAPPINGS" \
+    '{
+      name: $name,
+      authorization_flow: $auth_flow,
+      invalidation_flow: $inval_flow,
+      signing_key: $signing_key,
+      client_type: "confidential",
+      sub_mode: $sub_mode,
+      include_claims_in_id_token: true,
+      issuer_mode: "global",
+      property_mappings: $mappings,
+      redirect_uris: [{ matching_mode: "strict", url: $redirect_uri }]
+    }')
+
+  local PROVIDER PROVIDER_PK CLIENT_ID CLIENT_SECRET
+  PROVIDER=$(api POST "providers/oauth2" "$PROVIDER_JSON")
+  PROVIDER_PK=$(echo "$PROVIDER" | jq -r '.pk')
+  CLIENT_ID=$(echo "$PROVIDER" | jq -r '.client_id')
+  CLIENT_SECRET=$(echo "$PROVIDER" | jq -r '.client_secret')
+
+  [[ -z "$PROVIDER_PK" || "$PROVIDER_PK" == "null" ]] && fail_msg "Provider creation failed."
+  log_msg "  provider pk=$PROVIDER_PK  client_id=$CLIENT_ID"
+
+  # ── create application ──────────────────────────────────────────────────────
+
+  log_msg "Creating application: $NAME (slug=$SLUG)..."
+
+  local APP_JSON
+  APP_JSON=$(jq -n \
+    --arg name "$NAME" \
+    --arg slug "$SLUG" \
+    --argjson provider "$PROVIDER_PK" \
+    --arg launch_url "$LAUNCH_URL" \
+    --arg description "$DESCRIPTION" \
+    '{
+      name: $name,
+      slug: $slug,
+      provider: $provider,
+      meta_launch_url: $launch_url,
+      meta_description: $description
+    }')
+
+  local APP APP_SLUG
+  APP=$(api POST "applications" "$APP_JSON")
+  APP_SLUG=$(echo "$APP" | jq -r '.slug')
+
+  [[ -z "$APP_SLUG" || "$APP_SLUG" == "null" ]] && fail_msg "Application creation failed."
+  log_msg "  app slug=$APP_SLUG"
+
+  # ── derive issuer URL ───────────────────────────────────────────────────────
+
+  local ISSUER="${AUTHENTIK_URL}/application/o/${APP_SLUG}"
+
+  # ── output ──────────────────────────────────────────────────────────────────
+
+  echo ""
+  echo "OIDC_CLIENT_ID=${CLIENT_ID}"
+  echo "OIDC_CLIENT_SECRET=${CLIENT_SECRET}"
+  echo "PROVIDER_PK=${PROVIDER_PK}"
+  echo "APP_SLUG=${APP_SLUG}"
+  echo "ISSUER=${ISSUER}"
+  echo ""
+  echo "OIDC endpoints:"
+  echo "  Auth:     ${AUTHENTIK_URL}/application/o/authorize/"
+  echo "  Token:    ${AUTHENTIK_URL}/application/o/token/"
+  echo "  UserInfo: ${AUTHENTIK_URL}/application/o/userinfo/"
+  echo "  JWKS:     ${AUTHENTIK_URL}/application/o/${APP_SLUG}/jwks/"
+}
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+
+  list)
+    resource="$(resolve "${1:-}")" ; shift
+    filter="."
+    query=""
+    raw=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --filter) filter="$2"; shift 2 ;;
+        --query)  query="?$2"; shift 2 ;;
+        --raw)    raw="1"; shift ;;
+        *)        break ;;
+      esac
+    done
+    api_list "$resource" "$query" "$filter" "$raw"
+    ;;
+
+  get)
+    [[ -z "${1:-}" ]] && { echo "Usage: ak get <resource> <id>" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: ak get <resource> <id>" >&2; exit 1; }
+    resource="$(resolve "$1")"
+    api GET "${resource}/${2}"
+    ;;
+
+  create)
+    [[ -z "${1:-}" ]] && { echo "Usage: ak create <resource> <json|@file>" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: ak create <resource> <json|@file>" >&2; exit 1; }
+    resource="$(resolve "$1")"
+    api POST "$resource" "$2"
+    ;;
+
+  update)
+    [[ -z "${1:-}" ]] && { echo "Usage: ak update <resource> <id> <json|@file>" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: ak update <resource> <id> <json|@file>" >&2; exit 1; }
+    [[ -z "${3:-}" ]] && { echo "Usage: ak update <resource> <id> <json|@file>" >&2; exit 1; }
+    resource="$(resolve "$1")"
+    api PUT "${resource}/${2}" "$3"
+    ;;
+
+  patch)
+    [[ -z "${1:-}" ]] && { echo "Usage: ak patch <resource> <id> <json|@file>" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: ak patch <resource> <id> <json|@file>" >&2; exit 1; }
+    [[ -z "${3:-}" ]] && { echo "Usage: ak patch <resource> <id> <json|@file>" >&2; exit 1; }
+    resource="$(resolve "$1")"
+    api PATCH "${resource}/${2}" "$3"
+    ;;
+
+  delete)
+    [[ -z "${1:-}" ]] && { echo "Usage: ak delete <resource> <id> [--yes|-y]" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: ak delete <resource> <id> [--yes|-y]" >&2; exit 1; }
+    resource="$(resolve "$1")"
+    id="$2"; shift 2
+    skip_confirm=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --yes|-y) skip_confirm="1"; shift ;;
+        *)        break ;;
+      esac
+    done
+    if [[ -z "$skip_confirm" ]]; then
+      read -r -p "Delete ${resource}/${id}? [y/N] " confirm
+      [[ "$confirm" =~ ^[yY]$ ]] || { echo "Aborted."; exit 0; }
+    fi
+    api DELETE "${resource}/${id}" && echo "Deleted."
+    ;;
+
+  setup-oidc)
+    setup_oidc "$@"
+    ;;
+
+  schema)
+    curl -sS -H "Authorization: Bearer $TOKEN" \
+      "${AUTHENTIK_URL}/api/v3/schema/?format=json" | jq .
+    ;;
+
+  # Raw method passthrough: ak GET core/applications
+  GET|POST|PATCH|PUT|DELETE)
+    path="$(resolve "${1:-}")" ; shift || true
+    api "$cmd" "$path" "${1:-}"
+    ;;
+
+  ""|help|--help|-h)
+    grep '^#' "$0" | grep -v '^#!/' | sed 's/^# \?//'
+    ;;
+
+  *)
+    echo "Unknown command: $cmd  (try: ak help)" >&2
+    exit 1
+    ;;
+esac
