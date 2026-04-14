@@ -24,7 +24,7 @@ Base URL: `https://registry.lilbro.cloud/api/v2.0`
 
 ## CLI Tool
 
-The `harbor` script lives in the home-orchestration repo at `scripts/harbor`. It wraps the Harbor v2.0 API with basic auth.
+The `harbor` script is bundled with this plugin at `${CLAUDE_PLUGIN_ROOT}/scripts/harbor`. It wraps the Harbor v2.0 API with basic auth.
 
 ### Commands
 
