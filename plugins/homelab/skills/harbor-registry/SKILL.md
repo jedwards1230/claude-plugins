@@ -52,10 +52,10 @@ harbor registry delete <id>               # delete with confirmation
 | URL Pattern | Type |
 |-------------|------|
 | `docker.io` / `hub.docker.com` | `docker-hub` |
-| `ghcr.io` | `ghcr` |
-| `gcr.io` | `gcr` |
+| `ghcr.io` | `github-ghcr` |
+| `gcr.io` | `google-gcr` |
 | `quay.io` | `quay` |
-| `*.dkr.ecr.*.amazonaws.com` | `ecr` |
+| `*.dkr.ecr.*.amazonaws.com` | `aws-ecr` |
 | Other | `docker-registry` |
 
 ## Common Workflows

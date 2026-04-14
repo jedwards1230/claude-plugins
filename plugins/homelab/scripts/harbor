@@ -19,8 +19,10 @@
 set -euo pipefail
 
 HARBOR_URL="https://registry.lilbro.cloud/api/v2.0"
-# TODO: Remove -k once TLS cert is fixed
-CURL_OPTS=(-sk)
+CURL_OPTS=(-sS)
+if [[ "${HARBOR_INSECURE_TLS:-}" == "1" ]]; then
+  CURL_OPTS+=(-k)
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -32,7 +34,7 @@ RESET='\033[0m'
 
 # --- Dependency checks ---
 
-for dep in curl jq op; do
+for dep in curl jq op column; do
   if ! command -v "$dep" &>/dev/null; then
     echo -e "${RED}Error: '$dep' is required but not found in PATH.${RESET}" >&2
     exit 1

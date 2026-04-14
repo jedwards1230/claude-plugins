@@ -60,10 +60,12 @@ set -euo pipefail
 
 # ── dependency check ──────────────────────────────────────────────────────────
 
-if ! command -v jq &>/dev/null; then
-  echo "Error: jq is required but not installed" >&2
-  exit 1
-fi
+for dep in curl jq; do
+  if ! command -v "$dep" &>/dev/null; then
+    echo "Error: $dep is required but not installed" >&2
+    exit 1
+  fi
+done
 
 # ── config ────────────────────────────────────────────────────────────────────
 
@@ -242,7 +244,19 @@ setup_oidc() {
 
   # Derive defaults
   [[ -z "$SLUG" ]] && SLUG="$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-')"
-  [[ -z "$LAUNCH_URL" ]] && LAUNCH_URL="$(echo "$REDIRECT_URI" | grep -oP '^https?://[^/]+')"
+  if [[ -z "$LAUNCH_URL" ]]; then
+    local redirect_rest="" redirect_scheme=""
+    if [[ "$REDIRECT_URI" == http://* ]]; then
+      redirect_scheme="http"
+      redirect_rest="${REDIRECT_URI#http://}"
+    elif [[ "$REDIRECT_URI" == https://* ]]; then
+      redirect_scheme="https"
+      redirect_rest="${REDIRECT_URI#https://}"
+    fi
+    if [[ -n "$redirect_scheme" && -n "$redirect_rest" ]]; then
+      LAUNCH_URL="${redirect_scheme}://${redirect_rest%%/*}"
+    fi
+  fi
 
   local log_msg
   log_msg() { echo "▸ $*" >&2; }
