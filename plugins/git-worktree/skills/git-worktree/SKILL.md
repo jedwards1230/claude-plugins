@@ -33,6 +33,8 @@ allowed-tools:
 - Bash(cat:*)
 - Bash(${CLAUDE_PLUGIN_ROOT}/scripts/worktree-audit.sh*)
 - AskUserQuestion
+- EnterWorktree
+- ExitWorktree
 example_prompts:
 - create worktrees for all open PRs
 - set up a new worktree for this branch
@@ -76,6 +78,24 @@ Manage git worktrees for parallel branch development. Worktrees allow working on
 ```
 !`ls -d services/*/.git tooling/*/.git 2>/dev/null`
 ```
+
+## Hybrid Approach: git CLI + EnterWorktree
+
+Create worktrees with git (you control the path), then optionally enter them with the built-in `EnterWorktree` tool so the session tracks the worktree and `ExitWorktree` handles cleanup.
+
+```bash
+# 1. Create worktree in standard location
+git worktree add -b feat-branch worktrees/feat-branch origin/main
+
+# 2. Enter it — session tracks it, ExitWorktree works for cleanup
+EnterWorktree(path: "worktrees/feat-branch")
+```
+
+**When to use EnterWorktree**: In the main session when switching into a worktree for extended work. It switches the session's working directory and enables `ExitWorktree` for clean return.
+
+**When NOT to use EnterWorktree**: In subagents — they should just `cd` into the worktree directory. Also never call `EnterWorktree` without `path` — that creates worktrees in `.claude/worktrees/` which is buried and not IDE-friendly.
+
+**Never use `isolation: "worktree"` on the Agent tool** — it has no path control and nests dangerously if the parent is already in a worktree.
 
 ## Nested Repository Handling
 
@@ -167,7 +187,8 @@ Interactively create a new branch with a worktree for feature development.
 6. Fetch latest state: `git fetch origin`
 7. Create worktree with new branch: `git worktree add -b <branch-name> worktrees/<dir-name> <base>`
 8. Verify the worktree was created: `git worktree list`
-9. Report the full path to the new worktree directory
+9. Enter the worktree using `EnterWorktree(path: "worktrees/<dir-name>")` so the session tracks it
+10. Report the full path to the new worktree directory
 
 **Error handling:**
 - If `git fetch origin` fails (network error), warn the user and offer to proceed with local state
