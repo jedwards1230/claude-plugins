@@ -185,7 +185,7 @@ cmd_project_ls() {
   echo -e "${BOLD}Projects:${RESET}"
   echo
   local projects
-  projects=$(harbor_get "/projects?page_size=500") || return 1
+  projects=$(harbor_get "/projects?page_size=100") || return 1
   echo "$projects" | jq -r '
     ["NAME","TYPE","REPOS","PUBLIC","PROXY CACHE"],
     (.[] | [
