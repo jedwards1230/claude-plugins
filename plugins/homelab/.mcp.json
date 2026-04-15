@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "home-assistant": {
+      "url": "https://mcp.lilbro.cloud/home-assistant/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
