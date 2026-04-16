@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "home-wiki": {
-      "url": "https://mcp.lilbro.cloud/wiki/mcp",
-      "transport": "streamable-http"
-    }
-  }
-}

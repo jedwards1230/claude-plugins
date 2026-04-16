@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "11.1.4"
+    "version": "12.0.0"
   },
   "plugins": [
     {
@@ -36,11 +36,6 @@
       "name": "go-quality",
       "source": "./plugins/go-quality",
       "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
-    },
-    {
-      "name": "home-wiki",
-      "source": "./plugins/home-wiki",
-      "description": "Home Wiki MCP tools and Stop hook for wiki capture prompts"
     },
     {
       "name": "homelab",
