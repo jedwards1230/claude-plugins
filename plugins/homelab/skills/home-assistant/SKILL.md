@@ -13,7 +13,9 @@ Home Assistant tools are available via the `home-assistant` MCP server at `mcp.l
 
 **Always get current state first.** Call `ha_get_overview` (minimal) to orient — it returns area list, entity counts by domain, active automations, and system info (version, timezone, running state). For specific entities, use `ha_search_entities` (supports domain and area filters) or `ha_get_entity` (full registry detail including area, labels, platform) to confirm state before modifying.
 
-**Never do these without explicit user approval:**
+**All HA write operations require explicit user approval.** Changes take effect immediately on a live home — present your planned changes and wait for confirmation before calling any `set`, `remove`, or `create` tool. This includes automations, scripts, helpers, dashboards, entities, areas, labels, and service calls that modify state.
+
+**Especially dangerous — always confirm with extra care:**
 - `ha_restart` — disrupts all automations, integrations, and connected services
 - `ha_backup_restore` — replaces current state entirely
 - `ha_remove_entity` / `ha_remove_device` — permanent, only for confirmed stale/orphaned entries
@@ -80,7 +82,6 @@ Some config is Git-managed via ConfigMaps, some lives on the PVC:
 |--------|------|-------------------|
 | **ConfigMap** (`homeassistant-configuration`) | Main `configuration.yaml` — package includes | No (K8s manifest) |
 | **ConfigMap** (`homeassistant-custom-package`) | HTTP trusted_proxies, recorder, InfluxDB, HomeKit, notify, template sensors | No (K8s manifest) |
-| **ConfigMap** (`homeassistant-automations`) | Grafana alert automation | No (K8s manifest) |
 | **ConfigMap** (`homeassistant-blueprints`) | Night light motion+lux blueprint | No (K8s manifest) |
 | **PVC** (UI-managed) | Automations, scripts, scenes, helpers, dashboards, integrations | Yes |
 
