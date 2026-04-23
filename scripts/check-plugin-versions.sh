@@ -2,9 +2,13 @@
 #
 # check-plugin-versions.sh
 #
-# Validates that plugin versions are properly bumped in plugin.json when
-# plugin files are changed. Marketplace.json version fields are optional
-# (plugin.json is the source of truth per Claude Code docs).
+# Validates that plugin versions are bumped in plugin.json when plugin files
+# change, and that marketplace.json's metadata.version is bumped alongside.
+#
+# plugin.json is the sole source of truth for plugin versions — per the
+# Claude Code plugins reference, setting `version` on a marketplace plugin
+# entry is silently ignored when plugin.json also sets it. This script
+# fails if it finds a `version` field on any marketplace plugin entry.
 #
 # Usage: ./scripts/check-plugin-versions.sh <base-ref>
 #   base-ref: Git reference to compare against (e.g., origin/main)
@@ -16,21 +20,19 @@
 
 set -euo pipefail
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 MARKETPLACE_FILE=".claude-plugin/marketplace.json"
 ERRORS_FOUND=0
 
-# Arrays to track results for summary
 declare -a PLUGIN_RESULTS=()
 declare -a ERROR_MESSAGES=()
 METADATA_RESULT=""
+MARKETPLACE_VERSION_DRIFT_RESULT=""
 
-# Check dependencies
 check_dependencies() {
     if ! command -v jq &> /dev/null; then
         echo -e "${RED}ERROR: jq is required but not installed${NC}"
@@ -38,18 +40,15 @@ check_dependencies() {
     fi
 }
 
-# Print error message (to stdout to maintain order)
 error() {
     echo -e "${RED}ERROR: $1${NC}"
     ERROR_MESSAGES+=("$1")
 }
 
-# Print success message
 success() {
     echo -e "${GREEN}$1${NC}"
 }
 
-# Print info message
 info() {
     echo -e "${YELLOW}$1${NC}"
 }
@@ -62,16 +61,6 @@ get_plugin_version() {
     local plugin_json="plugins/${plugin_name}/.claude-plugin/plugin.json"
 
     git show "${ref}:${plugin_json}" 2>/dev/null | jq -r '.version // empty' 2>/dev/null || echo ""
-}
-
-# Get version from marketplace.json entry at a specific git ref
-# Arguments: $1 = plugin name, $2 = git ref
-get_marketplace_version() {
-    local plugin_name="$1"
-    local ref="$2"
-
-    git show "${ref}:${MARKETPLACE_FILE}" 2>/dev/null | \
-        jq -r --arg name "$plugin_name" '.plugins[] | select(.name == $name) | .version // empty' 2>/dev/null || echo ""
 }
 
 # Get metadata.version from marketplace.json at a specific git ref
@@ -112,6 +101,36 @@ is_new_plugin() {
     [[ -z "$base_version" ]]
 }
 
+# Fail if any plugin entry in marketplace.json defines a `version` field.
+# plugin.json is authoritative — duplicating here creates silent drift.
+check_no_marketplace_plugin_versions() {
+    echo ""
+    echo "Checking marketplace.json for stray plugin version fields"
+    echo "----------------------------------------"
+
+    if [[ ! -f "$MARKETPLACE_FILE" ]]; then
+        error "${MARKETPLACE_FILE} not found"
+        ((ERRORS_FOUND++))
+        MARKETPLACE_VERSION_DRIFT_RESULT="fail|marketplace.json not found"
+        return 1
+    fi
+
+    local offenders
+    offenders=$(jq -r '[.plugins[]? | select(has("version")) | .name] | join(", ")' "$MARKETPLACE_FILE")
+
+    if [[ -n "$offenders" ]]; then
+        error "marketplace.json plugin entries must not set 'version': ${offenders}"
+        error "  plugin.json is the source of truth; marketplace-side versions are silently ignored"
+        ((ERRORS_FOUND++))
+        MARKETPLACE_VERSION_DRIFT_RESULT="fail|Entries with version: ${offenders}"
+        return 1
+    fi
+
+    success "No stray plugin version fields in marketplace.json"
+    MARKETPLACE_VERSION_DRIFT_RESULT="pass|Clean"
+    return 0
+}
+
 # Validate a single plugin
 # Arguments: $1 = plugin name, $2 = base ref
 validate_plugin() {
@@ -125,54 +144,25 @@ validate_plugin() {
     echo "Checking plugin: ${plugin_name}"
     echo "----------------------------------------"
 
-    # Get versions
     local base_plugin_version
     local head_plugin_version
-    local base_marketplace_version
-    local head_marketplace_version
 
     base_plugin_version=$(get_plugin_version "$plugin_name" "$base_ref")
     head_plugin_version=$(get_plugin_version "$plugin_name" "HEAD")
-    base_marketplace_version=$(get_marketplace_version "$plugin_name" "$base_ref")
-    head_marketplace_version=$(get_marketplace_version "$plugin_name" "HEAD")
 
-    # Check if plugin was removed (no plugin.json AND no marketplace entry in HEAD)
-    if [[ -z "$head_plugin_version" && -z "$head_marketplace_version" ]]; then
+    # Check if plugin was removed
+    if [[ -z "$head_plugin_version" ]]; then
         info "Plugin removed - skipping validation"
         PLUGIN_RESULTS+=("${plugin_name}|pass|Removed (was ${base_plugin_version:-unknown})")
         return 0
     fi
 
-    # Check if plugin.json exists in HEAD
-    if [[ -z "$head_plugin_version" ]]; then
-        error "plugin.json not found or missing version for ${plugin_name}"
-        ((ERRORS_FOUND++))
-        PLUGIN_RESULTS+=("${plugin_name}|fail|plugin.json not found or missing version")
-        return 1
-    fi
-
-    # Check if marketplace entry exists in HEAD (version field is optional)
-    if [[ -n "$head_marketplace_version" && "$head_plugin_version" != "$head_marketplace_version" ]]; then
-        error "Version mismatch for ${plugin_name}"
-        error "  plugin.json version:     ${head_plugin_version}"
-        error "  marketplace.json version: ${head_marketplace_version}"
-        error "  Remove the version from marketplace.json or make them identical"
-        ((ERRORS_FOUND++))
-        has_errors=1
-        plugin_status="fail"
-        plugin_details="Version mismatch: plugin.json=${head_plugin_version}, marketplace=${head_marketplace_version}"
-    fi
-
-    # For new plugins, only check consistency (already done above)
+    # For new plugins, just confirm plugin.json has a version
     if is_new_plugin "$plugin_name" "$base_ref"; then
         info "New plugin detected - skipping bump check"
-        if [[ $has_errors -eq 0 ]]; then
-            success "Version consistency check passed: ${head_plugin_version}"
-            PLUGIN_RESULTS+=("${plugin_name}|pass|New plugin, version ${head_plugin_version}")
-        else
-            PLUGIN_RESULTS+=("${plugin_name}|${plugin_status}|${plugin_details}")
-        fi
-        return $has_errors
+        success "plugin.json version: ${head_plugin_version}"
+        PLUGIN_RESULTS+=("${plugin_name}|pass|New plugin, version ${head_plugin_version}")
+        return 0
     fi
 
     # Check that plugin.json version was bumped
@@ -184,32 +174,13 @@ validate_plugin() {
         ((ERRORS_FOUND++))
         has_errors=1
         plugin_status="fail"
-        plugin_details="${plugin_details:+${plugin_details}; }plugin.json not bumped (${base_plugin_version})"
+        plugin_details="plugin.json not bumped (${base_plugin_version})"
     else
         success "plugin.json version bumped: ${base_plugin_version} -> ${head_plugin_version}"
-    fi
-
-    # Check marketplace.json entry version if present
-    if [[ -n "$head_marketplace_version" ]]; then
-        if [[ "$base_marketplace_version" == "$head_marketplace_version" ]]; then
-            error "marketplace.json entry version not bumped for ${plugin_name}"
-            error "  Base version:    ${base_marketplace_version}"
-            error "  Current version: ${head_marketplace_version}"
-            error "  Either bump it or remove it (plugin.json is the source of truth)"
-            ((ERRORS_FOUND++))
-            has_errors=1
-            plugin_status="fail"
-            plugin_details="${plugin_details:+${plugin_details}; }marketplace entry not bumped (${base_marketplace_version})"
-        else
-            success "marketplace.json entry version bumped: ${base_marketplace_version} -> ${head_marketplace_version}"
-        fi
-    fi
-
-    if [[ $has_errors -eq 0 ]]; then
         plugin_details="${base_plugin_version} → ${head_plugin_version}"
     fi
-    PLUGIN_RESULTS+=("${plugin_name}|${plugin_status}|${plugin_details}")
 
+    PLUGIN_RESULTS+=("${plugin_name}|${plugin_status}|${plugin_details}")
     return $has_errors
 }
 
@@ -250,19 +221,16 @@ check_metadata_version() {
     return 0
 }
 
-# Print fix instructions
 print_fix_instructions() {
     echo ""
     echo "To fix version errors:"
     echo "  1. Bump the version in plugins/<name>/.claude-plugin/plugin.json"
     echo "  2. Bump metadata.version in .claude-plugin/marketplace.json"
-    echo "  Note: marketplace.json plugin entry versions are optional"
-    echo "        (plugin.json is the source of truth)"
+    echo "  3. Remove any 'version' fields from marketplace.json plugin entries"
+    echo "     (plugin.json is the sole source of truth)"
 }
 
-# Write GitHub Actions job summary
 write_summary() {
-    # Only write summary if GITHUB_STEP_SUMMARY is set (running in GitHub Actions)
     if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
         return
     fi
@@ -271,22 +239,36 @@ write_summary() {
         echo "## Plugin Version Check"
         echo ""
 
-        if [[ ${#PLUGIN_RESULTS[@]} -eq 0 ]]; then
+        if [[ ${#PLUGIN_RESULTS[@]} -eq 0 && -z "$METADATA_RESULT" && -z "$MARKETPLACE_VERSION_DRIFT_RESULT" ]]; then
             echo "No plugin changes detected."
         else
-            echo "### Plugin Results"
-            echo ""
-            echo "| Plugin | Status | Details |"
-            echo "|--------|--------|---------|"
-            for result in "${PLUGIN_RESULTS[@]}"; do
-                IFS='|' read -r name status details <<< "$result"
+            if [[ ${#PLUGIN_RESULTS[@]} -gt 0 ]]; then
+                echo "### Plugin Results"
+                echo ""
+                echo "| Plugin | Status | Details |"
+                echo "|--------|--------|---------|"
+                for result in "${PLUGIN_RESULTS[@]}"; do
+                    IFS='|' read -r name status details <<< "$result"
+                    if [[ "$status" == "pass" ]]; then
+                        echo "| \`${name}\` | :white_check_mark: Pass | ${details} |"
+                    else
+                        echo "| \`${name}\` | :x: Fail | ${details} |"
+                    fi
+                done
+                echo ""
+            fi
+
+            if [[ -n "$MARKETPLACE_VERSION_DRIFT_RESULT" ]]; then
+                echo "### Marketplace Entry Hygiene"
+                echo ""
+                IFS='|' read -r status details <<< "$MARKETPLACE_VERSION_DRIFT_RESULT"
                 if [[ "$status" == "pass" ]]; then
-                    echo "| \`${name}\` | :white_check_mark: Pass | ${details} |"
+                    echo ":white_check_mark: \`.claude-plugin/marketplace.json\` plugin entries have no \`version\` fields: ${details}"
                 else
-                    echo "| \`${name}\` | :x: Fail | ${details} |"
+                    echo ":x: \`.claude-plugin/marketplace.json\` plugin entry hygiene: ${details}"
                 fi
-            done
-            echo ""
+                echo ""
+            fi
 
             if [[ -n "$METADATA_RESULT" ]]; then
                 echo "### Marketplace Metadata"
@@ -311,8 +293,7 @@ write_summary() {
             echo ""
             echo "1. Bump the version in \`plugins/<name>/.claude-plugin/plugin.json\`"
             echo "2. Bump \`metadata.version\` in \`.claude-plugin/marketplace.json\`"
-            echo ""
-            echo "Note: marketplace.json plugin entry versions are optional (plugin.json is the source of truth)."
+            echo "3. Remove any \`version\` fields from marketplace.json plugin entries"
             echo ""
             echo "**Version bump conventions for metadata.version:**"
             echo "- Plugin added/removed: Major bump (1.2.3 → 2.0.0)"
@@ -326,7 +307,6 @@ write_summary() {
     } >> "$GITHUB_STEP_SUMMARY"
 }
 
-# Main function
 main() {
     if [[ $# -ne 1 ]]; then
         echo "Usage: $0 <base-ref>" >&2
@@ -342,12 +322,13 @@ main() {
     echo "===================="
     echo "Comparing HEAD against ${base_ref}"
 
-    # Get list of changed plugins
+    # Always enforce: marketplace.json plugin entries must not set `version`
+    check_no_marketplace_plugin_versions || true
+
     local changed_plugins
     changed_plugins=$(get_changed_plugins "$base_ref")
 
     if [[ -z "$changed_plugins" ]]; then
-        # Check if only marketplace.json changed (plugin might have been removed)
         if marketplace_changed "$base_ref"; then
             info "No plugin files changed, but marketplace.json was modified"
             check_metadata_version "$base_ref" || true
@@ -358,16 +339,13 @@ main() {
         echo ""
         echo "Changed plugins: $(echo "$changed_plugins" | tr '\n' ' ')"
 
-        # Validate each changed plugin
         for plugin in $changed_plugins; do
             validate_plugin "$plugin" "$base_ref" || true
         done
 
-        # Check metadata version bump
         check_metadata_version "$base_ref" || true
     fi
 
-    # Final summary
     echo ""
     echo "=========================================="
     if [[ $ERRORS_FOUND -gt 0 ]]; then

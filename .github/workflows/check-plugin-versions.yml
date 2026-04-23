@@ -1,3 +1,7 @@
+# Validates plugin version bumps and posts a PR summary of plugin changes.
+# Runs on pushes to main and on PRs that touch plugins/ or marketplace.json.
+# Plugin versions live only in plugins/<name>/.claude-plugin/plugin.json;
+# marketplace.json entries have no version field.
 name: Plugin Version Check
 
 on:
@@ -18,6 +22,7 @@ permissions:
 
 jobs:
   check-versions:
+    name: "Plugin Version Check — ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,7 +40,7 @@ jobs:
           else
             BASE_REF="HEAD~1"
           fi
-          
+
           ./scripts/check-plugin-versions.sh "$BASE_REF"
 
       - name: Detect plugin changes for PR comment
@@ -46,22 +51,21 @@ jobs:
           HEAD="${{ github.event.pull_request.head.sha }}"
           MARKETPLACE=".claude-plugin/marketplace.json"
 
-          # Get marketplace.json at base and head
-          OLD_PLUGINS=$(git show "$BASE:$MARKETPLACE" 2>/dev/null | jq -c '.plugins // []' || echo '[]')
-          NEW_PLUGINS=$(git show "$HEAD:$MARKETPLACE" 2>/dev/null | jq -c '.plugins // []')
+          # Plugin name sets at base and head (from marketplace.json)
+          OLD_NAMES=$(git show "$BASE:$MARKETPLACE" 2>/dev/null | jq -r '.plugins[]?.name' | sort -u || true)
+          NEW_NAMES=$(git show "$HEAD:$MARKETPLACE" 2>/dev/null | jq -r '.plugins[]?.name' | sort -u || true)
 
-          # Build maps: name -> version
-          OLD_MAP=$(echo "$OLD_PLUGINS" | jq -c '[.[] | {key: .name, value: .version}] | from_entries')
-          NEW_MAP=$(echo "$NEW_PLUGINS" | jq -c '[.[] | {key: .name, value: .version}] | from_entries')
+          ADDED=$(comm -13 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES") || true)
+          REMOVED=$(comm -23 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES") || true)
+          COMMON=$(comm -12 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES") || true)
 
-          OLD_NAMES=$(echo "$OLD_MAP" | jq -r 'keys[]' | sort)
-          NEW_NAMES=$(echo "$NEW_MAP" | jq -r 'keys[]' | sort)
+          # Resolve a plugin's version from plugin.json at a given ref
+          plugin_version() {
+            local name="$1" ref="$2"
+            git show "${ref}:plugins/${name}/.claude-plugin/plugin.json" 2>/dev/null \
+              | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown"
+          }
 
-          ADDED=$(comm -13 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES"))
-          REMOVED=$(comm -23 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES"))
-          COMMON=$(comm -12 <(echo "$OLD_NAMES") <(echo "$NEW_NAMES"))
-
-          # Build summary
           SUMMARY=""
           HAS_CHANGES="false"
 
@@ -70,7 +74,8 @@ jobs:
             SUMMARY+="### ➕ Added Plugins\n\n"
             SUMMARY+="| Plugin | Version |\n|---|---|\n"
             while IFS= read -r name; do
-              ver=$(echo "$NEW_MAP" | jq -r --arg n "$name" '.[$n]')
+              [ -z "$name" ] && continue
+              ver=$(plugin_version "$name" "$HEAD")
               SUMMARY+="| \`$name\` | \`$ver\` |\n"
             done <<< "$ADDED"
             SUMMARY+="\n"
@@ -81,18 +86,18 @@ jobs:
             SUMMARY+="### ➖ Removed Plugins\n\n"
             SUMMARY+="| Plugin | Last Version |\n|---|---|\n"
             while IFS= read -r name; do
-              ver=$(echo "$OLD_MAP" | jq -r --arg n "$name" '.[$n]')
+              [ -z "$name" ] && continue
+              ver=$(plugin_version "$name" "$BASE")
               SUMMARY+="| \`$name\` | \`$ver\` |\n"
             done <<< "$REMOVED"
             SUMMARY+="\n"
           fi
 
-          # Check for updated versions
           UPDATED=""
           while IFS= read -r name; do
             [ -z "$name" ] && continue
-            old_ver=$(echo "$OLD_MAP" | jq -r --arg n "$name" '.[$n]')
-            new_ver=$(echo "$NEW_MAP" | jq -r --arg n "$name" '.[$n]')
+            old_ver=$(plugin_version "$name" "$BASE")
+            new_ver=$(plugin_version "$name" "$HEAD")
             if [ "$old_ver" != "$new_ver" ]; then
               UPDATED+="| \`$name\` | \`$old_ver\` → \`$new_ver\` |\n"
             fi
@@ -110,7 +115,7 @@ jobs:
           NEW_META=$(git show "$HEAD:$MARKETPLACE" 2>/dev/null | jq -r '.metadata.version // "unknown"')
           if [ "$OLD_META" != "$NEW_META" ]; then
             HAS_CHANGES="true"
-            SUMMARY+="### 📦 Collection Version\n\n"
+            SUMMARY+="### 📦 Marketplace Version\n\n"
             SUMMARY+="\`$OLD_META\` → \`$NEW_META\`\n"
           fi
 
