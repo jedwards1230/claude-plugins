@@ -63,7 +63,7 @@ Base URL: `https://auth.lilbro.cloud`
 
 ## CLI Tools
 
-Unified `ak` CLI bundled with this plugin at `${CLAUDE_PLUGIN_ROOT}/scripts/ak`.
+Unified `ak` CLI bundled with this plugin at `${CLAUDE_PLUGIN_ROOT}/bin/ak` — invokable as the bare command `ak` since `bin/` is on PATH while the plugin is enabled.
 
 ### `ak` — Authentik API CLI
 

@@ -11,7 +11,7 @@ description: Use when querying or managing n8n workflows — listing, creating, 
 
 ## Preferred: `n8n` CLI wrapper
 
-The homelab plugin ships an `n8n` wrapper at `plugins/homelab/scripts/n8n` (same style as `ak` / `harbor`). Prefer it over raw curl — it handles auth, pagination, and the `PUT /workflows/{id}` sanitization gotcha automatically.
+The homelab plugin ships an `n8n` wrapper at `${CLAUDE_PLUGIN_ROOT}/bin/n8n` (same style as `ak` / `harbor`) — invokable as the bare command `n8n` since `bin/` is on PATH while the plugin is enabled. Prefer it over raw curl — it handles auth, pagination, and the `PUT /workflows/{id}` sanitization gotcha automatically.
 
 ```bash
 n8n list [<resource>] [--filter <jq>] [--query <qs>] [--raw]

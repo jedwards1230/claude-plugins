@@ -49,7 +49,8 @@ plugins/<plugin-name>/
 │       └── STYLE.md         # Optional: style conventions
 ├── hooks/
 │   └── hooks.json           # Hook definitions (SessionStart, PostToolUse)
-├── scripts/                 # Shell scripts for hooks
+├── scripts/                 # Shell scripts for hooks (referenced via ${CLAUDE_PLUGIN_ROOT})
+├── bin/                     # Executables auto-added to PATH (callable as bare commands)
 └── .mcp.json                # Optional: bundled MCP server config
 ```
 
