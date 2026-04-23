@@ -81,7 +81,7 @@ To override, export `N8N_API_KEY` (and optionally `N8N_URL`) before calling the 
 | POST | `/tags` | Create tag |
 | GET | `/executions` | List executions |
 
-Note: n8n's public API does **not** expose `GET /credentials`. Use the web UI to inspect credentials; use raw passthrough (`n8n POST credentials`, `n8n DELETE credentials/<id>`) to manage them.
+Note: n8n's documented public API does **not** provide credential listing or inspection via `GET /credentials` — use the web UI for that. Credential writes (`POST /credentials`, `DELETE /credentials/{id}`, `GET /credentials/schema/{type}`) are documented but depend on role/permissions and may return `403`; reach them via raw passthrough (`n8n POST credentials`, etc.) if your role allows.
 
 ### PUT /workflows/{id} sanitization
 

@@ -101,7 +101,9 @@ api() {
 
   if [[ "$http_code" -ge 400 ]]; then
     echo "Error: HTTP $http_code on $method ${path}" >&2
-    echo "$response" | jq -r 'if type == "object" then (.message // .detail // .) else . end' >&2
+    if ! echo "$response" | jq -r 'if type == "object" then (.message // .detail // .) else . end' 2>/dev/null >&2; then
+      echo "$response" >&2
+    fi
     return 1
   fi
 
