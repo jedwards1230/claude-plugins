@@ -15,7 +15,7 @@ The homelab plugin ships an `n8n` wrapper at `${CLAUDE_PLUGIN_ROOT}/bin/n8n` (sa
 
 ```bash
 n8n list [<resource>] [--filter <jq>] [--query <qs>] [--raw]
-n8n get  [<resource>] <id>
+n8n get  [<resource>] <id> [--filter <jq>]
 n8n create [<resource>] <json|@file>
 n8n update <id> <json|@file>              # workflow PUT, auto-sanitized
 n8n delete [<resource>] <id> [--yes|-y]
@@ -36,6 +36,9 @@ n8n list --filter '[.[] | {id, name, active}]'
 
 # Get a workflow
 n8n get nwLDnLcmPpsYnc3D
+
+# Get a workflow, project only node types/versions
+n8n get nwLDnLcmPpsYnc3D --filter '[.nodes[] | {name, type, typeVersion}]'
 
 # Update a workflow from a file (auto-sanitized)
 n8n update nwLDnLcmPpsYnc3D @/tmp/workflow.json
@@ -85,9 +88,9 @@ Note: n8n's documented public API does **not** provide credential listing or ins
 
 ### PUT /workflows/{id} sanitization
 
-n8n's public API rejects any field outside `{name, nodes, connections, settings, staticData}` with `request/body must NOT have additional properties`. It also rejects `settings.errorWorkflow`.
+n8n's public API rejects any field outside `{name, nodes, connections, settings, staticData}` with `request/body must NOT have additional properties`. The `settings` object is further schema-restricted: `errorWorkflow` is rejected, and n8n 2.18+ adds GET-only read-backs like `availableInMCP` and `binaryMode` that also fail PUT.
 
-The `n8n update` subcommand auto-whitelists these five fields and drops `settings.errorWorkflow`. Pass `--no-sanitize` to disable (only useful for debugging). Set error workflows via the n8n web UI.
+The `n8n update` subcommand auto-whitelists the five top-level fields and reduces `settings` to the subfields the PUT schema actually accepts (`executionOrder`, `saveExecutionProgress`, `saveDataErrorExecution`, `saveDataSuccessExecution`, `saveManualExecutions`, `callerPolicy`, `timezone`, `executionTimeout`). Anything else — including new fields added in future n8n minor releases — is dropped. Pass `--no-sanitize` to disable (only useful for debugging). Set error workflows via the n8n web UI.
 
 ## Raw curl fallback
 
