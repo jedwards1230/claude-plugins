@@ -7,7 +7,7 @@
 #
 # Usage:
 #   n8n list [<resource>] [--filter <jq>] [--query <qs>] [--raw]
-#   n8n get  [<resource>] <id>
+#   n8n get  [<resource>] <id> [--filter <jq>]
 #   n8n create [<resource>] <json|@file>
 #   n8n update <id> <json|@file>              # workflow PUT (full replace)
 #   n8n delete [<resource>] <id> [--yes|-y]
@@ -36,8 +36,12 @@
 # PUT sanitization:
 #   Workflow PUT bodies are auto-sanitized to the fields n8n's public API
 #   accepts: {name, nodes, connections, settings, staticData}. Read-only
-#   fields (id, versionId, active, tags, shared, etc.) and the known-bad
-#   settings.errorWorkflow are dropped. Pass --no-sanitize to disable.
+#   fields (id, versionId, active, tags, shared, etc.) are dropped, and
+#   `settings` is reduced to the whitelisted subfields the PUT schema
+#   accepts — so GET-only additions from newer n8n versions (e.g.
+#   settings.availableInMCP, settings.binaryMode in 2.18+) don't trigger
+#   `request/body must NOT have additional properties`. Pass --no-sanitize
+#   to disable.
 #
 # Environment:
 #   N8N_API_KEY  API key (auto-fetched from 1Password 'N8N API Key' in vault
@@ -101,7 +105,10 @@ api() {
 
   if [[ "$http_code" -ge 400 ]]; then
     echo "Error: HTTP $http_code on $method ${path}" >&2
-    if ! echo "$response" | jq -r 'if type == "object" then (.message // .detail // .) else . end' 2>/dev/null >&2; then
+    # Redirect order matters: dup stdout→stderr BEFORE silencing stderr, or
+    # jq's parsed message ends up in /dev/null. `tojson` as the fallback
+    # guarantees non-empty output for objects without .message / .detail.
+    if ! echo "$response" | jq -r 'if type == "object" then (.message // .detail // tojson) else . end' >&2 2>/dev/null; then
       echo "$response" >&2
     fi
     return 1
@@ -157,8 +164,13 @@ api_list() {
 # ── PUT body sanitizer ────────────────────────────────────────────────────────
 
 # sanitize_workflow_put <json|@file>
-# Reads body, whitelists only the fields PUT /workflows/{id} accepts and
-# drops the known-bad settings.errorWorkflow.
+# Reads body, whitelists the fields PUT /workflows/{id} accepts.
+# Top-level whitelist: {name, nodes, connections, settings, staticData}.
+# settings whitelist: the subfields n8n's public API actually accepts.
+# Anything else (e.g. GET-only read-backs like settings.availableInMCP or
+# settings.binaryMode added in n8n 2.18+) is dropped, since the PUT schema
+# rejects unknown properties with `request/body must NOT have additional
+# properties`.
 sanitize_workflow_put() {
   local input="$1"
   local json
@@ -172,7 +184,16 @@ sanitize_workflow_put() {
       name,
       nodes,
       connections,
-      settings: (.settings // {} | del(.errorWorkflow)),
+      settings: (.settings // {} | {
+        executionOrder,
+        saveExecutionProgress,
+        saveDataErrorExecution,
+        saveDataSuccessExecution,
+        saveManualExecutions,
+        callerPolicy,
+        timezone,
+        executionTimeout
+      } | with_entries(select(.value != null))),
       staticData
     }
   '
@@ -218,8 +239,20 @@ case "$cmd" in
     if [[ -n "${1:-}" ]] && is_resource "$1"; then
       resource="$1"; shift
     fi
-    [[ -z "${1:-}" ]] && { echo "Usage: n8n get [<resource>] <id>" >&2; exit 1; }
-    api GET "${resource}/${1}"
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n get [<resource>] <id> [--filter <jq>]" >&2; exit 1; }
+    id="$1"; shift
+    filter="."
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --filter) filter="$2"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [[ "$filter" == "." ]]; then
+      api GET "${resource}/${id}"
+    else
+      api GET "${resource}/${id}" "" "1" | jq "$filter"
+    fi
     ;;
 
   create)
