@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# n8n — n8n workflow automation API CLI
+#
+# Thin curl wrapper around https://n8n.lilbro.cloud/api/v1.
+# Paginated list responses are auto-paginated via `nextCursor` and unwrapped
+# to `.data` by default.
+#
+# Usage:
+#   n8n list [<resource>] [--filter <jq>] [--query <qs>] [--raw]
+#   n8n get  [<resource>] <id>
+#   n8n create [<resource>] <json|@file>
+#   n8n update <id> <json|@file>              # workflow PUT (full replace)
+#   n8n delete [<resource>] <id> [--yes|-y]
+#   n8n activate <id>                          # workflow only
+#   n8n deactivate <id>                        # workflow only
+#   n8n tags [list|create <name>]
+#   n8n executions [--query <qs>]               # list executions
+#   n8n GET|POST|PUT|PATCH|DELETE <path> [body] # raw passthrough
+#   n8n help
+#
+# When <resource> is omitted, `workflows` is assumed.
+#
+# Flags:
+#   --filter <jq>   jq expression applied to .data array (list default: identity)
+#   --query <qs>    querystring appended to URL (e.g. active=true&limit=100)
+#   --raw           skip jq formatting, print raw response (first page only)
+#   --yes / -y      skip delete confirmation prompt
+#
+# Resources (plural names match /api/v1 paths):
+#   workflows (default), tags, executions, variables, users, projects,
+#   source-control, audit
+#
+# Note: credentials list is not exposed by n8n's public API — use the web UI
+# or raw passthrough (`n8n POST credentials`, `n8n DELETE credentials/<id>`).
+#
+# PUT sanitization:
+#   Workflow PUT bodies are auto-sanitized to the fields n8n's public API
+#   accepts: {name, nodes, connections, settings, staticData}. Read-only
+#   fields (id, versionId, active, tags, shared, etc.) and the known-bad
+#   settings.errorWorkflow are dropped. Pass --no-sanitize to disable.
+#
+# Environment:
+#   N8N_API_KEY  API key (auto-fetched from 1Password 'N8N API Key' in vault
+#                'homelab', field 'credential', if not set)
+#   N8N_URL      Base URL (default: https://n8n.lilbro.cloud)
+
+set -euo pipefail
+
+# ── dependency check ──────────────────────────────────────────────────────────
+
+for dep in curl jq; do
+  if ! command -v "$dep" &>/dev/null; then
+    echo "Error: $dep is required but not installed" >&2
+    exit 1
+  fi
+done
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+N8N_URL="${N8N_URL:-https://n8n.lilbro.cloud}"
+BASE="${N8N_URL}/api/v1"
+
+if [[ -z "${N8N_API_KEY:-}" ]]; then
+  # 1Password item has the key under both 'password' and 'credential' depending
+  # on when it was created — try both.
+  N8N_API_KEY=$(op item get 'N8N API Key' --vault homelab --field credential --reveal 2>/dev/null) \
+    || N8N_API_KEY=$(op item get 'N8N API Key' --vault homelab --field password --reveal 2>/dev/null) \
+    || true
+  if [[ -z "${N8N_API_KEY:-}" ]]; then
+    echo "Error: N8N_API_KEY is not set and could not be fetched from 1Password" >&2
+    exit 1
+  fi
+fi
+
+# ── core HTTP helper ──────────────────────────────────────────────────────────
+
+# api <METHOD> <path-with-optional-qs> [body] [--raw]
+api() {
+  local method="$1"
+  local path="$2"
+  local body="${3:-}"
+  local raw="${4:-}"
+
+  local args=(-sS --max-time 60 -w '\n%{http_code}' -X "$method"
+    -H "x-n8n-api-key: ${N8N_API_KEY}"
+    -H "Accept: application/json")
+
+  if [[ -n "$body" ]]; then
+    args+=(-H "Content-Type: application/json")
+    if [[ "$body" == @* ]]; then
+      args+=(--data-binary "$body")
+    else
+      args+=(-d "$body")
+    fi
+  fi
+
+  local output http_code response
+  output=$(curl "${args[@]}" "${BASE}/${path}")
+  http_code="${output##*$'\n'}"
+  response="${output%$'\n'"$http_code"}"
+
+  if [[ "$http_code" -ge 400 ]]; then
+    echo "Error: HTTP $http_code on $method ${path}" >&2
+    echo "$response" | jq -r 'if type == "object" then (.message // .detail // .) else . end' >&2
+    return 1
+  fi
+
+  if [[ -n "$raw" ]]; then
+    echo "$response"
+  else
+    echo "$response" | jq .
+  fi
+}
+
+# ── auto-paginating list helper ───────────────────────────────────────────────
+
+# api_list <resource> <query> <filter> [--raw]
+# Fetches all pages via nextCursor, concatenates .data, then applies filter.
+# With --raw, returns only the first page's raw response.
+api_list() {
+  local resource="$1"
+  local query="$2"
+  local filter="$3"
+  local raw="${4:-}"
+
+  if [[ -n "$raw" ]]; then
+    api GET "${resource}${query}" "" "1"
+    return
+  fi
+
+  local all="[]"
+  local cursor=""
+  local sep="?"
+  [[ -n "$query" ]] && sep="&"
+
+  while true; do
+    local qs="$query"
+    if [[ -n "$cursor" ]]; then
+      qs="${qs}${sep}cursor=${cursor}"
+    fi
+    local response
+    response=$(api GET "${resource}${qs}" "" "1")
+
+    local page
+    page=$(echo "$response" | jq -c '.data // []')
+    all=$(echo "$all" "$page" | jq -s '.[0] + .[1]')
+
+    cursor=$(echo "$response" | jq -r '.nextCursor // empty')
+    [[ -z "$cursor" ]] && break
+  done
+
+  echo "$all" | jq "$filter"
+}
+
+# ── PUT body sanitizer ────────────────────────────────────────────────────────
+
+# sanitize_workflow_put <json|@file>
+# Reads body, whitelists only the fields PUT /workflows/{id} accepts and
+# drops the known-bad settings.errorWorkflow.
+sanitize_workflow_put() {
+  local input="$1"
+  local json
+  if [[ "$input" == @* ]]; then
+    json=$(cat "${input#@}")
+  else
+    json="$input"
+  fi
+  echo "$json" | jq '
+    {
+      name,
+      nodes,
+      connections,
+      settings: (.settings // {} | del(.errorWorkflow)),
+      staticData
+    }
+  '
+}
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+# is_resource: returns 0 if arg matches a known resource name
+is_resource() {
+  case "$1" in
+    workflows|tags|executions|variables|users|projects|source-control|audit)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+cmd="${1:-}"; shift || true
+
+case "$cmd" in
+
+  list)
+    resource="workflows"
+    if [[ -n "${1:-}" ]] && is_resource "$1"; then
+      resource="$1"; shift
+    fi
+    filter="."
+    query=""
+    raw=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --filter) filter="$2"; shift 2 ;;
+        --query)  query="?$2"; shift 2 ;;
+        --raw)    raw="1"; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+    api_list "$resource" "$query" "$filter" "$raw"
+    ;;
+
+  get)
+    resource="workflows"
+    if [[ -n "${1:-}" ]] && is_resource "$1"; then
+      resource="$1"; shift
+    fi
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n get [<resource>] <id>" >&2; exit 1; }
+    api GET "${resource}/${1}"
+    ;;
+
+  create)
+    resource="workflows"
+    if [[ -n "${1:-}" ]] && is_resource "$1"; then
+      resource="$1"; shift
+    fi
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n create [<resource>] <json|@file>" >&2; exit 1; }
+    api POST "$resource" "$1"
+    ;;
+
+  update)
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n update <id> <json|@file> [--no-sanitize]" >&2; exit 1; }
+    [[ -z "${2:-}" ]] && { echo "Usage: n8n update <id> <json|@file> [--no-sanitize]" >&2; exit 1; }
+    id="$1"
+    body="$2"
+    shift 2
+    sanitize="1"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --no-sanitize) sanitize=""; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [[ -n "$sanitize" ]]; then
+      body=$(sanitize_workflow_put "$body")
+    elif [[ "$body" == @* ]]; then
+      body=$(cat "${body#@}")
+    fi
+    api PUT "workflows/${id}" "$body"
+    ;;
+
+  delete)
+    resource="workflows"
+    if [[ -n "${1:-}" ]] && is_resource "$1"; then
+      resource="$1"; shift
+    fi
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n delete [<resource>] <id> [--yes|-y]" >&2; exit 1; }
+    id="$1"; shift
+    skip_confirm=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --yes|-y) skip_confirm="1"; shift ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+    if [[ -z "$skip_confirm" ]]; then
+      read -r -p "Delete ${resource}/${id}? [y/N] " confirm
+      [[ "$confirm" =~ ^[yY]$ ]] || { echo "Aborted."; exit 0; }
+    fi
+    api DELETE "${resource}/${id}" && echo "Deleted."
+    ;;
+
+  activate)
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n activate <id>" >&2; exit 1; }
+    api POST "workflows/${1}/activate"
+    ;;
+
+  deactivate)
+    [[ -z "${1:-}" ]] && { echo "Usage: n8n deactivate <id>" >&2; exit 1; }
+    api POST "workflows/${1}/deactivate"
+    ;;
+
+  tags)
+    sub="${1:-list}"; shift || true
+    case "$sub" in
+      list) api_list "tags" "" "." ;;
+      create)
+        [[ -z "${1:-}" ]] && { echo "Usage: n8n tags create <name>" >&2; exit 1; }
+        api POST "tags" "$(jq -n --arg n "$1" '{name:$n}')"
+        ;;
+      *) echo "Usage: n8n tags [list|create <name>]" >&2; exit 1 ;;
+    esac
+    ;;
+
+  executions)
+    query=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --query) query="?$2"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+      esac
+    done
+    api_list "executions" "$query" "."
+    ;;
+
+  # Raw method passthrough: n8n GET workflows/abc
+  GET|POST|PUT|PATCH|DELETE)
+    path="${1:-}"; shift || true
+    [[ -z "$path" ]] && { echo "Usage: n8n $cmd <path> [body]" >&2; exit 1; }
+    api "$cmd" "$path" "${1:-}"
+    ;;
+
+  ""|help|--help|-h)
+    grep '^#' "$0" | grep -v '^#!/' | sed 's/^# \?//'
+    ;;
+
+  *)
+    echo "Unknown command: $cmd  (try: n8n help)" >&2
+    exit 1
+    ;;
+esac

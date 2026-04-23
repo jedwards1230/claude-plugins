@@ -5,41 +5,66 @@ description: Use when querying or managing n8n workflows — listing, creating, 
 
 # n8n Workflow Automation API
 
-## Wiki References (Read Before Modifying Workflows)
+## Wiki References
 
 - **Service overview**: `https://wiki.lilbro.cloud/homelab/services/n8n.md`
 
-## MCP Tools
+## Preferred: `n8n` CLI wrapper
 
-n8n is also available via MCP tools at `mcp-lan.lilbro.cloud/n8n/mcp`. Prefer MCP tools when available in the session — fall back to restish/curl for operations MCP doesn't cover.
+The homelab plugin ships an `n8n` wrapper at `plugins/homelab/scripts/n8n` (same style as `ak` / `harbor`). Prefer it over raw curl — it handles auth, pagination, and the `PUT /workflows/{id}` sanitization gotcha automatically.
+
+```bash
+n8n list [<resource>] [--filter <jq>] [--query <qs>] [--raw]
+n8n get  [<resource>] <id>
+n8n create [<resource>] <json|@file>
+n8n update <id> <json|@file>              # workflow PUT, auto-sanitized
+n8n delete [<resource>] <id> [--yes|-y]
+n8n activate <id> | n8n deactivate <id>
+n8n tags [list|create <name>]
+n8n executions [--query <qs>]
+n8n GET|POST|PUT|PATCH|DELETE <path> [body]   # raw passthrough
+n8n help
+```
+
+`<resource>` defaults to `workflows` when omitted. Known resources: `workflows`, `tags`, `executions`, `variables`, `users`, `projects`, `source-control`, `audit`.
+
+### Common patterns
+
+```bash
+# List all workflows, id/name/active only
+n8n list --filter '[.[] | {id, name, active}]'
+
+# Get a workflow
+n8n get nwLDnLcmPpsYnc3D
+
+# Update a workflow from a file (auto-sanitized)
+n8n update nwLDnLcmPpsYnc3D @/tmp/workflow.json
+
+# Activate / deactivate
+n8n activate nwLDnLcmPpsYnc3D
+n8n deactivate nwLDnLcmPpsYnc3D
+
+# Tag ops
+n8n tags
+n8n tags create "domain:wiki"
+```
+
+## Alternative: MCP tools
+
+n8n is also exposed via MCP at `mcp-lan.lilbro.cloud/n8n/mcp`. Use MCP tools when they cover the operation — fall back to the `n8n` wrapper otherwise.
 
 ## Authentication
 
-n8n uses an API key passed via `x-n8n-api-key` header. There is no dedicated CLI wrapper like `ak` or `harbor` — use curl directly.
+The wrapper auto-fetches `N8N_API_KEY` from 1Password (`N8N API Key` in `homelab` vault, `credential` field — falls back to `password` for older items).
 
 Two separate API keys exist in 1Password for different environments:
 
 | Environment | 1Password Item | Vault | How it's used |
 |-------------|---------------|-------|---------------|
-| **Local dev** (laptop) | `N8N API Key` | `homelab` | Pass to curl manually |
+| **Local dev** (laptop) | `N8N API Key` | `homelab` | Wrapper reads this automatically |
 | **OpenClaw agents** (K8s) | `N8N API Key - lil-claw` | `home-agent` | Injected by `/nfs/openclaw/bin/restish` wrapper |
 
-### From local dev
-
-```bash
-export N8N_API_KEY=$(op item get 'N8N API Key' --vault homelab --field password --reveal)
-curl -H "x-n8n-api-key: $N8N_API_KEY" https://n8n.lilbro.cloud/api/v1/workflows
-```
-
-### From OpenClaw agents
-
-OpenClaw has a restish wrapper at `/nfs/openclaw/bin/restish` that detects the first argument (`n8n`) and injects the API key from 1Password before calling restish:
-
-```bash
-restish n8n list-workflows
-```
-
-Base URL: `https://n8n.lilbro.cloud/api/v1`
+To override, export `N8N_API_KEY` (and optionally `N8N_URL`) before calling the wrapper.
 
 ## API Endpoints
 
@@ -48,51 +73,29 @@ Base URL: `https://n8n.lilbro.cloud/api/v1`
 | GET | `/workflows` | List all workflows |
 | GET | `/workflows/{id}` | Get workflow details |
 | POST | `/workflows` | Create workflow |
-| PUT | `/workflows/{id}` | Update workflow |
+| PUT | `/workflows/{id}` | Update workflow (see sanitization below) |
 | DELETE | `/workflows/{id}` | Delete workflow |
 | POST | `/workflows/{id}/activate` | Activate workflow |
 | POST | `/workflows/{id}/deactivate` | Deactivate workflow |
-| GET | `/credentials` | List credentials (names only, no secrets) |
 | GET | `/tags` | List tags |
+| POST | `/tags` | Create tag |
+| GET | `/executions` | List executions |
 
-### Known Quirk
+Note: n8n's public API does **not** expose `GET /credentials`. Use the web UI to inspect credentials; use raw passthrough (`n8n POST credentials`, `n8n DELETE credentials/<id>`) to manage them.
 
-`PUT /workflows/{id}` returns 400 if `settings.errorWorkflow` is included in the payload. Set the error workflow via the n8n web UI instead.
+### PUT /workflows/{id} sanitization
 
-## Common Workflows
+n8n's public API rejects any field outside `{name, nodes, connections, settings, staticData}` with `request/body must NOT have additional properties`. It also rejects `settings.errorWorkflow`.
 
-### List all workflows and their active status
+The `n8n update` subcommand auto-whitelists these five fields and drops `settings.errorWorkflow`. Pass `--no-sanitize` to disable (only useful for debugging). Set error workflows via the n8n web UI.
 
-```bash
-curl -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/workflows | jq '[.data[] | {id, name, active}]'
-```
+## Raw curl fallback
 
-### Get workflow details
-
-```bash
-curl -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/workflows/<id>
-```
-
-### Activate / deactivate a workflow
+If the wrapper is unavailable, the equivalent raw pattern is:
 
 ```bash
-curl -X POST -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/workflows/<id>/activate
-
-curl -X POST -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/workflows/<id>/deactivate
-```
-
-### List credentials and tags
-
-```bash
-curl -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/credentials | jq '[.data[] | {id, name, type}]'
-
-curl -H "x-n8n-api-key: $N8N_API_KEY" \
-  https://n8n.lilbro.cloud/api/v1/tags | jq '.data'
+export N8N_API_KEY=$(op item get 'N8N API Key' --vault homelab --field credential --reveal)
+curl -H "x-n8n-api-key: $N8N_API_KEY" https://n8n.lilbro.cloud/api/v1/workflows | jq '.data'
 ```
 
 ## Web UI
@@ -102,7 +105,5 @@ n8n has a visual workflow editor at `https://n8n.lilbro.cloud` — use it for co
 ## Write Operations — Require User Approval
 
 Creating, updating, or deleting n8n workflows changes production automation. Always confirm with the user before:
-- Creating workflows (`POST /workflows`)
-- Updating workflows (`PUT /workflows/{id}`)
-- Deleting workflows (`DELETE /workflows/{id}`)
-- Activating or deactivating workflows
+- `n8n create` / `n8n update` / `n8n delete`
+- `n8n activate` / `n8n deactivate`
