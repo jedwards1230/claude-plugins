@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "11.1.7"
+    "version": "12.0.0"
   },
   "plugins": [
     {
@@ -41,11 +41,6 @@
       "name": "home-wiki",
       "source": "./plugins/home-wiki",
       "description": "Home Wiki MCP tools and Stop hook for wiki capture prompts"
-    },
-    {
-      "name": "homelab",
-      "source": "./plugins/homelab",
-      "description": "Homelab infrastructure management — Kubernetes, Ansible, observability, and service operations"
     }
   ]
 }
