@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "13.0.0"
+    "version": "14.0.0"
   },
   "plugins": [
     {
@@ -13,9 +13,9 @@
       "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments"
     },
     {
-      "name": "git-worktree",
-      "source": "./plugins/git-worktree",
-      "description": "Git worktree workflow management for parallel branch development"
+      "name": "git-tooling",
+      "source": "./plugins/git-tooling",
+      "description": "Git tooling — worktree workflows, PR-aware push reminders, and CI status monitoring"
     },
     {
       "name": "review-team",

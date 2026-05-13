@@ -43,7 +43,7 @@ example_prompts:
 - list my worktrees
 - create a worktree for a new feature branch
 - prune merged worktree branches
-permalink: tooling/claude-plugins/plugins/git-worktree/skills/git-worktree/skill
+permalink: tooling/claude-plugins/plugins/git-tooling/skills/git-worktree/skill
 ---
 
 # Git Worktree Management
@@ -273,8 +273,3 @@ After completing any workflow, provide a summary:
 
 Total worktrees: X active
 ```
-
-## Additional Resources
-
-For detailed worktree workflow patterns and troubleshooting:
-- **`references/workflows.md`** - Advanced worktree patterns, bare repo setup, CI integration
