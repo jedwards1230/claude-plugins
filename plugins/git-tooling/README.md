@@ -1,19 +1,18 @@
 # git-tooling
 
-Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and CI status monitoring — bundled into one plugin so any Claude session that touches git stays well-behaved.
+Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on-demand CI status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
 
 ## Features
 
-- **Worktree management** (skill) — create, inspect, and clean up worktrees for parallel branch development
+- **Worktree management** (skill `git-worktree`) — create, inspect, and clean up worktrees for parallel branch development
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
-- **CI status monitor** (monitor) — streams pass/fail transitions for open PRs in the current repo so Claude reacts to red builds without being asked
+- **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending transitions for open PRs and exits when every watched PR reaches a terminal state. Only runs when you ask for it; no always-on background process.
 
 ## Prerequisites
 
 - `git` (2.15+)
-- `gh` (GitHub CLI, authenticated) — for PR-based workflows, push reminder, and CI monitor
-- `jq` — used by the CI monitor and push reminder hook
-- Claude Code **v2.1.105+** — required for the monitor component (skill and hook work on older versions too)
+- `gh` (GitHub CLI, authenticated) — for PR-based workflows, push reminder, and CI watch
+- `jq` — used by the CI watch script and push reminder hook
 
 ## Usage
 
@@ -30,11 +29,20 @@ The skill activates automatically when discussing worktree operations:
 
 ### Push reminder hook
 
-Runs automatically after every `Bash(git push ...)`. If the pushed branch has an open PR, the hook reminds the agent to check whether the PR title/description still match what got pushed.
+Runs automatically after every `Bash(git push ...)`. If the pushed branch has an open PR, the hook reminds the agent to check whether the PR title/description still match what got pushed. Silent for any non-push Bash call. Parses the pushed refspec so reminders fire against the right PR even when you push a non-current branch.
 
-### CI monitor
+### CI watch skill
 
-Starts automatically at session start. Polls open PRs in the current repo every 60s and emits a notification line whenever a check transitions (pass ↔ fail ↔ pending) or merge state changes. Claude can react inline without you having to ask "are the checks green yet?"
+Activates on prompts like:
+
+```
+> Watch CI for this PR
+> Are the checks green yet?
+> Tell me when CI passes
+> Follow the build for PR #48
+```
+
+Internally invokes the `Monitor` tool with `scripts/ci-watch.sh`. The script polls open-PR CI every 30s, emits one notification per state transition, and exits cleanly when every watched PR reaches a terminal state. Use `TaskStop` to cancel early.
 
 ## Worktree Directory Convention
 
@@ -50,4 +58,4 @@ my-repo/
 └── ...
 ```
 
-The plugin ensures `worktrees/` is in `.gitignore`.
+The plugin ensures `worktrees/` is in `.gitignore` for the workflows that create them.

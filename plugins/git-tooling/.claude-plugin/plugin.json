@@ -1,7 +1,7 @@
 {
   "name": "git-tooling",
   "version": "1.0.0",
-  "description": "Git tooling for Claude Code — worktree workflows, PR-aware push reminders, and CI status monitoring",
+  "description": "Git tooling for Claude Code — worktree workflows, PR-aware push reminders, and on-demand CI status watching",
   "author": {
     "name": "jedwards1230"
   }

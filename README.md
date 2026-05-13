@@ -16,7 +16,7 @@ Private marketplace for reusable Claude Code plugins.
 
 | Plugin | Description |
 |--------|-------------|
-| [git-tooling](plugins/git-tooling/) | Git tooling — worktree workflows, PR-aware push reminders, and CI status monitoring |
+| [git-tooling](plugins/git-tooling/) | Git tooling — worktree workflows, PR-aware push reminders, and on-demand CI status watching |
 | [go-quality](plugins/go-quality/) | Go quality gates — auto-format, vet, test, and lint on every turn |
 | [grafana-dashboards](plugins/grafana-dashboards/) | Grafana dashboard creation and management for Kubernetes |
 | [orchestrator](plugins/orchestrator/) | Multi-repo PR lifecycle, milestone orchestration, and CI/review monitoring |

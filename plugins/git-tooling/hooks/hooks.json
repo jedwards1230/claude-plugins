@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/post-push-reminder.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/post-push-reminder.sh\"",
+            "timeout": 10
           }
         ]
       }

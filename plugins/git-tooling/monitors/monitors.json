@@ -1,7 +1,0 @@
-[
-  {
-    "name": "pr-ci-status",
-    "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ci-watch.sh",
-    "description": "Open-PR CI status transitions (pass/fail/pending/conflict/changes-requested)"
-  }
-]

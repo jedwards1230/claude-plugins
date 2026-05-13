@@ -1,43 +1,69 @@
 #!/usr/bin/env bash
-# ci-watch.sh - Plugin monitor: poll open-PR CI status and emit one stdout
-# line per state transition. Each line becomes a notification to Claude.
+# ci-watch.sh - Watch GitHub PR CI status, emit one stdout line per state
+# transition, exit when every watched PR reaches a terminal state.
 #
-# Emits at most one line per (PR, transition). Cached state lives in
-# $XDG_RUNTIME_DIR (or $TMPDIR) keyed by repo nwo so multiple repos do not
-# clobber each other.
+# Designed to be invoked via the Monitor tool from the ci-watch skill.
+# Each stdout line becomes a notification to Claude.
 #
-# Adapted from plugins/orchestrator/scripts/prci.sh — this version is
-# stripped to status detection only, no review/comment extraction, so it
-# stays fast enough to poll every 60s.
+# Usage:
+#   ci-watch.sh                # watch all open PRs in current repo
+#   ci-watch.sh <pr> [pr...]   # watch specific PR numbers
+#   ci-watch.sh -R owner/repo  # ...in a specific repo
+#
+# Env:
+#   GIT_TOOLING_CI_POLL_SECONDS  poll interval in seconds (default 30)
 
 set -euo pipefail
 
-POLL_INTERVAL="${GIT_TOOLING_CI_POLL_SECONDS:-60}"
+POLL_INTERVAL="${GIT_TOOLING_CI_POLL_SECONDS:-30}"
 
-state_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/git-tooling-ci-watch"
-mkdir -p "$state_dir"
+command -v gh >/dev/null 2>&1 || { echo "ci-watch: gh not found" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "ci-watch: jq not found" >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "ci-watch: gh not authenticated" >&2; exit 1; }
 
-# Sanity preflight. If gh or jq missing or unauthenticated, exit quietly so
-# the monitor framework does not loop a noisy command.
-command -v gh >/dev/null 2>&1 || { echo "ci-watch: gh not found; monitor disabled" >&2; exit 0; }
-command -v jq >/dev/null 2>&1 || { echo "ci-watch: jq not found; monitor disabled" >&2; exit 0; }
-gh auth status >/dev/null 2>&1 || { echo "ci-watch: gh not authenticated; monitor disabled" >&2; exit 0; }
+repo_flag=""
+if [ "${1:-}" = "-R" ]; then
+  repo_flag="$2"
+  shift 2
+fi
 
-resolve_repo() {
-  gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo ""
-}
+if [ -n "$repo_flag" ]; then
+  repo_nwo="$repo_flag"
+else
+  repo_nwo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo '')"
+fi
+[ -z "$repo_nwo" ] && { echo "ci-watch: cannot determine GitHub repo" >&2; exit 1; }
+owner="${repo_nwo%%/*}"
+name="${repo_nwo##*/}"
 
-# Build a compact status digest for one PR.
-# Output format on one line: <pr>:<status_signature>
-# Where status_signature is e.g. PASS|FAIL=2|PEND=1|CONFLICT|CR
+declare -a pr_nums
+if [ $# -gt 0 ]; then
+  pr_nums=("$@")
+else
+  while IFS= read -r n; do
+    [ -n "$n" ] && pr_nums+=("$n")
+  done < <(gh pr list -R "$repo_nwo" --state open --json number -q '.[].number' 2>/dev/null || true)
+fi
+
+if [ ${#pr_nums[@]} -eq 0 ]; then
+  echo "ci-watch: no open PRs to watch in $repo_nwo"
+  exit 0
+fi
+
+echo "ci-watch: watching ${#pr_nums[@]} PR(s) in $repo_nwo (poll every ${POLL_INTERVAL}s)"
+
+# Build a compact status signature for one PR. Emits "<sig>|<active|terminal>".
+# Terminal: state is MERGED/CLOSED, OR no checks are pending. Active otherwise.
+# Null-safe: defaults statusCheckRollup/contexts to empty arrays so PRs with
+# no checks at all do not crash the jq pipeline under `set -e`.
 build_signature() {
-  local pr="$1" owner="$2" name="$3"
-  local data
-  data=$(gh api graphql -f query="
+  local pr="$1" data pr_node state checks
+  local passed=0 failed=0 pending=0 mergeable unresolved=0 cr=0 sig
+
+  data="$(gh api graphql -f query="
     { repository(owner: \"$owner\", name: \"$name\") {
         pullRequest(number: $pr) {
-          state
-          mergeable
+          state mergeable
           reviewThreads(first: 50) { nodes { isResolved } }
           latestReviews(first: 10) { nodes { state } }
           commits(last: 1) { nodes { commit { statusCheckRollup {
@@ -48,119 +74,66 @@ build_signature() {
               }
             }
           } } } }
-    } } }" 2>/dev/null || echo '{}')
+    } } }" 2>/dev/null || echo '{}')"
 
-  local pr_node state passed failed pending mergeable cr unresolved sig
-  pr_node=$(printf '%s' "$data" | jq '.data.repository.pullRequest // empty')
-  [ -z "$pr_node" ] || [ "$pr_node" = "null" ] && { echo "$pr:GONE"; return; }
+  pr_node="$(printf '%s' "$data" | jq '.data.repository.pullRequest // empty' 2>/dev/null || echo '')"
+  if [ -z "$pr_node" ] || [ "$pr_node" = "null" ]; then
+    echo "GONE|terminal"
+    return
+  fi
 
-  state=$(printf '%s' "$pr_node" | jq -r '.state')
+  state="$(printf '%s' "$pr_node" | jq -r '.state // "UNKNOWN"')"
   case "$state" in
-    MERGED|CLOSED) echo "$pr:$state"; return ;;
+    MERGED|CLOSED) echo "$state|terminal"; return ;;
   esac
 
-  local checks
-  checks=$(printf '%s' "$pr_node" | jq '[.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[] // empty]')
-  passed=$(printf '%s' "$checks" | jq '[.[] | select((.conclusion // "") == "SUCCESS" or (.state // "") == "SUCCESS")] | length')
-  failed=$(printf '%s' "$checks" | jq '[.[] | select((.conclusion // "") == "FAILURE" or (.conclusion // "") == "TIMED_OUT" or (.state // "") == "FAILURE" or (.state // "") == "ERROR")] | length')
-  pending=$(printf '%s' "$checks" | jq '[.[] | select((.status // "") == "QUEUED" or (.status // "") == "WAITING" or (.status // "") == "IN_PROGRESS" or (.state // "") == "PENDING")] | length')
-  mergeable=$(printf '%s' "$pr_node" | jq -r '.mergeable')
-  unresolved=$(printf '%s' "$pr_node" | jq '[.reviewThreads.nodes[] | select(.isResolved == false)] | length')
-  cr=$(printf '%s' "$pr_node" | jq '[.latestReviews.nodes[] | select(.state == "CHANGES_REQUESTED")] | length')
+  # Null-safe extraction: missing statusCheckRollup or contexts -> empty array.
+  checks="$(printf '%s' "$pr_node" | jq '[(.commits.nodes[0].commit.statusCheckRollup.contexts.nodes // [])[]]' 2>/dev/null || echo '[]')"
+  [ -z "$checks" ] && checks='[]'
+
+  passed=$(printf '%s' "$checks" | jq '[.[] | select((.conclusion // "") == "SUCCESS" or (.state // "") == "SUCCESS")] | length' 2>/dev/null || echo 0)
+  failed=$(printf '%s' "$checks" | jq '[.[] | select((.conclusion // "") == "FAILURE" or (.conclusion // "") == "TIMED_OUT" or (.state // "") == "FAILURE" or (.state // "") == "ERROR")] | length' 2>/dev/null || echo 0)
+  pending=$(printf '%s' "$checks" | jq '[.[] | select((.status // "") == "QUEUED" or (.status // "") == "WAITING" or (.status // "") == "IN_PROGRESS" or (.state // "") == "PENDING")] | length' 2>/dev/null || echo 0)
+  mergeable="$(printf '%s' "$pr_node" | jq -r '.mergeable // "UNKNOWN"')"
+  unresolved=$(printf '%s' "$pr_node" | jq '[(.reviewThreads.nodes // [])[] | select(.isResolved == false)] | length' 2>/dev/null || echo 0)
+  cr=$(printf '%s' "$pr_node" | jq '[(.latestReviews.nodes // [])[] | select(.state == "CHANGES_REQUESTED")] | length' 2>/dev/null || echo 0)
 
   sig="P=${passed},F=${failed},W=${pending}"
   [ "$mergeable" = "CONFLICTING" ] && sig="$sig,CONFLICT"
   [ "$cr" -gt 0 ] && sig="$sig,CR"
   [ "$unresolved" -gt 0 ] && sig="$sig,U=${unresolved}"
-  echo "$pr:$sig"
-}
 
-# Human summary for a signature change.
-summarize() {
-  local pr="$1" sig="$2"
-  case "$sig" in
-    MERGED) echo "PR #$pr merged" ;;
-    CLOSED) echo "PR #$pr closed" ;;
-    GONE)   echo "PR #$pr disappeared from API" ;;
-    *)
-      # Strip prefix, format compactly
-      echo "PR #$pr: $sig"
-      ;;
-  esac
-}
-
-poll_once() {
-  local repo="$1"
-  [ -z "$repo" ] && return
-  local owner name state_file open_prs
-  owner="${repo%%/*}"
-  name="${repo##*/}"
-  state_file="$state_dir/$(printf '%s' "$repo" | tr '/' '_').state"
-
-  open_prs=$(gh pr list -R "$repo" --state open --json number -q '.[].number' 2>/dev/null || true)
-  [ -z "$open_prs" ] && return
-
-  declare -A current
-  local pr sig line
-  while IFS= read -r pr; do
-    [ -z "$pr" ] && continue
-    line=$(build_signature "$pr" "$owner" "$name")
-    sig="${line#*:}"
-    current[$pr]="$sig"
-  done <<< "$open_prs"
-
-  # Load previous state. First run (no state file) seeds without emitting,
-  # so a session that opens with 5 green PRs stays quiet.
-  declare -A previous
-  local first_run=0
-  if [ -f "$state_file" ]; then
-    while IFS='=' read -r k v; do
-      [ -n "$k" ] && previous[$k]="$v"
-    done < "$state_file"
+  # Terminal when nothing is pending. Failure/success both count.
+  if [ "$pending" -eq 0 ]; then
+    echo "$sig|terminal"
   else
-    first_run=1
+    echo "$sig|active"
   fi
-
-  if [ "$first_run" -eq 0 ]; then
-    local key prev_sig
-    for key in "${!current[@]}"; do
-      prev_sig="${previous[$key]:-}"
-      if [ -z "$prev_sig" ]; then
-        # New PR opened during session — emit so Claude knows about it.
-        summarize "$key" "${current[$key]}"
-      elif [ "$prev_sig" != "${current[$key]}" ]; then
-        summarize "$key" "${current[$key]}"
-      fi
-    done
-
-    # Detect PRs that disappeared (merged/closed and gh no longer lists them)
-    for key in "${!previous[@]}"; do
-      if [ -z "${current[$key]:-}" ]; then
-        summarize "$key" "GONE"
-      fi
-    done
-  fi
-
-  : > "$state_file"
-  for key in "${!current[@]}"; do
-    printf '%s=%s\n' "$key" "${current[$key]}" >> "$state_file"
-  done
 }
 
-main() {
-  local repo
-  repo="$(resolve_repo)"
-  if [ -z "$repo" ]; then
-    echo "ci-watch: not in a git repo with a GitHub remote; monitor exiting" >&2
+declare -A previous
+first_poll=1
+
+while true; do
+  all_terminal=1
+  for pr in "${pr_nums[@]}"; do
+    line="$(build_signature "$pr")"
+    sig="${line%|*}"
+    status="${line##*|}"
+    [ "$status" = "active" ] && all_terminal=0
+
+    prev="${previous[$pr]:-}"
+    if [ "$first_poll" -eq 1 ] || [ "$sig" != "$prev" ]; then
+      echo "PR #$pr: $sig"
+    fi
+    previous[$pr]="$sig"
+  done
+  first_poll=0
+
+  if [ "$all_terminal" -eq 1 ]; then
+    echo "ci-watch: all watched PRs reached a terminal state"
     exit 0
   fi
 
-  echo "ci-watch: monitoring $repo every ${POLL_INTERVAL}s"
-
-  while true; do
-    poll_once "$repo" || true
-    sleep "$POLL_INTERVAL"
-  done
-}
-
-main "$@"
+  sleep "$POLL_INTERVAL"
+done
