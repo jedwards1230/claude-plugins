@@ -3,7 +3,7 @@
   "permissions": {
     "allow": [
       "Bash(./scripts/check-plugin-versions.sh:*)",
-      "Bash(plugins/git-worktree/scripts/worktree-audit.sh:*)",
+      "Bash(plugins/git-tooling/scripts/worktree-audit.sh:*)",
       "Bash(plugins/project-manager/scripts/status-report.sh:*)",
       "Bash(plugins/project-manager/scripts/find-untriaged.sh:*)",
       "Bash(plugins/project-manager/scripts/find-stale.sh:*)",
