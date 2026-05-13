@@ -25,12 +25,14 @@ Private marketplace for reusable Claude Code plugins.
 
 ## Development
 
+From inside this repo's clone, run:
+
 ```bash
 # Add marketplace from local path
-/plugin marketplace add ./tooling/claude-plugins
+/plugin marketplace add .
 
 # Validate structure
-/plugin validate ./tooling/claude-plugins
+/plugin validate .
 ```
 
 ## Adding a New Plugin
