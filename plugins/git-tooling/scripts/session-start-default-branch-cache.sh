@@ -36,7 +36,10 @@ if ref="$(git -C "$repo_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)
 fi
 
 if [ -z "$default_branch" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-  default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  # `gh repo view` without `-R` infers the repo from the current directory,
+  # which is the hook process's cwd, not necessarily the target repo. Run it
+  # from repo_root so the lookup matches the repo we're actually caching for.
+  default_branch="$(cd "$repo_root" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
 fi
 
 [ -z "$default_branch" ] && exit 0

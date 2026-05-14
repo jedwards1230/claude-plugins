@@ -40,7 +40,7 @@ command_str="$(printf '%s' "$payload" | jq -r '.tool_input.command // .tool_inpu
 #   git log --grep=commit
 #   echo "git commit"
 case "$command_str" in
-  *"git "*commit*|*"git\tcommit"*) ;;
+  *"git "*commit*|*"git"$'\t'"commit"*) ;;
   *) exit 0 ;;
 esac
 
@@ -50,10 +50,21 @@ for sep in '&&' '||' ';' '|'; do
   first_segment="${first_segment%%${sep}*}"
 done
 
-# Tokenize and look for `git [git-flags] commit`. Use `set -f` to disable
-# glob expansion during word-splitting; save/restore the calling shell's flag
-# state instead of using a subshell (which trips `set -e` on non-zero exit).
+# Tokenize and look for `[VAR=val ...] git [-C path] [-flag ...] commit ...`.
+# Require `git` to be the actual command word (rejects `echo git commit`,
+# `printf "git commit"`, etc.). Capture an optional `-C path` since the
+# command may target a different repo than the hook's payload cwd. Capture
+# leading `VAR=val` assignments to honor the documented inline escape-hatch
+# form (`GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 git commit ...`) — that
+# variable is exported to the spawned git process, not to this hook, so it
+# must be parsed out of command_str.
+#
+# Use `set -f` to disable glob expansion during word-splitting; save/restore
+# the calling shell's flag state instead of using a subshell (which trips
+# `set -e` on non-zero exit).
 is_git_commit=0
+inline_escape=0
+git_C_path=""
 case "$-" in
   *f*) glob_was_off=1 ;;
   *)   glob_was_off=0 ;;
@@ -61,41 +72,55 @@ esac
 set -f
 # shellcheck disable=SC2086
 set -- $first_segment
-saw_git=0
-saw_dash_capital_c=0  # `git -C <path>` — skip the path arg
+
+# Step 1: consume leading `NAME=value` env-var assignments.
 while [ $# -gt 0 ]; do
   case "$1" in
-    git)
-      saw_git=1
-      ;;
-    -C)
-      if [ "$saw_git" -eq 1 ]; then
-        saw_dash_capital_c=1
+    [A-Za-z_]*=*)
+      if [ "${1%%=*}" = "GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT" ] && [ "${1#*=}" = "1" ]; then
+        inline_escape=1
       fi
-      ;;
-    -*)
-      # Any other flag — skip silently (e.g. `git --no-pager commit`).
-      :
+      shift
       ;;
     *)
-      if [ "$saw_dash_capital_c" -eq 1 ]; then
-        saw_dash_capital_c=0  # consume the -C path argument
-      elif [ "$saw_git" -eq 1 ]; then
-        if [ "$1" = "commit" ]; then
-          is_git_commit=1
-        fi
-        break  # first non-flag token after `git` decides the subcommand
-      fi
+      break
       ;;
   esac
-  shift
 done
+
+# Step 2: the next token must be `git` exactly.
+if [ $# -gt 0 ] && [ "$1" = "git" ]; then
+  shift
+  # Step 3: optional git-level flags, including `-C path` which we capture.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -C)
+        shift
+        if [ $# -gt 0 ]; then
+          git_C_path="$1"
+          shift
+        fi
+        ;;
+      -*)
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+  # Step 4: the first non-flag token after the git-level flags is the subcommand.
+  if [ $# -gt 0 ] && [ "$1" = "commit" ]; then
+    is_git_commit=1
+  fi
+fi
 [ "$glob_was_off" -eq 1 ] || set +f
 
 [ "$is_git_commit" -eq 1 ] || exit 0
 
-# Escape hatch.
-if [ "${GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT:-0}" = "1" ]; then
+# Escape hatch — honor either the hook process environment or the inline
+# assignment parsed out of command_str above.
+if [ "${GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT:-0}" = "1" ] || [ "$inline_escape" -eq 1 ]; then
   exit 0
 fi
 
@@ -105,7 +130,19 @@ cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty')"
 [ -z "$cwd" ] && cwd="${PWD:-}"
 [ -z "$cwd" ] || [ ! -d "$cwd" ] && exit 0
 
-repo_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)"
+# If the command used `git -C path`, that path determines which repo we're
+# targeting, not the hook's payload cwd. Resolve relative `-C` paths against
+# the payload cwd so the guard checks the actual repo the commit will land in.
+target_dir="$cwd"
+if [ -n "$git_C_path" ]; then
+  case "$git_C_path" in
+    /*) target_dir="$git_C_path" ;;
+    *)  target_dir="${cwd%/}/$git_C_path" ;;
+  esac
+fi
+[ -d "$target_dir" ] || exit 0
+
+repo_root="$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -z "$repo_root" ] && exit 0
 
 current_branch="$(git -C "$repo_root" symbolic-ref --short HEAD 2>/dev/null || true)"
@@ -137,7 +174,10 @@ if [ -z "$default_branch" ]; then
     default_branch="${ref#refs/remotes/origin/}"
   fi
   if [ -z "$default_branch" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+    # `gh repo view` without `-R` infers the repo from the current directory,
+    # which is the hook process's cwd, not necessarily the target repo. Run it
+    # from repo_root so the lookup matches the repo we're actually checking.
+    default_branch="$(cd "$repo_root" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
   fi
   [ -z "$default_branch" ] && exit 0
 
