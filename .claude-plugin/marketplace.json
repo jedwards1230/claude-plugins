@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "14.0.1"
+    "version": "14.0.2"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling — worktree workflows, PR-aware push reminders, and on-demand CI status watching"
+      "description": "Git tooling — worktree workflows, default-branch commit guard, PR-aware push reminders, and on-demand CI status watching"
     },
     {
       "name": "review-team",
