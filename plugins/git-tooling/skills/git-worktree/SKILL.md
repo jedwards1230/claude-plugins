@@ -52,7 +52,7 @@ Manage git worktrees for parallel branch development. Worktrees allow working on
 
 **Default behavior**: Assume the user does NOT want to commit and push directly to main — always create a worktree on a feature branch so changes go through a PR.
 
-**Hook enforcement**: This plugin ships a `PreToolUse(Bash)` hook that denies `git commit` on a repo's default branch. If you see a deny message referencing `GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT`, jump to Workflow 2 (Create a New Branch and Worktree) before retrying the commit.
+**Hook prompt**: This plugin ships a `PreToolUse(Bash)` hook that routes `git commit` on a repo's default branch through Claude Code's permission prompt (`permissionDecision: "ask"`). If you see the prompt referencing `GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT`, consider jumping to Workflow 2 (Create a New Branch and Worktree) instead of approving the commit on the default branch.
 
 ## Current Repository State (Injected)
 

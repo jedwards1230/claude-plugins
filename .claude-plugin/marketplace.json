@@ -15,7 +15,7 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling — worktree workflows, default-branch commit guard, PR-aware push reminders, and on-demand CI status watching"
+      "description": "Git tooling — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
     },
     {
       "name": "review-team",

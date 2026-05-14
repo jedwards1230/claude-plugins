@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # precommit-default-branch-guard.sh - PreToolUse(Bash) hook for git-tooling.
 #
-# Blocks `git commit ...` invocations when HEAD is on the repo's default
-# branch. The check is dynamic: the default branch is discovered per-repo
+# Routes `git commit ...` invocations through the "ask" permission flow when
+# HEAD is on the repo's default branch. In interactive mode the user gets a
+# prompt; in acceptEdits / bypassPermissions / autonomous flows the surrounding
+# mode decides. The check is dynamic: the default branch is discovered per-repo
 # (no "main" hardcoded) and cached so the hot path is cheap.
 #
-# Honors GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 as an escape hatch when the
-# user genuinely wants to commit on the default branch.
+# Honors GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 as a per-invocation bypass
+# for the prompt, useful when the user already knows they want to commit on
+# the default branch (release chores, hotfixes) and doesn't want to be asked.
 #
 # Stays silent (exit 0, no output) for anything that is not a real
 # `git commit` invocation, so it is safe to attach to all Bash calls.
@@ -162,9 +165,9 @@ fi
 # Finally — the actual check.
 if [ "$current_branch" = "$default_branch" ]; then
   repo_label="$(basename "$repo_root")"
-  reason="Refusing to commit on the default branch (\`${default_branch}\`) of \`${repo_label}\`.
+  reason="About to commit on the default branch (\`${default_branch}\`) of \`${repo_label}\`.
 
-This repo follows a worktree -> branch -> PR workflow. Create a worktree and switch to it before committing:
+This repo follows a worktree -> branch -> PR workflow. Consider creating a worktree first:
 
   git worktree add worktrees/<short-name> -b <type>/<short-desc>
   cd worktrees/<short-name>
@@ -172,13 +175,14 @@ This repo follows a worktree -> branch -> PR workflow. Create a worktree and swi
 
 See the \`git-worktree\` skill in the git-tooling plugin for the full convention.
 
-Escape hatch (only if you genuinely need to commit on the default branch):
+If this commit on the default branch is intentional (release chore, hotfix, etc.),
+approve the prompt. To skip this check entirely on a future commit:
   GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 git commit ..."
 
   jq -n --arg reason "$reason" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
-      permissionDecision: "deny",
+      permissionDecision: "ask",
       permissionDecisionReason: $reason
     }
   }'
