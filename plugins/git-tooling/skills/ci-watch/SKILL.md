@@ -4,11 +4,11 @@ description: This skill should be used when the user asks to "watch CI", "are
   the checks green yet", "monitor PR checks", "tell me when CI passes", "follow
   the build", "wait for CI", "ping me when checks finish", "is CI passing",
   "watch the PR", or any request to keep an eye on GitHub PR CI status without
-  manual polling. Invokes the Monitor tool with ci-watch.sh to stream pass /
+  manual polling. Invokes the Monitor tool with ci-watch.py to stream pass /
   fail / pending / changes-requested / merge-conflict transitions as
   notifications, stopping when every watched PR reaches a terminal state.
 allowed-tools:
-- Bash(bash:*)
+- Bash(python3:*)
 - Bash(gh repo view:*)
 - Bash(gh pr list:*)
 - Bash(git symbolic-ref:*)
@@ -27,7 +27,9 @@ permalink: tooling/claude-plugins/plugins/git-tooling/skills/ci-watch/skill
 
 # CI Watch
 
-Watch GitHub PR CI status without manually polling. This skill invokes the `Monitor` tool with `ci-watch.sh`, which emits one notification per state transition and exits when every watched PR is in a terminal state (all checks finished, or the PR is merged/closed).
+Watch GitHub PR CI status without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits when every watched PR is in a terminal state (all checks finished, or the PR is merged/closed).
+
+**Requirements:** `python3` (3.8+) and `gh` (authenticated). The script uses only the Python standard library — no `pip` install needed. Works on macOS and Linux without bash-version dependencies (the previous bash implementation needed bash 4+ for associative arrays, which broke on stock macOS bash 3.2).
 
 ## Current Repository State (Injected)
 
@@ -61,13 +63,15 @@ Watch GitHub PR CI status without manually polling. This skill invokes the `Moni
 ```
 Monitor(
   description: "CI status for PR #N",          # or "CI status for N open PRs"
-  command: "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh\" <PR#>",
+  command: "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.py\" <PR#>",
   persistent: false,
   timeout_ms: <see table below>
 )
 ```
 
-**Always invoke via `bash "${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.sh"`** — do not call the script directly. This matches the convention used by other plugins and avoids depending on the executable bit being preserved through installation.
+**Always invoke via `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.py"`** — do not call the script directly. This avoids depending on the executable bit being preserved through installation.
+
+Argument order: `-R owner/repo` must come *before* any PR numbers (e.g. `python3 ci-watch.py -R owner/repo 48 49`).
 
 ### Step 3 — Pick `timeout_ms`
 
