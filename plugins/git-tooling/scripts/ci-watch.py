@@ -87,37 +87,89 @@ query($owner: String!, $name: String!, $pr: Int!) {
 """.strip()
 
 
-def query_pr(owner: str, name: str, pr: int) -> Optional[dict]:
-    """Return the pullRequest node, or None on API error / not found."""
+class QueryResult:
+    """Outcome of a single graphql query for a PR.
+
+    - `node`: the pullRequest node when the API replies successfully.
+    - `gone`: True iff the API affirmatively returned `pullRequest: null`
+      (the PR truly doesn't exist). Distinct from a transient API error.
+    - `transient_error`: True iff `gh api` failed, returned malformed JSON,
+      or returned a top-level GraphQL `errors` array. Caller should keep
+      polling and not change the PR's known state.
+    """
+
+    __slots__ = ("node", "gone", "transient_error")
+
+    def __init__(self, node=None, gone=False, transient_error=False):
+        self.node = node
+        self.gone = gone
+        self.transient_error = transient_error
+
+
+def query_pr(owner: str, name: str, pr: int) -> QueryResult:
     p = run([
         "gh", "api", "graphql",
         "-f", f"query={GRAPHQL_QUERY}",
-        "-F", f"owner={owner}",
-        "-F", f"name={name}",
+        # owner/name are String! — use -f (string-typed). -F would coerce
+        # all-digit values (e.g. repo "octocat/123") to Int and the API
+        # would reject the query with a type error.
+        "-f", f"owner={owner}",
+        "-f", f"name={name}",
+        # pr is Int! — -F sends it typed.
         "-F", f"pr={pr}",
     ])
-    if p.returncode != 0:
-        return None
+
+    # Parse stdout regardless of exit code: gh returns a fully-formed JSON
+    # body (with an `errors` array) for NOT_FOUND responses even though it
+    # also exits 1.
     try:
-        data = json.loads(p.stdout)
+        data = json.loads(p.stdout) if p.stdout else {}
     except json.JSONDecodeError:
-        return None
-    return ((data.get("data") or {}).get("repository") or {}).get("pullRequest")
+        return QueryResult(transient_error=True)
+
+    # A NOT_FOUND error for `repository.pullRequest` is GitHub's authoritative
+    # "this PR doesn't exist" reply — treat it as truly gone. Any other
+    # error class (rate limit, network, server-side) is transient.
+    for err in (data.get("errors") or []):
+        if (err.get("type") == "NOT_FOUND"
+                and err.get("path") == ["repository", "pullRequest"]):
+            return QueryResult(gone=True)
+    if p.returncode != 0 or data.get("errors"):
+        return QueryResult(transient_error=True)
+
+    repo = (data.get("data") or {}).get("repository")
+    if repo is None:
+        return QueryResult(transient_error=True)
+    pr_node = repo.get("pullRequest")
+    if pr_node is None:
+        # Defensive: success response with null pullRequest (no errors
+        # surfaced) — rare in practice; treat as gone.
+        return QueryResult(gone=True)
+    return QueryResult(node=pr_node)
 
 
 def _count(items: list, predicate) -> int:
     return sum(1 for x in items if x and predicate(x))
 
 
-def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool]:
-    """Return (signature, terminal). signature is the line content after 'PR #N: '."""
-    node = query_pr(owner, name, pr)
-    if not node:
-        return ("GONE", True)
+def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
+    """Return (signature, terminal, should_emit).
+
+    On transient API errors, returns ("", False, False) — caller should
+    skip the emit, leave previous[pr] unchanged, and keep polling so a
+    one-off network blip doesn't masquerade as a state transition or
+    falsely declare every watched PR terminal at once.
+    """
+    result = query_pr(owner, name, pr)
+    if result.transient_error:
+        return ("", False, False)
+    if result.gone:
+        return ("GONE", True, True)
+    node = result.node
 
     state = node.get("state") or "UNKNOWN"
     if state in ("MERGED", "CLOSED"):
-        return (state, True)
+        return (state, True, True)
 
     # Pull check contexts off the latest commit; default to empty when missing.
     commits = (node.get("commits") or {}).get("nodes") or []
@@ -155,7 +207,7 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool]:
     if unresolved > 0:
         parts.append(f"U={unresolved}")
 
-    return (",".join(parts), pending == 0)
+    return (",".join(parts), pending == 0, True)
 
 
 def parse_args(argv: list[str]) -> tuple[Optional[str], list[int]]:
@@ -173,8 +225,21 @@ def parse_args(argv: list[str]) -> tuple[Optional[str], list[int]]:
     return repo, prs
 
 
+def parse_poll_interval() -> int:
+    raw = os.environ.get("GIT_TOOLING_CI_POLL_SECONDS", "30").strip()
+    if not raw:
+        return 30
+    try:
+        value = int(raw)
+    except ValueError:
+        die(f"GIT_TOOLING_CI_POLL_SECONDS={raw!r} is not an integer")
+    if value < 1:
+        die(f"GIT_TOOLING_CI_POLL_SECONDS={raw!r} must be >= 1")
+    return value
+
+
 def main(argv: list[str]) -> int:
-    poll = int(os.environ.get("GIT_TOOLING_CI_POLL_SECONDS", "30"))
+    poll = parse_poll_interval()
 
     if not shutil.which("gh"):
         die("gh not found")
@@ -199,17 +264,18 @@ def main(argv: list[str]) -> int:
     emit(f"ci-watch: watching {len(pr_nums)} PR(s) in {repo} (poll every {poll}s)")
 
     previous: dict[int, str] = {}
-    first_poll = True
     while True:
         all_terminal = True
         for pr in pr_nums:
-            sig, terminal = build_signature(owner, name, pr)
+            sig, terminal, should_emit = build_signature(owner, name, pr)
             if not terminal:
+                # Transient errors also fall through here (terminal=False,
+                # should_emit=False), so a one-off API blip never lets the
+                # loop conclude "all watched PRs reached terminal state".
                 all_terminal = False
-            if first_poll or sig != previous.get(pr):
+            if should_emit and (pr not in previous or sig != previous[pr]):
                 emit(f"PR #{pr}: {sig}")
-            previous[pr] = sig
-        first_poll = False
+                previous[pr] = sig
 
         if all_terminal:
             emit("ci-watch: all watched PRs reached a terminal state")
