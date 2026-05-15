@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/post-push-reminder.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/post-push-or-pr-reminder.sh\"",
             "timeout": 10
           }
         ]
