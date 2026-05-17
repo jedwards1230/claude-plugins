@@ -137,12 +137,18 @@ they'll know.
 EOF
 fi
 
-# Probe 2: Go source files tracked at the root but no go.mod AT THE ROOT.
+# Probe 2: detect repos where the toolchain won't work cleanly.
 #
-# The Stop hooks cd to \`git rev-parse --show-toplevel\` and run
-# \`go vet ./...\` / \`go test ./...\` / \`golangci-lint run\` from there. If
-# there is no go.mod at the root, those commands fail regardless of any
-# nested modules.
+# The Stop hooks dispatch per-module: they walk up from each modified .go
+# file to its owning go.mod and run vet/test/lint from that directory. So
+# the probe only needs to flag the case where tracked Go source exists but
+# NO go.mod / go.work is reachable anywhere — that's the only state where
+# the hooks have nothing to dispatch against.
+#
+# Workspace mode (root go.work) and root-module mode (root go.mod) both
+# work cleanly from the root, so stay silent. Multi-module repos with
+# nested go.mod files also work via per-module dispatch — emit an info
+# message so the assistant knows the gates are active.
 #
 # We use \`git ls-files\` instead of \`find\` so the probe naturally respects
 # .gitignore and nested git boundaries: independently cloned repos under
@@ -150,32 +156,42 @@ fi
 # semantics, so we don't false-fire on ops repos that vendor unrelated Go
 # projects.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] && [ ! -f "$REPO_ROOT/go.mod" ]; then
-  TRACKED_GO=$(cd "$REPO_ROOT" && git ls-files '*.go' 2>/dev/null | head -n 1)
-  NESTED_MODS=$(cd "$REPO_ROOT" && git ls-files '**/go.mod' 2>/dev/null)
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+  # Skip silently if root has go.mod or go.work — toolchain runs from root.
+  if [ ! -f "$REPO_ROOT/go.mod" ] && [ ! -f "$REPO_ROOT/go.work" ]; then
+    TRACKED_GO=$(cd "$REPO_ROOT" && git ls-files -- '*.go' 2>/dev/null | head -n 1)
+    if [ -n "$TRACKED_GO" ]; then
+      # Tracked Go but no root module. Look for nested go.mod files.
+      NESTED_MODS=$(cd "$REPO_ROOT" && git ls-files 2>/dev/null | grep '/go\.mod$' || true)
+      if [ -z "$NESTED_MODS" ]; then
+        # No modules anywhere — real problem
+        cat <<EOF
+[go-quality] Tracked Go source files but no go.mod anywhere in the repo.
 
-  if [ -n "$TRACKED_GO" ]; then
-    cat <<EOF
-[go-quality] Go source files tracked at the repository root but no go.mod present.
-
-The plugin's vet/test/lint hooks cd to \`git rev-parse --show-toplevel\` and
-run \`go vet ./...\` / \`go test ./...\` from there, which will fail on every
-Stop event until a module is initialized at the root:
+The plugin's Stop hooks need a module to run \`go vet\` / \`go test\` /
+\`golangci-lint\` against. Either init a module:
 
   go mod init <module-path>
 
-Please alert the user about the missing root go.mod — not all chat clients
-surface hook output, so a human-readable mention in your next reply is the
-only way they'll know.
+…or use a workspace (\`go.work\`) if you have multiple modules.
+
+Please alert the user — not all chat clients surface hook output.
 EOF
-  elif [ -n "$NESTED_MODS" ]; then
-    echo "[go-quality] Note: nested Go modules detected at:"
-    echo "$NESTED_MODS" | sed 's|^|  - |'
-    echo ""
-    echo "No Go files are tracked at the repo root, so the plugin's hooks"
-    echo "will stay silent here. Run Claude from within a nested module's"
-    echo "directory to get its quality gates."
+      else
+        # Multi-module repo — gates dispatch per-module, friendly info only.
+        nested_count=$(printf '%s\n' "$NESTED_MODS" | wc -l | tr -d ' ')
+        echo "[go-quality] Multi-module repo detected — $nested_count nested go.mod file(s):"
+        printf '%s\n' "$NESTED_MODS" | head -10 | sed 's|^|  - |'
+        if [ "$nested_count" -gt 10 ]; then
+          echo "  ... ($((nested_count - 10)) more)"
+        fi
+        echo ""
+        echo "Stop hooks will dispatch vet/test/lint per-module on the module owning each modified file. No action needed."
+      fi
+    fi
+    # else: no tracked Go at all — plugin is dormant here, silent.
   fi
+  # else: root has go.mod or go.work — toolchain works from root, silent.
 fi
 
 exit 0
