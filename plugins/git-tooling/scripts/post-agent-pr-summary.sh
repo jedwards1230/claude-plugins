@@ -103,19 +103,22 @@ done <<< "$pr_create_ids"
 pr_urls="$(printf '%s' "$pr_urls" | grep -v '^$' | sort -u || true)"
 [ -z "$pr_urls" ] && exit 0
 
-# Detect ci-watch invocation: Monitor with ci-watch.py, OR Skill ci-watch /
-# git-tooling:ci-watch. A tool_use alone isn't proof the call actually ran —
-# it may have been rejected (permissions) or errored. Mirror the pr_create
-# two-pass pattern: collect tool_use IDs, then verify each one's tool_result
-# exists AND is not an error.
+# Detect ci-watch invocation: only Monitor calls running ci-watch.py count as
+# actually starting the background watcher. A Skill: ci-watch tool_use only
+# loads the skill's instructions — per the skill's SKILL.md the agent then
+# has to invoke Monitor separately to start the watcher. Counting Skill
+# alone would falsely report "watching" when the subagent loaded the skill
+# but never followed through.
+#
+# A tool_use alone isn't proof the call actually ran — it may have been
+# rejected (permissions) or errored. Mirror the pr_create two-pass pattern:
+# collect tool_use IDs, then verify each one's tool_result exists AND is
+# not an error.
 ci_watch_ids="$(jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
-  | select(
-      (.name == "Monitor" and ((.input.command // "") | contains("ci-watch.py")))
-      or (.name == "Skill" and ((.input.skill // "") | test("(^|:)ci-watch$")))
-    )
+  | select(.name == "Monitor" and ((.input.command // "") | contains("ci-watch.py")))
   | .id
 ' "$subagent_transcript" 2>/dev/null || true)"
 
