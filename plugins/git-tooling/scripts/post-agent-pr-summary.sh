@@ -71,7 +71,7 @@ pr_create_ids="$(jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use" and .name == "Bash")
-  | select(.input.command // "" | contains("gh pr create"))
+  | select(.input.command // "" | test("gh[[:space:]]+pr[[:space:]]+create"))
   | .id
 ' "$subagent_transcript" 2>/dev/null || true)"
 
@@ -104,8 +104,11 @@ pr_urls="$(printf '%s' "$pr_urls" | grep -v '^$' | sort -u || true)"
 [ -z "$pr_urls" ] && exit 0
 
 # Detect ci-watch invocation: Monitor with ci-watch.py, OR Skill ci-watch /
-# git-tooling:ci-watch.
-ci_watch_count="$(jq -r '
+# git-tooling:ci-watch. A tool_use alone isn't proof the call actually ran —
+# it may have been rejected (permissions) or errored. Mirror the pr_create
+# two-pass pattern: collect tool_use IDs, then verify each one's tool_result
+# exists AND is not an error.
+ci_watch_ids="$(jq -r '
   select(.type == "assistant")
   | .message.content[]?
   | select(.type == "tool_use")
@@ -114,8 +117,19 @@ ci_watch_count="$(jq -r '
       or (.name == "Skill" and ((.input.skill // "") | test("(^|:)ci-watch$")))
     )
   | .id
-' "$subagent_transcript" 2>/dev/null | grep -c . || true)"
-ci_watch_count="${ci_watch_count:-0}"
+' "$subagent_transcript" 2>/dev/null || true)"
+
+ci_watch_count=0
+while IFS= read -r tu_id; do
+  [ -z "$tu_id" ] && continue
+  ok="$(jq -r --arg id "$tu_id" '
+    select(.type == "user")
+    | .message.content[]?
+    | select(.type == "tool_result" and .tool_use_id == $id)
+    | if (.is_error // false) == false then "ok" else empty end
+  ' "$subagent_transcript" 2>/dev/null | head -1 || true)"
+  [ "$ok" = "ok" ] && ci_watch_count=$((ci_watch_count + 1))
+done <<< "$ci_watch_ids"
 
 # Build PR list / URL list strings for the context message.
 pr_numbers=""
