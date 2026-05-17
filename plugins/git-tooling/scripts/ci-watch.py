@@ -2,7 +2,9 @@
 """ci-watch.py — Watch GitHub PR CI status.
 
 Emits one stdout line per state transition. Exits 0 when every watched PR
-reaches a terminal state (no pending checks, or MERGED/CLOSED/GONE).
+reaches a terminal state: no pending checks AND no pending review requests
+(so we don't exit before Copilot or a requested human reviewer has posted),
+or MERGED/CLOSED/GONE.
 
 Designed to be invoked via the Monitor tool from the ci-watch skill —
 each stdout line becomes a notification.
@@ -65,6 +67,7 @@ query($owner: String!, $name: String!, $pr: Int!) {
     pullRequest(number: $pr) {
       state
       mergeable
+      reviewRequests(first: 1) { totalCount }
       reviewThreads(first: 50) { nodes { isResolved } }
       latestReviews(first: 10) { nodes { state } }
       commits(last: 1) {
@@ -199,6 +202,12 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     changes_requested = _count((node.get("latestReviews") or {}).get("nodes") or [],
                               lambda r: r.get("state") == "CHANGES_REQUESTED")
 
+    # Pending review requests: includes auto-requested Copilot reviews. The
+    # request stays in `reviewRequests` until the reviewer posts a review,
+    # so watching for `totalCount == 0` keeps us polling until Copilot (or
+    # any other requested reviewer) has weighed in.
+    review_requests = ((node.get("reviewRequests") or {}).get("totalCount") or 0)
+
     parts = [f"P={passed}", f"F={failed}", f"W={pending}"]
     if mergeable == "CONFLICTING":
         parts.append("CONFLICT")
@@ -206,8 +215,11 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
         parts.append("CR")
     if unresolved > 0:
         parts.append(f"U={unresolved}")
+    if review_requests > 0:
+        parts.append(f"RR={review_requests}")
 
-    return (",".join(parts), pending == 0, True)
+    terminal = pending == 0 and review_requests == 0
+    return (",".join(parts), terminal, True)
 
 
 def parse_args(argv: list[str]) -> tuple[Optional[str], list[int]]:
