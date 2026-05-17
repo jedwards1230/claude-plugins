@@ -1,5 +1,14 @@
 #!/bin/bash
 # Block if golangci-lint reports issues on modified Go files.
+#
+# Per-module dispatch: walks up from each modified .go file to its owning
+# go.mod and runs golangci-lint from that directory. This handles monorepos
+# with multiple modules and Go workspaces correctly. If go.work is present
+# at the repo root, runs once from the root.
+#
+# Within each module we run `./...` rather than narrowing to specific
+# packages — intentional for simplicity. Could be tightened if lint perf
+# becomes an issue.
 set -euo pipefail
 
 INPUT=$(cat)
@@ -30,8 +39,8 @@ MODIFIED=$(
 )
 [ -z "$MODIFIED" ] && exit 0
 
-GO_CHANGED=$(echo "$MODIFIED" | grep '\.go$' | head -1 || true)
-[ -z "$GO_CHANGED" ] && exit 0
+GO_FILES=$(printf '%s\n' "$MODIFIED" | grep '\.go$' || true)
+[ -z "$GO_FILES" ] && exit 0
 
 if ! command -v go &>/dev/null; then
   echo "WARNING: go not found in PATH — skipping lint checks" >&2
@@ -51,23 +60,56 @@ else
   exit 0
 fi
 
-# Build list of packages containing modified Go files
-PACKAGES=$(echo "$MODIFIED" | grep '\.go$' | xargs -I{} dirname {} | sort -u | sed 's|^|./|' | tr '\n' ' ')
+# Workspace mode: go.work at root means run once from the root.
+if [ -f go.work ]; then
+  MODULES_TO_CHECK="."
+else
+  # Walk up from each modified .go file to its owning module's go.mod.
+  # Bash 3.2 compatible: no associative arrays, just sort -u for dedup.
+  MODULES_TO_CHECK=$(
+    printf '%s\n' "$GO_FILES" | while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      d=$(dirname "$f")
+      while :; do
+        if [ -f "$d/go.mod" ]; then
+          printf '%s\n' "$d"
+          break
+        fi
+        parent=$(dirname "$d")
+        if [ "$parent" = "$d" ]; then
+          break  # reached filesystem root, no module
+        fi
+        d=$parent
+      done
+    done | sort -u
+  )
+fi
 
+# Nothing to check (all files orphaned) — exit silently.
+[ -z "$MODULES_TO_CHECK" ] && exit 0
+
+# Run lint in each affected module; collect ALL failures.
+# Temp file pattern (not pipeline-to-while) so FAILED survives in parent shell.
+MOD_LIST=$(mktemp)
 LINT_OUT=$(mktemp)
-trap 'rm -f "$LINT_OUT"' EXIT
+trap 'rm -f "$MOD_LIST" "$LINT_OUT"' EXIT
+printf '%s\n' "$MODULES_TO_CHECK" > "$MOD_LIST"
 
-# shellcheck disable=SC2086
-if $GOLANGCI run --timeout 60s $PACKAGES >"$LINT_OUT" 2>&1; then
-  exit 0
-fi
+FAILED=0
+while IFS= read -r module_dir; do
+  [ -z "$module_dir" ] && continue
+  if (cd "$module_dir" && "$GOLANGCI" run --timeout 60s ./...) >"$LINT_OUT" 2>&1; then
+    continue
+  fi
+  # Handle v1/v2 config mismatch gracefully — skip without failing.
+  if grep -q "configuration file for golangci-lint v2 with golangci-lint v1" "$LINT_OUT" 2>/dev/null; then
+    echo "WARNING: golangci-lint v1 installed but config requires v2 — skipping module: $module_dir" >&2
+    continue
+  fi
+  echo "golangci-lint issues in module: $module_dir" >&2
+  cat "$LINT_OUT" >&2
+  FAILED=1
+done < "$MOD_LIST"
 
-# Handle v1/v2 config mismatch gracefully
-if grep -q "configuration file for golangci-lint v2 with golangci-lint v1" "$LINT_OUT" 2>/dev/null; then
-  echo "WARNING: golangci-lint v1 installed but config requires v2 — skipping" >&2
-  exit 0
-fi
-
-echo "golangci-lint issues. Fix before finishing:" >&2
-cat "$LINT_OUT" >&2
-exit 2
+[ "$FAILED" -eq 1 ] && exit 2
+exit 0
