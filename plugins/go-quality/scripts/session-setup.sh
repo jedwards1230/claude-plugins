@@ -7,7 +7,7 @@
 #      pre-installed.
 #   2. Probe the environment regardless of remote/local and emit stdout context
 #      (read by Claude as a system reminder) when the plugin's hooks would be
-#      degraded — missing tools, or Go source without a module.
+#      degraded — missing tools, or Go source without a root module.
 
 set +e  # Never exit on error in session-start
 
@@ -84,23 +84,46 @@ fi
 # Probes (always run; stdout is injected into Claude's context)
 # ---------------------------------------------------------------------------
 
-# Probe 1: missing tools
-MISSING=()
-command -v go &>/dev/null            || MISSING+=("go")
-command -v gofmt &>/dev/null         || MISSING+=("gofmt")
-command -v golangci-lint &>/dev/null || MISSING+=("golangci-lint")
+# Probe 1: missing tools, with per-tool impact messaging.
+# Matches the lookup logic the hook scripts actually use.
+MISSING_GO=true
+MISSING_GOFMT=true
+MISSING_GOLANGCI=true
+MISSING_JQ=true
 
-if [ ${#MISSING[@]} -gt 0 ]; then
+command -v go    &>/dev/null && MISSING_GO=false
+command -v gofmt &>/dev/null && MISSING_GOFMT=false
+command -v jq    &>/dev/null && MISSING_JQ=false
+
+# Mirror go-lint.sh: check $(go env GOPATH)/bin before PATH so a tool installed
+# via `go install` is recognized even when GOPATH/bin is not on PATH.
+if ! $MISSING_GO; then
+  GOPATH_DIR=$(go env GOPATH 2>/dev/null || true)
+  if [ -n "$GOPATH_DIR" ] && [ -x "$GOPATH_DIR/bin/golangci-lint" ]; then
+    MISSING_GOLANGCI=false
+  fi
+fi
+if $MISSING_GOLANGCI && command -v golangci-lint &>/dev/null; then
+  MISSING_GOLANGCI=false
+fi
+
+IMPACT_LINES=()
+$MISSING_GO       && IMPACT_LINES+=("  - go missing — vet, test, and lint hooks all skip; no Go quality gates run this session.")
+$MISSING_GOFMT    && IMPACT_LINES+=("  - gofmt missing — PostToolUse format hook no-ops; .go edits will NOT be auto-formatted.")
+$MISSING_GOLANGCI && IMPACT_LINES+=("  - golangci-lint missing — Stop-event lint hook skips; go vet and go test still run.")
+$MISSING_JQ       && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and vet/test/lint lose their stop_hook_active loop guard.")
+
+if [ ${#IMPACT_LINES[@]} -gt 0 ]; then
+  printf '[go-quality] Quality gates degraded — missing tools detected:\n\n'
+  for line in "${IMPACT_LINES[@]}"; do
+    printf '%s\n' "$line"
+  done
   cat <<EOF
-[go-quality] Quality gates degraded — missing tools: ${MISSING[*]}
-
-The PostToolUse format hook (gofmt) and the Stop-event vet/test/lint hooks
-will silently skip when these tools are absent, so Go code written this
-session will not be auto-checked.
 
 Install:
   go:            https://go.dev/dl/
   golangci-lint: https://golangci-lint.run/welcome/install/
+  jq:            \`brew install jq\` / \`apt-get install jq\`
 
 Please alert the user about the missing tools so they can install them or
 move to an environment that has them — not all chat clients surface hook
@@ -109,34 +132,38 @@ they'll know.
 EOF
 fi
 
-# Probe 2: Go source files present but no module manifest anywhere in the repo
+# Probe 2: Go source files present in this repo but no go.mod AT THE ROOT.
+#
+# The Stop hooks cd to \`git rev-parse --show-toplevel\` and run
+# \`go vet ./...\` / \`go test ./...\` / \`golangci-lint run\` from there. If
+# there is no go.mod at the root, those commands fail regardless of any
+# nested modules. We prune nested .git directories (independent repos under
+# this tree), vendor, and node_modules so the probe is fast on large repos
+# and doesn't false-suppress on monorepos whose .go files live only in
+# nested-but-independent repos.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
-  HAS_GO_FILES=$(find "$REPO_ROOT" -maxdepth 4 -name '*.go' \
-    -not -path '*/vendor/*' \
-    -not -path '*/.git/*' \
-    -not -path '*/node_modules/*' \
-    -print -quit 2>/dev/null)
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] && [ ! -f "$REPO_ROOT/go.mod" ]; then
+  HAS_GO_FILES=$(find "$REPO_ROOT" \
+    \( -type d \( -name .git -o -name vendor -o -name node_modules \) -prune \) -o \
+    \( -type f -name '*.go' -print \) 2>/dev/null | head -n 1)
   if [ -n "$HAS_GO_FILES" ]; then
-    HAS_GO_MOD=$(find "$REPO_ROOT" -maxdepth 4 -name 'go.mod' \
-      -not -path '*/vendor/*' \
-      -not -path '*/.git/*' \
-      -not -path '*/node_modules/*' \
-      -print -quit 2>/dev/null)
-    if [ -z "$HAS_GO_MOD" ]; then
-      cat <<EOF
-[go-quality] Go source files detected but no go.mod found in this repository.
+    cat <<EOF
+[go-quality] Go source files detected but no go.mod at the repository root.
 
-The plugin's vet, test, and lint hooks operate on a Go module and will fail
-on every Stop event until a module is initialized:
+The plugin's vet/test/lint hooks cd to \`git rev-parse --show-toplevel\` and
+run \`go vet ./...\` / \`go test ./...\` from there, which will fail on every
+Stop event until a module is initialized at the root:
 
   go mod init <module-path>
 
-Please alert the user that the Go module is missing — not all chat clients
+(If this is a monorepo where Go modules live only in nested directories and
+no root module is wanted, the plugin's Stop hooks will not work cleanly for
+this repo — consider disabling the plugin for it.)
+
+Please alert the user about the missing root go.mod — not all chat clients
 surface hook output, so a human-readable mention in your next reply is the
 only way they'll know.
 EOF
-    fi
   fi
 fi
 
