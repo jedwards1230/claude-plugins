@@ -108,10 +108,15 @@ if $MISSING_GOLANGCI && command -v golangci-lint &>/dev/null; then
 fi
 
 IMPACT_LINES=()
-$MISSING_GO       && IMPACT_LINES+=("  - go missing — vet, test, and lint hooks all skip; no Go quality gates run this session.")
-$MISSING_GOFMT    && IMPACT_LINES+=("  - gofmt missing — PostToolUse format hook no-ops; .go edits will NOT be auto-formatted.")
-$MISSING_GOLANGCI && IMPACT_LINES+=("  - golangci-lint missing — Stop-event lint hook skips; go vet and go test still run.")
-$MISSING_JQ       && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and vet/test/lint lose their stop_hook_active loop guard.")
+$MISSING_GO && IMPACT_LINES+=("  - go missing — vet, test, and lint hooks all skip; no Go quality gates run this session.")
+# Suppress gofmt and golangci-lint impact lines when go is also missing —
+# the go-missing line already covers them, and printing both yields a
+# contradiction (e.g. "vet/test/lint all skip" + "vet and test still run").
+if ! $MISSING_GO; then
+  $MISSING_GOFMT    && IMPACT_LINES+=("  - gofmt missing — PostToolUse format hook no-ops; .go edits will NOT be auto-formatted.")
+  $MISSING_GOLANGCI && IMPACT_LINES+=("  - golangci-lint missing — Stop-event lint hook skips; go vet and go test still run.")
+fi
+$MISSING_JQ && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and vet/test/lint lose their stop_hook_active loop guard.")
 
 if [ ${#IMPACT_LINES[@]} -gt 0 ]; then
   printf '[go-quality] Quality gates degraded — missing tools detected:\n\n'
