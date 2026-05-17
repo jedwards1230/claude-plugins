@@ -137,23 +137,26 @@ they'll know.
 EOF
 fi
 
-# Probe 2: Go source files present in this repo but no go.mod AT THE ROOT.
+# Probe 2: Go source files tracked at the root but no go.mod AT THE ROOT.
 #
 # The Stop hooks cd to \`git rev-parse --show-toplevel\` and run
 # \`go vet ./...\` / \`go test ./...\` / \`golangci-lint run\` from there. If
 # there is no go.mod at the root, those commands fail regardless of any
-# nested modules. We prune nested .git directories (independent repos under
-# this tree), vendor, and node_modules so the probe is fast on large repos
-# and doesn't false-suppress on monorepos whose .go files live only in
-# nested-but-independent repos.
+# nested modules.
+#
+# We use \`git ls-files\` instead of \`find\` so the probe naturally respects
+# .gitignore and nested git boundaries: independently cloned repos under
+# this tree (with their own .git dirs) are excluded by git's worktree
+# semantics, so we don't false-fire on ops repos that vendor unrelated Go
+# projects.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ] && [ ! -f "$REPO_ROOT/go.mod" ]; then
-  HAS_GO_FILES=$(find "$REPO_ROOT" \
-    \( -type d \( -name .git -o -name vendor -o -name node_modules \) -prune \) -o \
-    \( -type f -name '*.go' -print \) 2>/dev/null | head -n 1)
-  if [ -n "$HAS_GO_FILES" ]; then
+  TRACKED_GO=$(cd "$REPO_ROOT" && git ls-files '*.go' 2>/dev/null | head -n 1)
+  NESTED_MODS=$(cd "$REPO_ROOT" && git ls-files '**/go.mod' 2>/dev/null)
+
+  if [ -n "$TRACKED_GO" ]; then
     cat <<EOF
-[go-quality] Go source files detected but no go.mod at the repository root.
+[go-quality] Go source files tracked at the repository root but no go.mod present.
 
 The plugin's vet/test/lint hooks cd to \`git rev-parse --show-toplevel\` and
 run \`go vet ./...\` / \`go test ./...\` from there, which will fail on every
@@ -161,14 +164,17 @@ Stop event until a module is initialized at the root:
 
   go mod init <module-path>
 
-(If this is a monorepo where Go modules live only in nested directories and
-no root module is wanted, the plugin's Stop hooks will not work cleanly for
-this repo — consider disabling the plugin for it.)
-
 Please alert the user about the missing root go.mod — not all chat clients
 surface hook output, so a human-readable mention in your next reply is the
 only way they'll know.
 EOF
+  elif [ -n "$NESTED_MODS" ]; then
+    echo "[go-quality] Note: nested Go modules detected at:"
+    echo "$NESTED_MODS" | sed 's|^|  - |'
+    echo ""
+    echo "No Go files are tracked at the repo root, so the plugin's hooks"
+    echo "will stay silent here. Run Claude from within a nested module's"
+    echo "directory to get its quality gates."
   fi
 fi
 

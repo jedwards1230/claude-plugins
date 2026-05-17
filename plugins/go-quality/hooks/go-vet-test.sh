@@ -33,6 +33,15 @@ MODIFIED=$(
 GO_CHANGED=$(echo "$MODIFIED" | grep '\.go$' | head -1 || true)
 [ -z "$GO_CHANGED" ] && exit 0
 
+# Defensive guard: vet/test only work from within a module. If the repo root
+# has no go.mod (e.g. Go code lives only in nested independent repos that
+# aren't part of this git tree), skip cleanly instead of erroring out on
+# every Stop event.
+if [ ! -f go.mod ]; then
+  echo "WARNING: no go.mod at repo root — skipping go vet/test (run from a module directory)" >&2
+  exit 0
+fi
+
 if ! command -v go &>/dev/null; then
   echo "WARNING: go not found in PATH — skipping vet and test checks" >&2
   exit 0
