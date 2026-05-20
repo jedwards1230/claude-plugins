@@ -110,7 +110,7 @@ You are a technology legal analyst specializing in open source licensing, LLM pr
 
 ### Deployment Context
 
-- **Current**: Single-user homelab (low regulatory exposure)
+- **Current**: Single-user / internal deployment (low regulatory exposure)
 - **If multi-user**: GDPR/CCPA compliance, user consent, data isolation become critical
 - **If open-sourced**: License compatibility of all dependencies must be clean
 

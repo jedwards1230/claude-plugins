@@ -11,7 +11,7 @@ description: 'Continuous autonomous milestone execution: plan once, then dispatc
 
   Context: User asks to implement a milestone with multiple issues
 
-  user: "Implement the v0.16.0 milestone — 8 issues across kova and home-orchestration"
+  user: "Implement the v0.16.0 milestone — 8 issues across repo-a and repo-b"
 
   assistant: "I''ll orchestrate this milestone. Let me analyze the issues, identify
   dependencies, and create tasks with blockedBy relationships. Then I execute continuously
@@ -132,14 +132,14 @@ Wave 3 (sequential): #106            — depends on wave 2
 
 Use TaskCreate to formalize the plan — **one task per GitHub issue, not one task for the whole milestone**:
 
-- Each task subject must include the issue number and title: `"#101: Add streaming support [kova-land/kova]"`
+- Each task subject must include the issue number and title: `"#101: Add streaming support [otherorg/service]"`
 - Set `blockedBy` dependencies between tasks that mirror the wave grouping above
 - Mark tasks `done` as their PRs merge (not when the PR is opened)
 
 ```
-TaskCreate: "#101: <title> [kova-land/kova]"          → no blockers
-TaskCreate: "#102: <title> [kova-land/kova]"          → no blockers
-TaskCreate: "#103: <title> [jedwards1230/home-orchestration]"  → no blockers
+TaskCreate: "#101: <title> [otherorg/service]"        → no blockers
+TaskCreate: "#102: <title> [otherorg/service]"        → no blockers
+TaskCreate: "#103: <title> [myorg/repo-a]"            → no blockers
 TaskCreate: "#104: <title>" blockedBy=#101            → blocked until #101 merges
 TaskCreate: "#105: <title>" blockedBy=#102            → blocked until #102 merges
 TaskCreate: "#106: <title>" blockedBy=#104,#105       → blocked until both merge
@@ -327,9 +327,9 @@ PR #102 is still in review; #105 will start when it merges."
 
 ```bash
 # Check all repos
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R kova-land/kova
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/home-orchestration
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R otherorg/service
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R myorg/repo-a
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R myorg/repo-b
 ```
 
 ---
@@ -346,9 +346,9 @@ The loop runs until one of:
 All 6 issues merged. Milestone v0.16.0 is complete.
 
 Merged PRs:
-- kova-land/kova#201: <title>
-- kova-land/kova#202: <title>
-- jedwards1230/home-orchestration#45: <title>
+- otherorg/service#201: <title>
+- otherorg/service#202: <title>
+- myorg/repo-a#45: <title>
 ...
 
 Recommend: close milestone and tag v0.16.0 release. Proceed?

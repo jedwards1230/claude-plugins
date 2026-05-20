@@ -1,6 +1,6 @@
 ---
 name: project-manager
-description: 'Standards and workflows for project management across all homelab repos.
+description: 'Standards and workflows for project management across multiple configured repos.
   Defines label taxonomy, triage process, sprint planning, and cross-repo coordination
   using GitHub Issues and Project boards. Triggers: "plan sprint", "triage issues",
   "project status", "what should I work on", "prioritize backlog", "create epic",
@@ -55,7 +55,7 @@ allowed-tools:
 
 # Project Management Standards
 
-This skill defines how we manage work across the homelab ecosystem. Both the `project-manager` and `project-ops` agents load these standards. You can also invoke this skill directly for ad-hoc project management tasks.
+This skill defines how to manage work across the consuming project's configured repos. Both the `project-manager` and `project-ops` agents load these standards. You can also invoke this skill directly for ad-hoc project management tasks.
 
 ## Behavioral Guidelines
 
@@ -75,15 +75,15 @@ Repo Health Overview
 ┌──────────────────────┬───────┬───────┬───────┬─────────┐
 │ Repo                 │ P0    │ P1    │ P2    │ Stale   │
 ├──────────────────────┼───────┼───────┼───────┼─────────┤
-│ home-orchestration   │ 0     │ 3     │ 5     │ 2       │
-│ kova                 │ 1     │ 4     │ 2     │ 0       │
-│ claude-plugins       │ 0     │ 1     │ 3     │ 1       │
+│ repo-a               │ 0     │ 3     │ 5     │ 2       │
+│ repo-b               │ 1     │ 4     │ 2     │ 0       │
+│ repo-c               │ 0     │ 1     │ 3     │ 1       │
 └──────────────────────┴───────┴───────┴───────┴─────────┘
 
 Dependency Chain
-  kova#45 (blocked)
-    └── blocked by: home-orchestration#200 (in progress)
-          └── blocked by: mcp-proxy-web#12 (done ✓) ← ready to unblock!
+  repo-b#45 (blocked)
+    └── blocked by: repo-a#200 (in progress)
+          └── blocked by: repo-c#12 (done ✓) ← ready to unblock!
 ```
 
 Use tree diagrams for epics/sub-issues, tables for cross-repo summaries, and flow diagrams for dependency chains.
@@ -152,7 +152,7 @@ Apply these labels consistently across ALL repos. Use `${CLAUDE_PLUGIN_ROOT}/scr
 | Label | Color | Description |
 |-------|-------|-------------|
 | `infra` | `#1d76db` | Infrastructure, K8s, Ansible, networking |
-| `service` | `#0e8a16` | Application services (kova, libro, etc.) |
+| `service` | `#0e8a16` | Application services |
 | `tooling` | `#e4e669` | Developer tools, CI/CD, plugins |
 | `docs` | `#0075ca` | Documentation only |
 
@@ -311,9 +311,9 @@ For work spanning multiple repos, create an epic issue in the primary repo:
 ## Epic: <Title>
 
 ### Sub-Issues
-- [ ] jedwards1230/home-orchestration#N — K8s manifests
-- [ ] kova-land/kova#N — Agent implementation
-- [ ] jedwards1230/mcp-proxy-web#N — UI updates
+- [ ] myorg/repo-a#N — backend changes
+- [ ] otherorg/service#N — protocol implementation
+- [ ] myorg/repo-b#N — UI updates
 
 ### Status
 In progress — 1/3 complete
@@ -417,11 +417,11 @@ When reporting on dependencies, include a text diagram showing how issues connec
 
 ```
 Epic: Improve Observability (#100)
-├── home-orchestration#101 — Add Tempo traces to Traefik
-│   └── blocks: mcp-proxy-web#45 (needs trace context)
-├── home-orchestration#102 — Grafana dashboard for traces
+├── repo-a#101 — Add distributed tracing to gateway
+│   └── blocks: repo-b#45 (needs trace context)
+├── repo-a#102 — Dashboard for traces
 │   └── blocked by: #101 (needs traces flowing first)
-└── claude-plugins#30 — Add trace correlation to investigate skill
+└── repo-c#30 — Add trace correlation to investigate skill
 ```
 
 ## Status Reporting

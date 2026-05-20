@@ -1,6 +1,6 @@
 # project-manager
 
-Project management plugin for multi-repo homelab ecosystem. Provides standardized triage, sprint planning, status tracking, and cleanup workflows using GitHub Issues and Project boards.
+Project management plugin for multi-repo software ecosystems. Provides standardized triage, sprint planning, status tracking, and cleanup workflows using GitHub Issues and Project boards. The set of tracked repos is supplied by the consuming project via `.claude/rules/plugins/project-manager.yml`.
 
 ## Components
 
@@ -38,7 +38,7 @@ The skill includes a label setup script. Run it for each repo:
 
 ```bash
 # Example for one repo
-REPO="jedwards1230/home-orchestration"
+REPO="myorg/repo-a"
 gh label create "P0-critical" --repo $REPO --color "b60205" --description "Service down, data loss, security" --force
 # ... (see SKILL.md for full script)
 ```
@@ -46,16 +46,49 @@ gh label create "P0-critical" --repo $REPO --color "b60205" --description "Servi
 ### 3. Create GitHub Project boards
 
 ```bash
-gh project create --owner jedwards1230 --title "Homelab Infra"
-gh project create --owner kova-land --title "Kova Roadmap"
+gh project create --owner myorg --title "Infra"
+gh project create --owner otherorg --title "Service Roadmap"
 # ... one per repo
 ```
+
+### 4. Configure tracked repos
+
+The agents and helper scripts read the repo registry from two files in the consuming project:
+
+- `.claude/rules/plugins/project-manager.yml` — the data (read by scripts via `yq`)
+- `.claude/rules/plugins/project-manager.md` — a rules file that `@import`s the YAML so it lands in agent context
+
+**Create the YAML** at `.claude/rules/plugins/project-manager.yml`:
+
+```yaml
+repos:
+  - repo: myorg/repo-a
+    scope: infra
+    description: Short description
+    board: Infra Backlog
+  - repo: otherorg/service
+    scope: service
+    description: Short description
+    board: Service Backlog
+```
+
+**Create the rules file** at `.claude/rules/plugins/project-manager.md` so the YAML is loaded into agent context:
+
+```markdown
+# Project Manager Configuration
+
+Repo registry, scopes, and board names are defined in:
+
+@project-manager.yml
+```
+
+Without the `.md` file, the agents will not see the registry and will ask you to verify both files exist.
 
 ## Usage
 
 ```
 # Triage new issues
-"Triage the new issues in kova"
+"Triage the new issues in repo-a"
 
 # Sprint planning
 "What should I work on next?"
@@ -64,23 +97,8 @@ gh project create --owner kova-land --title "Kova Roadmap"
 "Project status across all repos"
 
 # Cleanup
-"Clean up resolved issues in home-orchestration"
+"Clean up resolved issues in repo-a"
 
 # Stale issue pruning
 "Prune stale issues across all repos"
 ```
-
-## Tracked Repos
-
-| Repo | Owner | Scope |
-|------|-------|-------|
-| home-orchestration | jedwards1230 | infra |
-| kova | kova-land | service |
-| libro-client | jedwards1230 | service |
-| mcp-proxy-web | jedwards1230 | service |
-| openclaw | jedwards1230 | service |
-| openclaw-charts | jedwards1230 | service |
-| claude-plugins | jedwards1230 | tooling |
-| release-workflows | jedwards1230 | tooling |
-| kickstart.nvim | jedwards1230 | tooling |
-| lilbro-tf | jedwards1230 | infra |

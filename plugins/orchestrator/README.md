@@ -72,7 +72,7 @@ babysit the open PRs until they merge
 check my PRs
 prci
 prci 623 624
-check PRs in kova-land/kova
+check PRs in otherorg/service
 ```
 
 ### Direct script
@@ -85,16 +85,16 @@ check PRs in kova-land/kova
 ./scripts/prci.sh 623 624
 
 # All open PRs in another repo
-./scripts/prci.sh -R kova-land/kova
+./scripts/prci.sh -R otherorg/service
 
 # Specific PRs in another repo
-./scripts/prci.sh -R kova-land/kova 623 624
+./scripts/prci.sh -R otherorg/service 623 624
 ```
 
 ## Example output (PR checker)
 
 ```
-Checking 4 open PRs in jedwards1230/home-orchestration...
+Checking 4 open PRs in myorg/repo-a...
 
 PR #259: ALL PASSING (1 checks) -- HAS MERGE CONFLICTS -- has review comments -- 6 unresolved threads
   REVIEW review comments from claude
@@ -103,7 +103,7 @@ PR #253: FAILING (1 failed) -- HAS MERGE CONFLICTS -- has review comments
   FAIL review
   REVIEW review comments from copilot-pull-request-reviewer, claude
 
-PR #235: FAILING (2 failed) -- awaiting review from jedwards1230 -- has review comments -- 6 unresolved threads
+PR #235: FAILING (2 failed) -- awaiting review from alice -- has review comments -- 6 unresolved threads
   FAIL review
   FAIL copilot-setup-steps
   REVIEW review comments from copilot-pull-request-reviewer, claude
@@ -112,7 +112,7 @@ PR #240: ALL PASSING (3 checks)
 
 Recently merged (last 24h):
   #258 feat: add monitoring dashboard
-  #257 fix: NFS mount recovery
+  #257 fix: handle network timeout on retry
 ```
 
 ## Status reference
