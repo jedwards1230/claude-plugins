@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "14.1.4"
+    "version": "15.0.0"
   },
   "plugins": [
     {
@@ -16,21 +16,6 @@
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
       "description": "Git tooling — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
-    },
-    {
-      "name": "review-team",
-      "source": "./plugins/review-team",
-      "description": "Dynamic review team composition with specialized agents for collaborative code review"
-    },
-    {
-      "name": "project-manager",
-      "source": "./plugins/project-manager",
-      "description": "Project management across multiple GitHub repos — triage, planning, tracking, and cleanup"
-    },
-    {
-      "name": "orchestrator",
-      "source": "./plugins/orchestrator",
-      "description": "Multi-repo PR lifecycle, milestone orchestration, CI/review monitoring, wave-based parallel implementation, and proactive pipeline management"
     },
     {
       "name": "go-quality",

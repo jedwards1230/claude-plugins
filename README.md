@@ -1,6 +1,8 @@
 # Claude Plugins
 
-Private marketplace for reusable Claude Code plugins.
+Public marketplace for reusable Claude Code plugins.
+
+Plugins that bake in personal workflows, hardcoded repo lists, or homelab-specific conventions live in the separate [`claude-plugins-private`](https://github.com/jedwards1230/claude-plugins-private) marketplace.
 
 ## Installation
 
@@ -19,9 +21,6 @@ Private marketplace for reusable Claude Code plugins.
 | [git-tooling](plugins/git-tooling/) | Git tooling — worktree workflows, PR-aware push reminders, and on-demand CI status watching |
 | [go-quality](plugins/go-quality/) | Go quality gates — auto-format, vet, test, and lint on every turn |
 | [grafana-dashboards](plugins/grafana-dashboards/) | Grafana dashboard creation and management for Kubernetes |
-| [orchestrator](plugins/orchestrator/) | Multi-repo PR lifecycle, milestone orchestration, and CI/review monitoring |
-| [project-manager](plugins/project-manager/) | Project management across multiple GitHub repos — triage, planning, tracking |
-| [review-team](plugins/review-team/) | Dynamic review team composition with specialized agents |
 
 ## Development
 
