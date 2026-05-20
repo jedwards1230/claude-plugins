@@ -53,7 +53,12 @@ gh project create --owner otherorg --title "Service Roadmap"
 
 ### 4. Configure tracked repos
 
-Create `.claude/rules/plugins/project-manager.yml` in the consuming project with the following shape:
+The agents and helper scripts read the repo registry from two files in the consuming project:
+
+- `.claude/rules/plugins/project-manager.yml` — the data (read by scripts via `yq`)
+- `.claude/rules/plugins/project-manager.md` — a rules file that `@import`s the YAML so it lands in agent context
+
+**Create the YAML** at `.claude/rules/plugins/project-manager.yml`:
 
 ```yaml
 repos:
@@ -66,6 +71,18 @@ repos:
     description: Short description
     board: Service Backlog
 ```
+
+**Create the rules file** at `.claude/rules/plugins/project-manager.md` so the YAML is loaded into agent context:
+
+```markdown
+# Project Manager Configuration
+
+Repo registry, scopes, and board names are defined in:
+
+@project-manager.yml
+```
+
+Without the `.md` file, the agents will not see the registry and will ask you to verify both files exist.
 
 ## Usage
 
