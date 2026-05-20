@@ -1,5 +1,5 @@
 {
   "name": "review-team",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Dynamic review team composition with 7 specialized agents for collaborative, multi-angle code review using Claude Code agent teams"
 }

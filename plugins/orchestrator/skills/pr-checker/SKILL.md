@@ -11,7 +11,7 @@ example_prompts:
   - "check CI status for PR 123"
   - "are my PRs passing?"
   - "prci"
-  - "check PR status for kova-land/kova"
+  - "check PR status for otherorg/service"
 permalink: tooling/claude-plugins/plugins/orchestrator/skills/pr-checker/skill
 ---
 
@@ -97,14 +97,14 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh 623 624 625
 
 ### Cross-repo check
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/home-orchestration
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R myorg/repo-a
 ```
 
 ### Parallel multi-repo check
 ```bash
 # Run in parallel for different repos
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R kova-land/kova
-${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R jedwards1230/claude-plugins
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R otherorg/service
+${CLAUDE_PLUGIN_ROOT}/scripts/prci.sh -R myorg/repo-b
 ```
 
 ## Proactive Behavior
