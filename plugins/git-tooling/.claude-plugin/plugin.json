@@ -1,0 +1,8 @@
+{
+  "name": "git-tooling",
+  "version": "1.4.3",
+  "description": "Git tooling for Claude Code — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching",
+  "author": {
+    "name": "jedwards1230"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "grafana-dashboards",
+  "version": "1.0.0",
+  "description": "Grafana dashboard creation and management for Kubernetes-native deployments using the Grafana Operator"
+}

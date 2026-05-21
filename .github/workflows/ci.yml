@@ -1,0 +1,53 @@
+# Validates that marketplace.json and every plugin.json is syntactically valid JSON.
+# Runs on every push to main and every PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: "JSON Validation — ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON files
+        id: validate
+        run: |
+          {
+            echo "## JSON Validation"
+            echo ""
+            echo "| File | Result |"
+            echo "|------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          status=0
+
+          validate() {
+            local file="$1"
+            if python3 -m json.tool "$file" > /dev/null 2>&1; then
+              echo "| \`$file\` | :white_check_mark: Valid |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$file\` | :x: Invalid |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error file=$file::Invalid JSON"
+              status=1
+            fi
+          }
+
+          validate .claude-plugin/marketplace.json
+          while IFS= read -r -d '' f; do
+            validate "$f"
+          done < <(find plugins -name plugin.json -print0)
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ $status -eq 0 ]; then
+            echo ":white_check_mark: **All JSON files valid**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo ":x: **Invalid JSON detected** — see errors above" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit $status

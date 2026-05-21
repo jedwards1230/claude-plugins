@@ -1,0 +1,26 @@
+{
+  "name": "jedwards1230-plugins",
+  "owner": {
+    "name": "jedwards1230"
+  },
+  "metadata": {
+    "version": "15.0.0"
+  },
+  "plugins": [
+    {
+      "name": "grafana-dashboards",
+      "source": "./plugins/grafana-dashboards",
+      "description": "Grafana dashboard creation, management, and quality review for Kubernetes deployments"
+    },
+    {
+      "name": "git-tooling",
+      "source": "./plugins/git-tooling",
+      "description": "Git tooling — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
+    },
+    {
+      "name": "go-quality",
+      "source": "./plugins/go-quality",
+      "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
+    }
+  ]
+}
