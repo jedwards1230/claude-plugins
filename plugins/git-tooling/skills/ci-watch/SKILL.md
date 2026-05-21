@@ -104,7 +104,7 @@ Each notification line emitted by the script looks like:
 How to react:
 
 - **All green and terminal** — tell the user, ask whether to merge or move on.
-- **Any failures** (`F>0`) — surface immediately. If detailed failing-check names would help, the `orchestrator` plugin's `prci.sh` gives them.
+- **Any failures** (`F>0`) — surface immediately. For detailed failing-check names, run `gh pr checks <pr> -R <owner/repo>`.
 - **`CR` or `U=N`** — point the user at reviewer feedback before merging.
 - **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher will keep polling until they post; terminal only when checks AND review requests are both clear.
 - **`CONFLICT`** — offer to rebase against the base branch.
@@ -117,4 +117,4 @@ If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 - The script's stdout is one notification per line. Lines within 200ms are batched into a single notification by the Monitor tool.
 - Poll interval defaults to 30s. Override via `GIT_TOOLING_CI_POLL_SECONDS` env var if the user explicitly wants faster/slower polling (rare — respect GitHub rate limits).
 - The script is null-safe for PRs with no checks at all (will report `P=0,F=0,W=0` as terminal).
-- For a one-shot status snapshot without watching, use the `orchestrator` plugin's `prci.sh` instead.
+- For a one-shot status snapshot without watching, use `gh pr checks <pr>` or `gh pr view <pr> --json statusCheckRollup`.
