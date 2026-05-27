@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""ci-watch.py — Watch GitHub PR CI status.
+"""ci-watch.py — Watch GitHub PR CI status through to merge.
 
 Emits one stdout line per state transition. Exits 0 when every watched PR
-reaches a terminal state: no pending checks AND no pending review requests
-(so we don't exit before Copilot or a requested human reviewer has posted),
-or MERGED/CLOSED/GONE.
+reaches a true terminal state: MERGED, CLOSED, or GONE. CI completion and
+review status are reported as intermediate milestones (with a READY flag
+when a PR is mergeable), but the watcher keeps polling until the PR is
+actually merged or closed.
 
 Designed to be invoked via the Monitor tool from the ci-watch skill —
 each stdout line becomes a notification.
@@ -218,7 +219,14 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     if review_requests > 0:
         parts.append(f"RR={review_requests}")
 
-    terminal = pending == 0 and review_requests == 0
+    ready = (pending == 0 and failed == 0 and review_requests == 0
+             and changes_requested == 0 and unresolved == 0
+             and mergeable != "CONFLICTING")
+    if ready:
+        parts.append("READY")
+
+    # Terminal = merged/closed/gone only (handled by early returns above).
+    terminal = False
     return (",".join(parts), terminal, True)
 
 
@@ -292,7 +300,11 @@ def main(argv: list[str]) -> int:
         if all_terminal:
             emit("ci-watch: all watched PRs reached a terminal state")
             return 0
-        time.sleep(poll)
+
+        all_ready = previous and all(
+            sig.endswith("READY") for sig in previous.values()
+        )
+        time.sleep(poll * 2 if all_ready else poll)
 
 
 if __name__ == "__main__":

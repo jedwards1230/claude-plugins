@@ -3,10 +3,10 @@ name: ci-watch
 description: This skill should be used when the user asks to "watch CI", "are
   the checks green yet", "monitor PR checks", "tell me when CI passes", "follow
   the build", "wait for CI", "ping me when checks finish", "is CI passing",
-  "watch the PR", or any request to keep an eye on GitHub PR CI status without
-  manual polling. Invokes the Monitor tool with ci-watch.py to stream pass /
-  fail / pending / changes-requested / merge-conflict transitions as
-  notifications, stopping when every watched PR reaches a terminal state.
+  "watch the PR", "watch until merged", or any request to keep an eye on GitHub
+  PR status without manual polling. Invokes the Monitor tool with ci-watch.py to
+  stream CI pass/fail/pending, review status, and merge transitions as
+  notifications, stopping only when every watched PR is merged or closed.
 allowed-tools:
 - Bash(python3:*)
 - Bash(gh repo view:*)
@@ -22,12 +22,13 @@ example_prompts:
 - follow the build for PR #48
 - watch all open PR checks
 - ping me when CI finishes
+- watch this PR until it merges
 permalink: tooling/claude-plugins/plugins/git-tooling/skills/ci-watch/skill
 ---
 
 # CI Watch
 
-Watch GitHub PR CI status without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits when every watched PR is in a terminal state — all checks finished AND no pending review requests, or the PR is merged/closed.
+Watch GitHub PR status through to merge without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits only when every watched PR is merged, closed, or gone. CI completion and review status are reported as intermediate milestones — a `READY` flag appears when a PR is mergeable (all checks green, reviews clear, no conflicts).
 
 **Requirements:** `python3` (3.8+) and `gh` (authenticated). The script uses only the Python standard library — no `pip` install needed. Works on macOS and Linux without bash-version dependencies (the previous bash implementation needed bash 4+ for associative arrays, which broke on stock macOS bash 3.2).
 
@@ -77,13 +78,13 @@ Argument order: `-R owner/repo` must come *before* any PR numbers (e.g. `python3
 
 The script exits naturally when all watched PRs reach a terminal state, so `timeout_ms` is just a safety cap.
 
-| CI duration | `timeout_ms` |
-|---|---|
-| Short (< 10 min) | `1200000` (20 min) |
-| Standard (10–20 min) | `1800000` (30 min, **default for most cases**) |
-| Long (matrix / integration tests) | `3600000` (60 min, max allowed) |
+| Scenario | `timeout_ms` | `persistent` |
+|---|---|---|
+| CI-only (user said "tell me when CI passes") | `1800000` (30 min) | `false` |
+| Watch until merge (**default**) | `3600000` (60 min, max allowed) | `false` |
+| Session-length watching ("keep watching") | any | `true` |
 
-Set `persistent: true` **only** if the user explicitly asks for session-length watching ("just keep watching until I tell you to stop"). Default to `false`.
+Since the watcher now runs until merge (which may take longer than CI alone), default to `3600000`. Set `persistent: true` if the user explicitly asks for indefinite watching or if merge timing is unpredictable. If the Monitor times out before merge, tell the user and offer to re-invoke.
 
 ### Step 4 — Act on notifications
 
@@ -92,7 +93,7 @@ Each notification line emitted by the script looks like:
 | Line | Meaning |
 |---|---|
 | `PR #48: P=3,F=0,W=2` | 3 passed, 0 failed, 2 still waiting |
-| `PR #48: P=5,F=0,W=0` | All passing, no pending — terminal |
+| `PR #48: P=5,F=0,W=0,READY` | All checks green, reviews done, no conflicts — ready to merge |
 | `PR #48: P=4,F=1,W=0` | A check failed — surface to user |
 | `PR #48: P=2,F=0,W=3,CR` | Changes requested by a reviewer |
 | `PR #48: P=2,F=0,W=3,U=4` | 4 unresolved review threads |
@@ -103,12 +104,13 @@ Each notification line emitted by the script looks like:
 
 How to react:
 
-- **All green and terminal** — tell the user, ask whether to merge or move on.
+- **`READY`** — all checks passed, reviews complete, no conflicts. Tell the user the PR is ready to merge. Ask if they want to merge now. The watcher keeps running — it will report `MERGED` once the merge happens.
 - **Any failures** (`F>0`) — surface immediately. For detailed failing-check names, run `gh pr checks <pr> -R <owner/repo>`.
 - **`CR` or `U=N`** — point the user at reviewer feedback before merging.
-- **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher will keep polling until they post; terminal only when checks AND review requests are both clear.
+- **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher keeps polling until they post.
 - **`CONFLICT`** — offer to rebase against the base branch.
-- **`GONE`** — PR was deleted from the API; nothing more to watch.
+- **`MERGED`** — the PR was merged. Report success. The watcher exits once all watched PRs reach this (or `CLOSED`/`GONE`).
+- **`CLOSED`** / **`GONE`** — PR was closed without merging or deleted from the API.
 
 If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 
@@ -116,5 +118,6 @@ If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 
 - The script's stdout is one notification per line. Lines within 200ms are batched into a single notification by the Monitor tool.
 - Poll interval defaults to 30s. Override via `GIT_TOOLING_CI_POLL_SECONDS` env var if the user explicitly wants faster/slower polling (rare — respect GitHub rate limits).
-- The script is null-safe for PRs with no checks at all (will report `P=0,F=0,W=0` as terminal).
+- The script is null-safe for PRs with no checks at all (will report `P=0,F=0,W=0,READY`).
+- Once all watched PRs reach READY, the poll interval doubles (e.g. 30s → 60s) to reduce API usage while waiting for merge.
 - For a one-shot status snapshot without watching, use `gh pr checks <pr>` or `gh pr view <pr> --json statusCheckRollup`.
