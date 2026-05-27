@@ -7,7 +7,7 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Worktree management** (skill `git-worktree`) — create, inspect, and clean up worktrees for parallel branch development
 - **Default-branch commit prompt** (hook) — routes `git commit` through Claude Code's permission prompt when HEAD is on the repo's default branch (discovered dynamically — works with `main`, `master`, `trunk`, etc.), so the user gets a "pause and consider" moment to switch to a worktree -> branch -> PR workflow
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
-- **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending transitions for open PRs and exits when every watched PR reaches a terminal state. Only runs when you ask for it; no always-on background process.
+- **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 
 ## Prerequisites
 
@@ -60,7 +60,7 @@ Activates on prompts like:
 > Follow the build for PR #48
 ```
 
-Internally invokes the `Monitor` tool with `scripts/ci-watch.sh`. The script polls open-PR CI every 30s, emits one notification per state transition, and exits cleanly when every watched PR reaches a terminal state. Use `TaskStop` to cancel early.
+Internally invokes the `Monitor` tool with `scripts/ci-watch.py`. The script polls open-PR status every 30s (60s once all PRs are ready), emits one notification per state transition, and exits when every watched PR is merged or closed. Use `TaskStop` to cancel early.
 
 ## Worktree Directory Convention
 
