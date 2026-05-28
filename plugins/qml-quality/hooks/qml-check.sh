@@ -50,7 +50,7 @@ QML_FILES=$(printf '%s\n' "$MODIFIED" | grep '\.qml$' | grep -v '/worktrees/' | 
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 
-UNFORMATTED=""
+UNFORMATTED=()
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   [ -f "$f" ] || continue
@@ -60,7 +60,7 @@ while IFS= read -r f; do
     continue
   fi
   if ! diff -q "$TMP" "$f" >/dev/null 2>&1; then
-    UNFORMATTED="$UNFORMATTED $f"
+    UNFORMATTED+=("$f")
   fi
 done <<< "$QML_FILES"
 
@@ -74,9 +74,13 @@ if command -v qmllint &>/dev/null; then
   done <<< "$QML_FILES"
 fi
 
-if [ -n "$UNFORMATTED" ]; then
-  echo "QML files are not formatted:$UNFORMATTED" >&2
-  echo "Run: qmlformat -i$UNFORMATTED" >&2
+if [ ${#UNFORMATTED[@]} -gt 0 ]; then
+  echo "QML files are not formatted:" >&2
+  printf '  %s\n' "${UNFORMATTED[@]}" >&2
+  # %q-quote each path so the suggested command is copy-paste safe (spaces etc.).
+  printf 'Run: qmlformat -i' >&2
+  printf ' %q' "${UNFORMATTED[@]}" >&2
+  printf '\n' >&2
   exit 2
 fi
 
