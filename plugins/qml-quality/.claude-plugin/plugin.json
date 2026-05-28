@@ -1,0 +1,8 @@
+{
+  "name": "qml-quality",
+  "version": "0.1.0",
+  "description": "QML quality gates — auto-format with qmlformat on edit, format check on stop (qmllint warn-only)",
+  "author": {
+    "name": "jedwards1230"
+  }
+}

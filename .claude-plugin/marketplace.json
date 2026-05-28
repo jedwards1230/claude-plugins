@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "15.0.1"
+    "version": "16.0.0"
   },
   "plugins": [
     {
@@ -21,6 +21,11 @@
       "name": "go-quality",
       "source": "./plugins/go-quality",
       "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
+    },
+    {
+      "name": "qml-quality",
+      "source": "./plugins/qml-quality",
+      "description": "QML quality gates — auto-format and format-check QML files with qmlformat, mirroring CI"
     }
   ]
 }
