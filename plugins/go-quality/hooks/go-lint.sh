@@ -11,6 +11,12 @@
 # becomes an issue.
 set -euo pipefail
 
+# Bounded-output helper (emit_bounded). Prefer the plugin-root copy; fall back
+# to the script's own dir so the hook works regardless of how it's invoked.
+# shellcheck source=/dev/null
+. "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/quality-emit.sh" 2>/dev/null \
+  || . "$(dirname "$0")/quality-emit.sh"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
@@ -107,7 +113,7 @@ while IFS= read -r module_dir; do
     continue
   fi
   echo "golangci-lint issues in module: $module_dir" >&2
-  cat "$LINT_OUT" >&2
+  emit_bounded "golangci-lint.log" "golangci-lint run" < "$LINT_OUT"
   FAILED=1
 done < "$MOD_LIST"
 
