@@ -7,6 +7,12 @@
 # the repo root, runs once from the root (the Go-native way).
 set -euo pipefail
 
+# Bounded-output helper (emit_bounded). Prefer the plugin-root copy; fall back
+# to the script's own dir so the hook works regardless of how it's invoked.
+# shellcheck source=/dev/null
+. "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/quality-emit.sh" 2>/dev/null \
+  || . "$(dirname "$0")/quality-emit.sh"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
@@ -83,14 +89,16 @@ printf '%s\n' "$MODULES_TO_CHECK" > "$MOD_LIST"
 FAILED=0
 while IFS= read -r module_dir; do
   [ -z "$module_dir" ] && continue
+  # Per-module log slug so a second failing module doesn't overwrite the first's.
+  slug=$(printf '%s' "$module_dir" | tr -c 'A-Za-z0-9._-' '-')
   if ! VET_OUT=$( (cd "$module_dir" && go vet ./...) 2>&1 ); then
     echo "go vet failed in module: $module_dir" >&2
-    echo "$VET_OUT" >&2
+    printf '%s\n' "$VET_OUT" | emit_bounded "vet-$slug.log" "go vet ./..."
     FAILED=1
   fi
   if ! TEST_OUT=$( (cd "$module_dir" && go test -timeout 120s -count=1 ./...) 2>&1 ); then
     echo "go test failed in module: $module_dir" >&2
-    echo "$TEST_OUT" >&2
+    printf '%s\n' "$TEST_OUT" | emit_bounded "test-$slug.log" "go test ./..."
     FAILED=1
   fi
 done < "$MOD_LIST"

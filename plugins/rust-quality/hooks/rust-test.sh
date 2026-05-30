@@ -13,6 +13,12 @@ set -euo pipefail
 # process, so prepend it here too.
 export PATH="${HOME}/.cargo/bin:${PATH}"
 
+# Bounded-output helper (emit_bounded). Prefer the plugin-root copy; fall back
+# to the script's own dir so the hook works regardless of how it's invoked.
+# shellcheck source=/dev/null
+. "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/quality-emit.sh" 2>/dev/null \
+  || . "$(dirname "$0")/quality-emit.sh"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
@@ -89,9 +95,11 @@ printf '%s\n' "$CRATES_TO_CHECK" > "$CRATE_LIST"
 FAILED=0
 while IFS= read -r crate_dir; do
   [ -z "$crate_dir" ] && continue
+  # Per-crate log slug so a second failing crate doesn't overwrite the first's.
+  slug=$(printf '%s' "$crate_dir" | tr -c 'A-Za-z0-9._-' '-')
   if ! TEST_OUT=$( (cd "$crate_dir" && cargo test --all-targets) 2>&1 ); then
     echo "cargo test failed in crate: $crate_dir" >&2
-    echo "$TEST_OUT" >&2
+    printf '%s\n' "$TEST_OUT" | emit_bounded "test-$slug.log" "cargo test --all-targets"
     FAILED=1
   fi
 done < "$CRATE_LIST"
