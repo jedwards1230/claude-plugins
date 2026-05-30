@@ -45,11 +45,16 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
       echo "[rust-quality] WARNING: failed to add clippy/rustfmt components" >&2
   fi
 
-  # cargo-audit (RUSTSEC advisory scanning) — optional but installed when remote.
+  # cargo-audit (RUSTSEC advisory scanning) — optional. `cargo install` compiles
+  # from source and can take 1-2+ minutes, which would dominate (and risk timing
+  # out) SessionStart. It is non-essential to the format/lint/test gates, so kick
+  # it off in the background and let setup finish immediately. The audit hook
+  # already skips gracefully if it isn't ready yet (or this session).
   if command -v cargo &>/dev/null && ! cargo audit --version &>/dev/null; then
-    echo "[rust-quality] Installing cargo-audit..." >&2
-    cargo install cargo-audit --locked >/dev/null 2>&1 || \
-      echo "[rust-quality] WARNING: cargo-audit install failed — audit checks will skip" >&2
+    echo "[rust-quality] Installing cargo-audit in the background (non-blocking)..." >&2
+    ( cargo install cargo-audit --locked >/dev/null 2>&1 \
+        || echo "[rust-quality] WARNING: cargo-audit install failed — audit checks will skip" >&2 ) &
+    disown 2>/dev/null || true
   fi
 
   echo "[rust-quality] Install step done" >&2

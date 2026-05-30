@@ -8,6 +8,11 @@
 # repo root, runs once from the root (the Cargo-native way).
 set -euo pipefail
 
+# rustup installs cargo into ~/.cargo/bin, which is not on PATH in a fresh
+# shell (e.g. the ephemeral Claude Code Web env). Each hook runs as its own
+# process, so prepend it here too.
+export PATH="${HOME}/.cargo/bin:${PATH}"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
