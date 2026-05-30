@@ -17,7 +17,11 @@ being flooded with hundreds of lines of `cargo` output every turn.
   one).
 - **Log location**: `${CLAUDE_PLUGIN_DATA}` — the sanctioned persistent
   per-plugin dir (`~/.claude/plugins/data/{id}/`). Falls back to
-  `${TMPDIR:-/tmp}` on older hosts. Logs: `clippy.log`, `audit.log`, `test.log`.
+  `${TMPDIR:-/tmp}` on older hosts. Logs are named per crate
+  (`<tool>-<crate-slug>.log`, where the slug is the crate dir with every
+  non-`[A-Za-z0-9._-]` char replaced by `-`) so multiple failing crates don't
+  overwrite each other: `clippy-<slug>.log`, `audit-<slug>.log`,
+  `test-<slug>.log`.
 
 The blocking behavior (exit codes, per-crate dispatch, graceful tool-absence)
 is unchanged — only the volume of emitted output is bounded.

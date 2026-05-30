@@ -113,7 +113,9 @@ while IFS= read -r module_dir; do
     continue
   fi
   echo "golangci-lint issues in module: $module_dir" >&2
-  emit_bounded "golangci-lint.log" "golangci-lint run" < "$LINT_OUT"
+  # Per-module log slug so a second failing module doesn't overwrite the first's.
+  slug=$(printf '%s' "$module_dir" | tr -c 'A-Za-z0-9._-' '-')
+  emit_bounded "golangci-lint-$slug.log" "golangci-lint run" < "$LINT_OUT"
   FAILED=1
 done < "$MOD_LIST"
 

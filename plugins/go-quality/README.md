@@ -17,8 +17,11 @@ being flooded with hundreds of lines of `go`/`golangci-lint` output every turn.
   one).
 - **Log location**: `${CLAUDE_PLUGIN_DATA}` — the sanctioned persistent
   per-plugin dir (`~/.claude/plugins/data/{id}/`). Falls back to
-  `${TMPDIR:-/tmp}` on older hosts. Logs: `vet.log`, `test.log`,
-  `golangci-lint.log`.
+  `${TMPDIR:-/tmp}` on older hosts. Logs are named per module
+  (`<tool>-<module-slug>.log`, where the slug is the module dir with every
+  non-`[A-Za-z0-9._-]` char replaced by `-`) so multiple failing modules don't
+  overwrite each other: `vet-<slug>.log`, `test-<slug>.log`,
+  `golangci-lint-<slug>.log`.
 
 The blocking behavior (exit codes, per-module dispatch, graceful tool-absence)
 is unchanged — only the volume of emitted output is bounded.

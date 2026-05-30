@@ -89,14 +89,16 @@ printf '%s\n' "$MODULES_TO_CHECK" > "$MOD_LIST"
 FAILED=0
 while IFS= read -r module_dir; do
   [ -z "$module_dir" ] && continue
+  # Per-module log slug so a second failing module doesn't overwrite the first's.
+  slug=$(printf '%s' "$module_dir" | tr -c 'A-Za-z0-9._-' '-')
   if ! VET_OUT=$( (cd "$module_dir" && go vet ./...) 2>&1 ); then
     echo "go vet failed in module: $module_dir" >&2
-    printf '%s\n' "$VET_OUT" | emit_bounded "vet.log" "go vet ./..."
+    printf '%s\n' "$VET_OUT" | emit_bounded "vet-$slug.log" "go vet ./..."
     FAILED=1
   fi
   if ! TEST_OUT=$( (cd "$module_dir" && go test -timeout 120s -count=1 ./...) 2>&1 ); then
     echo "go test failed in module: $module_dir" >&2
-    printf '%s\n' "$TEST_OUT" | emit_bounded "test.log" "go test ./..."
+    printf '%s\n' "$TEST_OUT" | emit_bounded "test-$slug.log" "go test ./..."
     FAILED=1
   fi
 done < "$MOD_LIST"

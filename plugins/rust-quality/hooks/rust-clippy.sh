@@ -123,11 +123,15 @@ FAILED=0
 while IFS= read -r crate_dir; do
   [ -z "$crate_dir" ] && continue
 
+  # Per-crate log slug so a second failing crate doesn't overwrite the first's
+  # log (and its truncation footer pointing at the wrong content).
+  slug=$(printf '%s' "$crate_dir" | tr -c 'A-Za-z0-9._-' '-')
+
   if $HAVE_CLIPPY; then
     # -D warnings promotes every clippy/compiler warning to an error.
     if ! (cd "$crate_dir" && cargo clippy --all-targets -- -D warnings) >"$CHECK_OUT" 2>&1; then
       echo "cargo clippy issues in crate: $crate_dir" >&2
-      emit_bounded "clippy.log" "cargo clippy --all-targets -- -D warnings" < "$CHECK_OUT"
+      emit_bounded "clippy-$slug.log" "cargo clippy --all-targets -- -D warnings" < "$CHECK_OUT"
       FAILED=1
     fi
   fi
@@ -135,7 +139,7 @@ while IFS= read -r crate_dir; do
   if $HAVE_AUDIT; then
     if ! (cd "$crate_dir" && cargo audit) >"$CHECK_OUT" 2>&1; then
       echo "cargo audit reported vulnerabilities in crate: $crate_dir" >&2
-      emit_bounded "audit.log" "cargo audit" < "$CHECK_OUT"
+      emit_bounded "audit-$slug.log" "cargo audit" < "$CHECK_OUT"
       FAILED=1
     fi
   fi

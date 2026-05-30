@@ -24,6 +24,11 @@
 emit_bounded() {
   local logname="$1" reproduce="$2"
   local max="${CLAUDE_PLUGIN_OPTION_MAX_LINES:-${CLAUDE_QUALITY_MAX_LINES:-200}}"
+  # max is user-controlled (env/option). A non-numeric value would make
+  # `head -n "$max"` fail and the `-gt "$max"` compare error under set -e,
+  # killing the hook mid-report. Validate it's a positive integer; else 200.
+  case "$max" in ''|*[!0-9]*) max=200 ;; esac
+  [ "$max" -ge 1 ] 2>/dev/null || max=200
   local dir="${CLAUDE_PLUGIN_DATA:-${TMPDIR:-/tmp}}"
   mkdir -p "$dir" 2>/dev/null || true
   local logfile="$dir/$logname"
