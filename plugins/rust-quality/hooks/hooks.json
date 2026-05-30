@@ -1,0 +1,98 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-setup.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-fmt.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running cargo test..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-clippy.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running cargo clippy and cargo audit..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running cargo test..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-clippy.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running cargo clippy and cargo audit..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running cargo test..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-clippy.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running cargo clippy and cargo audit..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-test.sh\"",
+            "timeout": 150,
+            "statusMessage": "Running cargo test..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/rust-clippy.sh\"",
+            "timeout": 120,
+            "statusMessage": "Running cargo clippy and cargo audit..."
+          }
+        ]
+      }
+    ]
+  }
+}

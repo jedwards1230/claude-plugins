@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "16.0.0"
+    "version": "17.0.0"
   },
   "plugins": [
     {
@@ -26,6 +26,11 @@
       "name": "qml-quality",
       "source": "./plugins/qml-quality",
       "description": "QML quality gates — auto-format and format-check QML files with qmlformat, mirroring CI"
+    },
+    {
+      "name": "rust-quality",
+      "source": "./plugins/rust-quality",
+      "description": "Rust quality gates — auto-format, clippy, test, and audit on every turn"
     }
   ]
 }
