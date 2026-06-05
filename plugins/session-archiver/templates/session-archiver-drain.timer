@@ -1,0 +1,11 @@
+# systemd user timer — runs the drain service every 5 minutes.
+[Unit]
+Description=Periodic drain of Claude Code session-archiver spool
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS spool-drain agent for session-archiver (sync_mode: spool).
+  Install:
+    1. Edit ProgramArguments path below to your installed plugin location, e.g.
+       ~/.claude/plugins/cache/<marketplace>/session-archiver/scripts/drain.sh
+    2. cp this file to ~/Library/LaunchAgents/com.jedwards1230.session-archiver-drain.plist
+    3. launchctl load ~/Library/LaunchAgents/com.jedwards1230.session-archiver-drain.plist
+  Runs drain.sh every 300s. Logs to <data-dir>/archive.log (the script's own log).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jedwards1230.session-archiver-drain</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>REPLACE_WITH_PATH_TO/session-archiver/scripts/drain.sh</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
