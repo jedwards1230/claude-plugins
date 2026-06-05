@@ -70,6 +70,10 @@ sa_cfg() {
 }
 
 sa_init() {
+  # Private by default for every file any entrypoint creates — mirror tree,
+  # spool/state/locks, and the log (incl. its rotation .tmp). Transcripts and
+  # the log's destination paths must not be world-readable.
+  umask 077
   SA_DATA="$(sa_data_dir)"
   SA_SPOOL="$SA_DATA/spool"
   SA_LOCKS="$SA_DATA/locks"
@@ -102,7 +106,10 @@ sa_init() {
   v="$(sa_cfg '.include_tool_results')"; [ -n "$v" ] && SA_INCLUDE_TOOL_RESULTS="$v"
 
   local sp; sp="$(sa_cfg '.spool_dir')"
-  [ -n "$sp" ] && SA_SPOOL="$(sa_expand_tilde "$sp")" && mkdir -p "$SA_SPOOL" 2>/dev/null || true
+  if [ -n "$sp" ]; then
+    SA_SPOOL="$(sa_expand_tilde "$sp")"
+    mkdir -p "$SA_SPOOL" 2>/dev/null || sa_log "warning: cannot create spool_dir '$SA_SPOOL' — spool mode will not persist markers"
+  fi
 }
 
 # ── Logging (best-effort, never fatal) ────────────────────────────────────────
@@ -246,7 +253,10 @@ sa_push_command() {
   local tmpl run
   tmpl="$(printf '%s' "$tj" | jq -r '.run // empty')"
   [ -n "$tmpl" ] || { sa_log "target '$name': missing run command — skipped"; return 1; }
-  run="$(sa_render "$tmpl" "$host" "$project" "$session" "$src" "$dest_key")"
+  # {src} is substituted into a string handed to `bash -c`, so shell-quote it —
+  # otherwise a mirror path with spaces/specials would word-split or inject.
+  # (host/project/session are sanitized/UUID-shaped; src is the only risk.)
+  run="$(sa_render "$tmpl" "$host" "$project" "$session" "$(sa_shquote "$src")" "$dest_key")"
   # Expose the same fields as env vars too, for commands that prefer them.
   (
     export SA_SRC="$src" SA_HOST="$host" SA_PROJECT="$project" SA_SESSION="$session" SA_DEST_KEY="$dest_key"

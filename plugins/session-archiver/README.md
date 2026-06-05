@@ -66,7 +66,9 @@ ssh key path, or an external command.
   parent dirs) or a local/NFS `dest`. `ssh_key` optional.
 - **`command`** — any command template, e.g.
   `rclone copy {src} myremote:cc/{host}/{session}`. The escape hatch for
-  restic/b2/gsutil/etc.
+  restic/b2/gsutil/etc. `{src}` is shell-quoted for you; quote the rest of your
+  template yourself if your paths may contain spaces. The same fields are also
+  exported as `$SA_SRC`, `$SA_HOST`, `$SA_PROJECT`, `$SA_SESSION`, `$SA_DEST_KEY`.
 
 ### Per-machine, multi-instance
 
