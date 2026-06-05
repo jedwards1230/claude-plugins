@@ -1,0 +1,49 @@
+{
+  "//": "Copy to ~/.claude/session-archiver/config.json and edit. This file is per-machine and should NOT be committed. Secrets are never stored here — reference an AWS profile / ssh key / external command instead.",
+
+  "enabled": false,
+
+  "//local_mirror": "Always-written local copy of every session. Set to a path; '~' is expanded. chmod 700 is applied.",
+  "local_mirror": "~/claude-archives",
+
+  "//sync_mode": "local-only = mirror only (default, most private). inline = also push to remotes in a detached background process (no timer needed). spool = drop a marker for drain.sh (run by a timer) to push with retries.",
+  "sync_mode": "local-only",
+
+  "//spool_dir": "Optional. Defaults to <data-dir>/spool.",
+  "spool_dir": "",
+
+  "//include": "Whether to archive the per-session sidecar dirs.",
+  "include_subagents": true,
+  "include_tool_results": true,
+
+  "//exclude_project_globs": "Glob patterns (matched against the project slug and the real cwd). Sessions in matching projects are never archived.",
+  "exclude_project_globs": [],
+
+  "//targets": "Each target is pushed only when enabled:true and sync_mode is inline or spool. Placeholders {host} {project} {session} are substituted; {src} {dest_key} also available to command targets.",
+  "targets": [
+    {
+      "name": "example-s3",
+      "type": "s3",
+      "enabled": false,
+      "bucket": "your-bucket",
+      "endpoint_url": "http://your-s3-endpoint:9000",
+      "region": "us-east-1",
+      "aws_profile": "your-profile",
+      "path_style": true,
+      "prefix": "{host}/{project}/{session}"
+    },
+    {
+      "name": "example-nas-rsync",
+      "type": "rsync",
+      "enabled": false,
+      "dest": "user@your-nas:/path/to/cc-archive/{host}/{project}/{session}",
+      "ssh_key": "~/.ssh/id_ed25519"
+    },
+    {
+      "name": "example-custom",
+      "type": "command",
+      "enabled": false,
+      "run": "rclone copy {src} myremote:cc-archive/{host}/{project}/{session}"
+    }
+  ]
+}

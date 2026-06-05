@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "17.0.1"
+    "version": "18.0.0"
   },
   "plugins": [
     {
@@ -31,6 +31,11 @@
       "name": "rust-quality",
       "source": "./plugins/rust-quality",
       "description": "Rust quality gates — auto-format, clippy, test, and audit on every turn"
+    },
+    {
+      "name": "session-archiver",
+      "source": "./plugins/session-archiver",
+      "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end — per-machine configurable, nothing hardcoded"
     }
   ]
 }

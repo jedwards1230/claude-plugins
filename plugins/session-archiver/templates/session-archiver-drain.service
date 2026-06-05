@@ -1,0 +1,12 @@
+# systemd user service for session-archiver spool drain (sync_mode: spool).
+# Install (per user, no root):
+#   1. Edit ExecStart path to your installed plugin's drain.sh.
+#   2. cp this + the .timer to ~/.config/systemd/user/
+#   3. systemctl --user daemon-reload
+#      systemctl --user enable --now session-archiver-drain.timer
+[Unit]
+Description=Drain Claude Code session-archiver spool to remote targets
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash REPLACE_WITH_PATH_TO/session-archiver/scripts/drain.sh
