@@ -12,6 +12,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck source=./lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
+command -v jq >/dev/null 2>&1 || { echo "session-archiver: jq not found — aborting" >&2; exit 1; }
+
 [ "$#" -ge 3 ] || { echo "usage: sync-session.sh <mirror-dir> <project> <session>" >&2; exit 2; }
 SRC="$1"; PROJECT="$2"; SESSION="$3"
 

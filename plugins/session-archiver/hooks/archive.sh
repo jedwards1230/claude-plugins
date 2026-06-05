@@ -55,26 +55,39 @@ if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE" 2>/dev/null)" = "$SIG" ]; then
 fi
 
 # ── Local mirror (always) ─────────────────────────────────────────────────────
+# umask 077 so every dir/file we create below (incl. intermediate host/project
+# dirs) is private — transcripts contain whatever tools read.
+umask 077
 DEST="$SA_MIRROR/$SA_HOST/$PROJECT/$UUID"
 mkdir -p "$DEST" 2>/dev/null || { sa_log "cannot create mirror $DEST"; exit_clean; }
 chmod 700 "$SA_MIRROR" 2>/dev/null || true
 
+# Mirror the transcript itself (the load-bearing file) and gate everything on it.
+# The sidecars are secondary, but a failure on either means "not fully archived"
+# so we must NOT record the state signature — otherwise a failed copy (disk full,
+# permissions, transient I/O) would permanently skip future retries.
+mirror_ok=1
 if command -v rsync >/dev/null 2>&1; then
-  rsync -a "$TRANSCRIPT" "$DEST/" 2>>"$SA_LOG" || true
+  rsync -a "$TRANSCRIPT" "$DEST/" 2>>"$SA_LOG" || mirror_ok=0
   if [ -d "$SUBDIR" ]; then
     EXC=()
     [ "$SA_INCLUDE_SUBAGENTS" = "true" ]    || EXC+=(--exclude 'subagents' --exclude 'subagents/')
     [ "$SA_INCLUDE_TOOL_RESULTS" = "true" ] || EXC+=(--exclude 'tool-results' --exclude 'tool-results/')
     # ${EXC[@]+...} keeps an empty array safe under `set -u` on bash 3.2.
-    rsync -a ${EXC[@]+"${EXC[@]}"} "$SUBDIR/" "$DEST/" 2>>"$SA_LOG" || true
+    rsync -a ${EXC[@]+"${EXC[@]}"} "$SUBDIR/" "$DEST/" 2>>"$SA_LOG" || mirror_ok=0
   fi
 else
-  cp -p "$TRANSCRIPT" "$DEST/" 2>/dev/null || true
-  [ -d "$SUBDIR" ] && cp -pR "$SUBDIR/." "$DEST/" 2>/dev/null || true
+  cp -p "$TRANSCRIPT" "$DEST/" 2>>"$SA_LOG" || mirror_ok=0
+  if [ -d "$SUBDIR" ]; then cp -pR "$SUBDIR/." "$DEST/" 2>>"$SA_LOG" || mirror_ok=0; fi
+fi
+
+if [ "$mirror_ok" != "1" ]; then
+  sa_log "mirror FAILED for $UUID — leaving state unrecorded so the next event retries"
+  exit_clean
 fi
 sa_log "mirrored $UUID ($PROJECT) -> $DEST"
 
-# Record the new signature now that the local copy is safe.
+# Record the new signature only now that the local copy is known-good.
 printf '%s' "$SIG" > "$STATE_FILE" 2>/dev/null || true
 
 # ── Remote handoff ────────────────────────────────────────────────────────────

@@ -11,6 +11,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # shellcheck source=./lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
+# Without jq, marker parsing returns empty for every field — which would look
+# like "malformed" and delete the whole spool queue. Bail before touching it.
+command -v jq >/dev/null 2>&1 || { echo "session-archiver drain: jq not found — aborting" >&2; exit 0; }
+
 sa_init
 if [ -z "$SA_CONFIG" ] || [ "$SA_ENABLED" != "true" ]; then exit 0; fi
 

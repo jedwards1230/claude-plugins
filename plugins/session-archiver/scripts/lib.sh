@@ -53,6 +53,17 @@ sa_expand_tilde() {
   esac
 }
 
+# POSIX single-quote-safe quoting: sa_shquote "a'b" -> 'a'\''b'
+# Pure-bash char loop — avoids the ${//} replacement-escaping ambiguity.
+sa_shquote() {
+  local s="$1" c out="'" i len=${#1}
+  for (( i=0; i<len; i++ )); do
+    c="${s:i:1}"
+    if [ "$c" = "'" ]; then out="$out'\\''"; else out="$out$c"; fi
+  done
+  printf "%s'" "$out"
+}
+
 sa_cfg() {
   # sa_cfg '<jq filter>' — read a value from the config file, empty on miss.
   [ -n "$SA_CONFIG" ] && jq -r "$1 // empty" "$SA_CONFIG" 2>/dev/null || true
@@ -204,16 +215,22 @@ sa_push_rsync() {
   [ -n "$dest" ] || { sa_log "target '$name': missing dest — skipped"; return 1; }
   ssh_key="$(sa_expand_tilde "$ssh_key")"
 
-  local sshcmd="ssh -o BatchMode=yes -o ConnectTimeout=10"
-  [ -n "$ssh_key" ] && sshcmd="$sshcmd -i $ssh_key"
+  # Argument array for direct ssh calls (survives spaces in the key path).
+  local sshopts=(-o BatchMode=yes -o ConnectTimeout=10)
+  [ -n "$ssh_key" ] && sshopts+=(-i "$ssh_key")
+  # rsync -e needs a single string; single-quote the key so spaces survive.
+  local rsh="ssh -o BatchMode=yes -o ConnectTimeout=10"
+  [ -n "$ssh_key" ] && rsh="$rsh -i $(sa_shquote "$ssh_key")"
 
   if printf '%s' "$dest" | grep -q ':'; then
     # remote: user@host:/path — ensure parent exists, then rsync over ssh
     local hostpart pathpart
     hostpart="${dest%%:*}"; pathpart="${dest#*:}"
-    $sshcmd "$hostpart" "mkdir -p '$pathpart'" 2>>"$SA_LOG" || {
+    # Quote the remote path so spaces / single quotes in it can't break the
+    # remote shell command.
+    ssh "${sshopts[@]}" "$hostpart" "mkdir -p $(sa_shquote "$pathpart")" 2>>"$SA_LOG" || {
       sa_log "target '$name': rsync mkdir FAILED on $hostpart"; return 1; }
-    rsync -a -e "$sshcmd" "$src/" "$dest/" 2>>"$SA_LOG"
+    rsync -a -e "$rsh" "$src/" "$dest/" 2>>"$SA_LOG"
   else
     # local path (e.g. an NFS mount)
     mkdir -p "$dest" 2>/dev/null || { sa_log "target '$name': cannot mkdir $dest — skipped"; return 1; }
@@ -247,6 +264,13 @@ sa_push_command() {
 sa_sync_session() {
   local src="$1" project="$2" session="$3"
   [ -d "$src" ] || { sa_log "sync: source missing $src"; return 1; }
+  # Refuse to proceed on an unparseable config: otherwise the target loop below
+  # would see zero targets and return success, letting a caller de-spool without
+  # ever uploading. A parse failure must keep the marker for the next attempt.
+  if ! jq -e . "$SA_CONFIG" >/dev/null 2>&1; then
+    sa_log "sync: config '$SA_CONFIG' is not valid JSON — refusing to de-spool $session"
+    return 1
+  fi
   sa_acquire_lock "sync-$session" || { sa_log "sync: $session already syncing — skip"; return 1; }
 
   local all_ok=0 count=0 tj
