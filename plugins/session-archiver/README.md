@@ -124,6 +124,10 @@ The `s3` target inherits `AWS_*` env credentials (no profile needed). Simpler
 alternative that skips the plugin entirely — a final workflow step:
 `aws s3 sync ~/.claude/projects/ s3://cc-archive/gh/$GITHUB_REPOSITORY/$GITHUB_RUN_ID/`.
 
+Blocking uploads must finish within the hook's 600s timeout; per-event uploads
+are idempotent deltas, so only the first (full) upload of a large session is at
+risk on a very slow link.
+
 ## Security
 
 Transcripts contain **everything any tool read** — file contents, printed

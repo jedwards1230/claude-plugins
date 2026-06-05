@@ -35,6 +35,12 @@ for marker in "$SA_SPOOL"/*; do
   if [ -z "$mirror" ] || [ -z "$session" ]; then
     sa_log "drain: malformed marker $marker — removing"; rm -f "$marker" 2>/dev/null; continue
   fi
+  if [ -z "$project" ]; then
+    # recover from the mirror layout (.../host/project/session) so an empty
+    # project field can't produce a malformed remote key (host//session).
+    project="$(basename "$(dirname "$mirror")")"
+    sa_log "drain: marker $marker missing project — derived '$project' from mirror path"
+  fi
   if [ ! -d "$mirror" ]; then
     sa_log "drain: mirror gone for $session ($mirror) — removing marker"; rm -f "$marker" 2>/dev/null; continue
   fi

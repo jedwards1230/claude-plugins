@@ -60,7 +60,10 @@ fi
 umask 077
 DEST="$SA_MIRROR/$SA_HOST/$PROJECT/$UUID"
 mkdir -p "$DEST" 2>/dev/null || { sa_log "cannot create mirror $DEST"; exit_clean; }
-chmod 700 "$SA_MIRROR" 2>/dev/null || true
+# Tighten perms on every level — umask only governs dirs we create fresh, so an
+# intermediate dir that pre-existed with a looser mode would still leak the list
+# of archived session IDs to other local users.
+chmod 700 "$SA_MIRROR" "$SA_MIRROR/$SA_HOST" "$SA_MIRROR/$SA_HOST/$PROJECT" "$DEST" 2>/dev/null || true
 
 # Mirror the transcript itself (the load-bearing file) and gate everything on it.
 # The sidecars are secondary, but a failure on either means "not fully archived"
@@ -101,9 +104,12 @@ case "$SA_MODE" in
       >/dev/null 2>&1 < /dev/null &
     ;;
   spool)
-    jq -nc --arg m "$DEST" --arg p "$PROJECT" --arg s "$UUID" --arg h "$SA_HOST" \
-      '{mirror:$m, project:$p, session:$s, host:$h}' > "$SA_SPOOL/$UUID" 2>/dev/null || true
-    sa_log "spooled $UUID"
+    if jq -nc --arg m "$DEST" --arg p "$PROJECT" --arg s "$UUID" --arg h "$SA_HOST" \
+         '{mirror:$m, project:$p, session:$s, host:$h}' > "$SA_SPOOL/$UUID" 2>/dev/null; then
+      sa_log "spooled $UUID"
+    else
+      sa_log "warning: failed to write spool marker for $UUID — remote upload skipped (local mirror is intact)"
+    fi
     ;;
   blocking)
     # Synchronous push — for ephemeral environments (CI runners) where a
