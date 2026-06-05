@@ -9,4 +9,4 @@ Description=Drain Claude Code session-archiver spool to remote targets
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env bash REPLACE_WITH_PATH_TO/session-archiver/scripts/drain.sh
+ExecStart=/usr/bin/env bash "REPLACE_WITH_PATH_TO/session-archiver/scripts/drain.sh"

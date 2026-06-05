@@ -229,12 +229,28 @@ sa_push_rsync() {
   local rsh="ssh -o BatchMode=yes -o ConnectTimeout=10"
   [ -n "$ssh_key" ] && rsh="$rsh -i $(sa_shquote "$ssh_key")"
 
-  if printf '%s' "$dest" | grep -q ':'; then
-    # remote: user@host:/path — ensure parent exists, then rsync over ssh
-    local hostpart pathpart
-    hostpart="${dest%%:*}"; pathpart="${dest#*:}"
-    # Quote the remote path so spaces / single quotes in it can't break the
-    # remote shell command.
+  # Classify remote (user@host:/path) vs local. Handle bracketed IPv6 hosts
+  # (user@[fe80::1]:/path) and avoid misreading a local path that contains a
+  # colon as remote (a remote spec's pre-colon host part has no '/').
+  local is_remote=0 hostpart="" pathpart="" pre
+  case "$dest" in
+    *"]:"*)                       # bracketed IPv6 host
+      is_remote=1
+      hostpart="${dest%%]:*}]"
+      pathpart="${dest#*]:}"
+      ;;
+    *:*)
+      pre="${dest%%:*}"
+      case "$pre" in
+        */*) is_remote=0 ;;       # colon, but a path before it -> local
+        *)   is_remote=1; hostpart="$pre"; pathpart="${dest#*:}" ;;
+      esac
+      ;;
+  esac
+
+  if [ "$is_remote" = 1 ]; then
+    # ensure parent exists, then rsync over ssh. Quote the remote path so
+    # spaces / single quotes in it can't break the remote shell command.
     ssh "${sshopts[@]}" "$hostpart" "mkdir -p $(sa_shquote "$pathpart")" 2>>"$SA_LOG" || {
       sa_log "target '$name': rsync mkdir FAILED on $hostpart"; return 1; }
     rsync -a -e "$rsh" "$src/" "$dest/" 2>>"$SA_LOG"
