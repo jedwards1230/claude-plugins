@@ -313,3 +313,61 @@ EOF
   [ "$count" -eq 0 ] && sa_log "sync: $session — no enabled remote targets"
   return $all_ok
 }
+
+# ── Local-mirror retention (opt-in) ───────────────────────────────────────────
+# Honors .retain_days (delete session dirs older than N days) and .max_size_gb
+# (delete oldest session dirs until total mirror size is under the cap). Both
+# default to 0/absent = disabled. Rate-limited to at most once per hour. Only
+# ever touches the local mirror, never remote copies.
+sa_prune_mirror() {
+  local days size_gb
+  days="$(sa_cfg '.retain_days')";   [ -n "$days" ]    || days=0
+  size_gb="$(sa_cfg '.max_size_gb')"; [ -n "$size_gb" ] || size_gb=0
+  case "$days" in *[!0-9]*) days=0 ;; esac
+  [ "$days" = 0 ] && [ "$size_gb" = 0 ] && return 0
+  [ -n "${SA_MIRROR:-}" ] && [ -d "$SA_MIRROR" ] || return 0
+
+  # rate-limit: at most once per hour
+  local marker="$SA_STATE/.last-prune" now mt
+  now=$(date +%s 2>/dev/null || echo 0)
+  mt=$(sa_mtime "$marker")
+  [ "$now" -gt 0 ] && [ "$mt" -gt 0 ] && [ $((now - mt)) -lt 3600 ] && return 0
+  : > "$marker" 2>/dev/null || true
+
+  if [ "$days" != 0 ]; then
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      rm -rf "$d" 2>/dev/null && sa_log "prune: age>${days}d removed $d"
+    done <<EOF
+$(find "$SA_MIRROR" -mindepth 3 -maxdepth 3 -type d -mtime +"$days" 2>/dev/null)
+EOF
+  fi
+
+  [ "$size_gb" != 0 ] && sa_prune_by_size "$size_gb"
+  return 0
+}
+
+sa_prune_by_size() {
+  local size_gb="$1" limit_kb total_kb listfile mt dir dkb
+  limit_kb=$(awk "BEGIN{printf \"%d\", ($size_gb)*1048576}" 2>/dev/null || echo 0)
+  [ "${limit_kb:-0}" -gt 0 ] || return 0
+  total_kb=$(du -sk "$SA_MIRROR" 2>/dev/null | awk '{print $1}')
+  [ "${total_kb:-0}" -gt "$limit_kb" ] || return 0
+
+  listfile="$(mktemp -t sa-prune.XXXXXX)" || return 0
+  # oldest first: "<mtime>\t<dir>"
+  find "$SA_MIRROR" -mindepth 3 -maxdepth 3 -type d 2>/dev/null | while IFS= read -r d; do
+    printf '%s\t%s\n' "$(sa_mtime "$d")" "$d"
+  done | sort -n > "$listfile"
+
+  while IFS=$'\t' read -r mt dir; do
+    [ "${total_kb:-0}" -gt "$limit_kb" ] || break
+    [ -n "$dir" ] && [ -d "$dir" ] || continue
+    dkb=$(du -sk "$dir" 2>/dev/null | awk '{print $1}')
+    if rm -rf "$dir" 2>/dev/null; then
+      total_kb=$((total_kb - ${dkb:-0}))
+      sa_log "prune: size>${size_gb}GB removed $dir"
+    fi
+  done < "$listfile"
+  rm -f "$listfile" 2>/dev/null || true
+}

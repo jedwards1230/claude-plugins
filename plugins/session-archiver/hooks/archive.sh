@@ -105,9 +105,21 @@ case "$SA_MODE" in
       '{mirror:$m, project:$p, session:$s, host:$h}' > "$SA_SPOOL/$UUID" 2>/dev/null || true
     sa_log "spooled $UUID"
     ;;
+  blocking)
+    # Synchronous push — for ephemeral environments (CI runners) where a
+    # detached or spooled upload would be killed at job teardown. Blocks the
+    # hook until the upload finishes; idempotent delta sync keeps the per-event
+    # cost low, and pushing on every event means we never depend on SessionEnd
+    # actually firing in headless mode.
+    bash "$PLUGIN_ROOT/scripts/sync-session.sh" "$DEST" "$PROJECT" "$UUID" >>"$SA_LOG" 2>&1 \
+      || sa_log "blocking sync had failures for $UUID"
+    ;;
   *)
     sa_log "unknown sync_mode '$SA_MODE' — treated as local-only"
     ;;
 esac
+
+# Opportunistic local-mirror retention (opt-in; internally rate-limited).
+sa_prune_mirror
 
 exit_clean

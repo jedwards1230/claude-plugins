@@ -49,10 +49,11 @@ This file is **per-machine and should not be committed**. Minimal config:
 | `local-only` *(default)* | Mirror locally only. Most private. |
 | `inline` | Mirror, then push to remotes in a **detached background** process. No timer to install; the local mirror is the safety net if an upload drops. |
 | `spool` | Mirror + drop a marker; a timer runs `drain.sh` to push with **retries**. Most robust for flaky networks / offline NAS. Install a timer (see `templates/`). |
+| `blocking` | Mirror, then push **synchronously** in the hook (every event). For ephemeral CI runners where a detached/spooled upload would be killed at job end. |
 
 ### Remote targets
 
-Set `sync_mode` to `inline` or `spool`, then enable targets. Placeholders
+Set `sync_mode` to `inline`, `spool`, or `blocking`, then enable targets. Placeholders
 `{host}` `{project}` `{session}` are substituted (`{src}` `{dest_key}` also for
 `command`). **Secrets are never in this file** — reference an AWS profile, an
 ssh key path, or an external command.
@@ -81,11 +82,47 @@ your Claude instances.
 
 `SessionEnd`, `Stop`, `StopFailure`, and `PreCompact` all trigger
 `hooks/archive.sh`. It locks the session, skips if unchanged (mtime+size),
-mirrors locally (fast, always), then hands any upload to background/spool — it
-never blocks session exit and always exits 0. Re-runs are idempotent (stable
+mirrors locally (fast, always), then hands any upload to background (`inline`)
+or a spool marker (`spool`) — so it never blocks session exit and always exits 0
+(the `blocking` mode instead waits for the upload; see GitHub Actions below). Re-runs are idempotent (stable
 destination key + `aws s3 sync`/`rsync -a` deltas + per-session `mkdir` lock),
 so all four events firing collapse to at most one real archive per change.
 `PreCompact` captures the full transcript before compaction summarizes it away.
+
+## Retention
+
+By default the local mirror is **kept forever** (it's an archive, and it's what
+survives Claude Code's own ~30-day cleanup). To bound disk usage, set either knob
+(opt-in, `0` = off, checked at most hourly):
+
+- `retain_days` — delete mirrored sessions older than N days.
+- `max_size_gb` — when the mirror exceeds this, delete oldest sessions until under.
+
+Pruning only ever touches the local mirror, never the remote copies.
+
+## GitHub Actions / ephemeral runners
+
+A CI runner is destroyed at job end, so `inline` (detached) and `spool` (timer)
+can lose the upload. Use `sync_mode: blocking` — it pushes synchronously in the
+hook on every event, so nothing depends on the runner surviving:
+
+```yaml
+env:
+  SESSION_ARCHIVER_ENABLED: "true"
+  SESSION_ARCHIVER_HOST: "gh-${{ github.repository_owner }}"   # stable key prefix
+  SESSION_ARCHIVER_CONFIG: ${{ github.workspace }}/.sa.json
+  AWS_ACCESS_KEY_ID: ${{ secrets.CC_ARCHIVE_KEY }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.CC_ARCHIVE_SECRET }}
+# .sa.json:
+# {"enabled":true,"sync_mode":"blocking","local_mirror":"/tmp/cc",
+#  "targets":[{"name":"s3","type":"s3","enabled":true,"bucket":"cc-archive",
+#  "endpoint_url":"https://s3.example","region":"us-east-1","path_style":true,
+#  "prefix":"{host}/{project}/{session}"}]}
+```
+
+The `s3` target inherits `AWS_*` env credentials (no profile needed). Simpler
+alternative that skips the plugin entirely — a final workflow step:
+`aws s3 sync ~/.claude/projects/ s3://cc-archive/gh/$GITHUB_REPOSITORY/$GITHUB_RUN_ID/`.
 
 ## Security
 
