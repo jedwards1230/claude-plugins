@@ -69,6 +69,14 @@ sa_cfg() {
   [ -n "$SA_CONFIG" ] && jq -r "$1 // empty" "$SA_CONFIG" 2>/dev/null || true
 }
 
+sa_cfg_bool() {
+  # sa_cfg_bool <top-level-key> — read a boolean while PRESERVING an explicit
+  # `false`. (sa_cfg can't: jq's `//` treats false like null, so
+  # `.include_tool_results // empty` yields empty for a configured `false`.)
+  # Empty when the key is absent.
+  [ -n "$SA_CONFIG" ] && jq -r "if has(\"$1\") then .\"$1\" else empty end" "$SA_CONFIG" 2>/dev/null || true
+}
+
 sa_init() {
   # Private by default for every file any entrypoint creates — mirror tree,
   # spool/state/locks, and the log (incl. its rotation .tmp). Transcripts and
@@ -102,8 +110,8 @@ sa_init() {
   SA_MODE="${SESSION_ARCHIVER_MODE:-$(sa_cfg '.sync_mode')}"; [ -n "$SA_MODE" ] || SA_MODE="local-only"
 
   local v
-  v="$(sa_cfg '.include_subagents')";    [ -n "$v" ] && SA_INCLUDE_SUBAGENTS="$v"
-  v="$(sa_cfg '.include_tool_results')"; [ -n "$v" ] && SA_INCLUDE_TOOL_RESULTS="$v"
+  v="$(sa_cfg_bool include_subagents)";    [ -n "$v" ] && SA_INCLUDE_SUBAGENTS="$v"
+  v="$(sa_cfg_bool include_tool_results)"; [ -n "$v" ] && SA_INCLUDE_TOOL_RESULTS="$v"
 
   local sp; sp="$(sa_cfg '.spool_dir')"
   if [ -n "$sp" ]; then
@@ -150,6 +158,46 @@ sa_mtime() {
 }
 sa_size() {
   stat -f %z "$1" 2>/dev/null || stat -c %s "$1" 2>/dev/null || echo 0
+}
+
+# ── Local mirror of one session (shared by the hook and by backfill) ──────────
+# The mirror tree is <local_mirror>/<host>/<project>/<session>.
+sa_dest_dir() { printf '%s/%s/%s/%s' "$SA_MIRROR" "$SA_HOST" "$1" "$2"; }
+
+# sa_mirror_session <transcript> <project> <uuid> <subdir>
+# Copies the transcript (the load-bearing file) plus its optional sidecar dir
+# into the local mirror, honoring SA_INCLUDE_SUBAGENTS / SA_INCLUDE_TOOL_RESULTS.
+# Returns 0 only if the transcript AND every included sidecar copied — so the
+# caller must NOT record the state signature on a non-zero return (a partial
+# copy from disk-full / permissions / transient I/O would otherwise be skipped
+# forever). Requires sa_init to have populated SA_MIRROR/SA_HOST/SA_INCLUDE_*.
+sa_mirror_session() {
+  local transcript="$1" project="$2" uuid="$3" subdir="$4"
+  # umask 077 so every dir/file created (incl. intermediate host/project dirs)
+  # is private — transcripts contain whatever tools read.
+  umask 077
+  local dest; dest="$(sa_dest_dir "$project" "$uuid")"
+  mkdir -p "$dest" 2>/dev/null || { sa_log "cannot create mirror $dest"; return 1; }
+  # Tighten perms on every level — umask only governs dirs we create fresh, so a
+  # pre-existing intermediate dir with a looser mode would leak the list of
+  # archived session IDs to other local users.
+  chmod 700 "$SA_MIRROR" "$SA_MIRROR/$SA_HOST" "$SA_MIRROR/$SA_HOST/$project" "$dest" 2>/dev/null || true
+
+  local ok=1
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "$transcript" "$dest/" 2>>"$SA_LOG" || ok=0
+    if [ -d "$subdir" ]; then
+      local EXC=()
+      [ "$SA_INCLUDE_SUBAGENTS" = "true" ]    || EXC+=(--exclude 'subagents' --exclude 'subagents/')
+      [ "$SA_INCLUDE_TOOL_RESULTS" = "true" ] || EXC+=(--exclude 'tool-results' --exclude 'tool-results/')
+      # ${EXC[@]+...} keeps an empty array safe under `set -u` on bash 3.2.
+      rsync -a ${EXC[@]+"${EXC[@]}"} "$subdir/" "$dest/" 2>>"$SA_LOG" || ok=0
+    fi
+  else
+    cp -p "$transcript" "$dest/" 2>>"$SA_LOG" || ok=0
+    if [ -d "$subdir" ]; then cp -pR "$subdir/." "$dest/" 2>>"$SA_LOG" || ok=0; fi
+  fi
+  [ "$ok" = 1 ] && return 0 || return 1
 }
 
 # ── Placeholder rendering ─────────────────────────────────────────────────────

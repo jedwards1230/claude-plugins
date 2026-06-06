@@ -89,6 +89,31 @@ destination key + `aws s3 sync`/`rsync -a` deltas + per-session `mkdir` lock),
 so all four events firing collapse to at most one real archive per change.
 `PreCompact` captures the full transcript before compaction summarizes it away.
 
+## Backfilling existing sessions
+
+The hooks only capture sessions that **end or compact after** the plugin is
+enabled. Sessions that already existed at install time are never archived, and
+will be lost when Claude Code's ~30-day cleanup deletes them. Run the backfill
+script once after enabling to mirror that backlog.
+
+Run it from the plugin's `scripts/` directory (or give the full path to the
+installed copy under `~/.claude/plugins/`):
+
+```
+bash backfill.sh --dry-run     # preview what would be mirrored; copies nothing
+bash backfill.sh               # mirror the backlog (local mirror only)
+```
+
+It reads the same config as the hooks, honors `exclude_project_globs` and the
+`include_*` flags, and is **safe to re-run** — unchanged sessions are skipped via
+the same `mtime:size` signature the hooks use. Options:
+
+- `--dry-run` — list what would be mirrored, copy nothing
+- `--project SUBSTR` — only sessions whose project slug contains `SUBSTR`
+- `--projects-dir DIR` — scan `DIR` instead of `~/.claude/projects`
+- `--remote` — also push each mirrored session to enabled remote targets (when
+  `sync_mode` is not `local-only`)
+
 ## Retention
 
 By default the local mirror is **kept forever** (it's an archive, and it's what
