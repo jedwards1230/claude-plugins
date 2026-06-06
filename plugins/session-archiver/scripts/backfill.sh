@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     --project=*)      PROJECT_FILTER="${1#*=}" ;;
     --projects-dir)   PROJECTS_DIR="${2:-}"; shift ;;
     --projects-dir=*) PROJECTS_DIR="${1#*=}" ;;
-    -h|--help)        sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help)        sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -51,7 +51,9 @@ fi
 PROJECTS_DIR="${PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}"
 [ -d "$PROJECTS_DIR" ] || { echo "backfill: no projects dir at $PROJECTS_DIR" >&2; exit 1; }
 
-# Load per-project exclude globs once (same semantics as the hook).
+# Load per-project exclude globs once. Unlike the hook (which also matches the
+# payload cwd), backfill can only match the project slug — historical sessions
+# have no recorded cwd to check.
 EXCLUDES=()
 while IFS= read -r g; do [ -n "$g" ] && EXCLUDES+=("$g"); done <<EOF
 $(jq -r '.exclude_project_globs[]? // empty' "$SA_CONFIG" 2>/dev/null)

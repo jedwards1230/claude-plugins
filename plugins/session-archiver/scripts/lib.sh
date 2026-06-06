@@ -195,7 +195,18 @@ sa_mirror_session() {
     fi
   else
     cp -p "$transcript" "$dest/" 2>>"$SA_LOG" || ok=0
-    if [ -d "$subdir" ]; then cp -pR "$subdir/." "$dest/" 2>>"$SA_LOG" || ok=0; fi
+    if [ -d "$subdir" ]; then
+      # cp has no --exclude, so copy entries selectively to honor the same
+      # include flags the rsync path above respects.
+      local entry name
+      for entry in "$subdir"/* "$subdir"/.[!.]*; do
+        [ -e "$entry" ] || continue
+        name="$(basename "$entry")"
+        if [ "$name" = "subagents" ]    && [ "$SA_INCLUDE_SUBAGENTS" != "true" ];    then continue; fi
+        if [ "$name" = "tool-results" ] && [ "$SA_INCLUDE_TOOL_RESULTS" != "true" ]; then continue; fi
+        cp -pR "$entry" "$dest/" 2>>"$SA_LOG" || ok=0
+      done
+    fi
   fi
   [ "$ok" = 1 ] && return 0 || return 1
 }
