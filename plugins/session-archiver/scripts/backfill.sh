@@ -29,10 +29,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)        DRY=1 ;;
     --remote)         DO_REMOTE=1 ;;
-    --project)        PROJECT_FILTER="${2:-}"; shift ;;
-    --project=*)      PROJECT_FILTER="${1#*=}" ;;
-    --projects-dir)   PROJECTS_DIR="${2:-}"; shift ;;
-    --projects-dir=*) PROJECTS_DIR="${1#*=}" ;;
+    --project)        [ $# -ge 2 ] && [ -n "$2" ] || { echo "backfill: --project needs a value" >&2; exit 2; }; PROJECT_FILTER="$2"; shift ;;
+    --project=*)      PROJECT_FILTER="${1#*=}"; [ -n "$PROJECT_FILTER" ] || { echo "backfill: --project needs a value" >&2; exit 2; } ;;
+    --projects-dir)   [ $# -ge 2 ] && [ -n "$2" ] || { echo "backfill: --projects-dir needs a value" >&2; exit 2; }; PROJECTS_DIR="$2"; shift ;;
+    --projects-dir=*) PROJECTS_DIR="${1#*=}"; [ -n "$PROJECTS_DIR" ] || { echo "backfill: --projects-dir needs a value" >&2; exit 2; } ;;
     -h|--help)        sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -90,7 +90,14 @@ for transcript in "$PROJECTS_DIR"/*/*.jsonl; do
   state_file="$SA_STATE/$uuid"
   sig="$(sa_mtime "$transcript"):$(sa_size "$transcript")"
   if [ -f "$state_file" ] && [ "$(cat "$state_file" 2>/dev/null)" = "$sig" ]; then
-    skipped=$((skipped + 1)); continue
+    skipped=$((skipped + 1))
+    # Already mirrored & unchanged — but still offer it to remotes when asked,
+    # so --remote can push to a newly-enabled target or retry a past failure.
+    if [ "$DRY" = 0 ] && [ "$DO_REMOTE" = 1 ] && [ "$SA_MODE" != "local-only" ]; then
+      sa_sync_session "$(sa_dest_dir "$project" "$uuid")" "$project" "$uuid" \
+        || sa_log "backfill: remote sync had failures for $uuid (unchanged)"
+    fi
+    continue
   fi
 
   if [ "$DRY" = 1 ]; then
