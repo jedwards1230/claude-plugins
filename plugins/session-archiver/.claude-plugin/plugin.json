@@ -1,6 +1,6 @@
 {
   "name": "session-archiver",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end. Per-machine configurable, nothing hardcoded.",
   "author": {
     "name": "jedwards1230"
