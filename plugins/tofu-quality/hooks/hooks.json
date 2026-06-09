@@ -1,0 +1,98 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-setup.sh\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-fmt.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-fmt-check.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking OpenTofu formatting..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-validate.sh\"",
+            "timeout": 180,
+            "statusMessage": "Validating OpenTofu config..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-fmt-check.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking OpenTofu formatting..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-validate.sh\"",
+            "timeout": 180,
+            "statusMessage": "Validating OpenTofu config..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-fmt-check.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking OpenTofu formatting..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-validate.sh\"",
+            "timeout": 180,
+            "statusMessage": "Validating OpenTofu config..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-fmt-check.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking OpenTofu formatting..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/tofu-validate.sh\"",
+            "timeout": 180,
+            "statusMessage": "Validating OpenTofu config..."
+          }
+        ]
+      }
+    ]
+  }
+}

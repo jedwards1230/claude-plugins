@@ -1,0 +1,8 @@
+{
+  "name": "tofu-quality",
+  "version": "0.1.0",
+  "description": "OpenTofu quality gates — auto-format on edit, and on stop check formatting (tofu fmt) and validate config (tofu validate), mirroring CI",
+  "author": {
+    "name": "jedwards1230"
+  }
+}
