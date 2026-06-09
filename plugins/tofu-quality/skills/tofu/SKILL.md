@@ -1,19 +1,32 @@
 ---
 name: tofu
-description: |
-  OpenTofu (tofu) reference — use when writing or reviewing OpenTofu/Terraform configs, version constraints, providers, or lockfiles. Recent releases (training may predate these — don't assume):
-  - v1.12 — dynamic prevent_destroy, all-platform provider lockfile checksums, simultaneous human- + machine-readable output (-json-into)
-  - v1.11 — ephemeral values & write-only attributes, the `enabled` meta-argument
-  - v1.10 — OCI registry support, native S3 state locking (use_lockfile), OpenTelemetry tracing, -target-file/-exclude-file
-  Confirm `tofu version` and the config's required_version before assuming a feature exists.
+description: This skill should be used when writing or reviewing OpenTofu or
+  Terraform configs, version constraints, providers, lockfiles, or state
+  backends, or reasoning about which tofu version introduced a feature ("does
+  tofu 1.11 support X"). Recent releases the model's training may predate —
+  confirm against `tofu version`/required_version before assuming a feature is
+  absent — v1.12: dynamic prevent_destroy, all-platform provider lockfile
+  checksums, simultaneous human + machine-readable output (-json-into); v1.11:
+  ephemeral values and write-only attributes, the `enabled` meta-argument;
+  v1.10: OCI registry support, native S3 state locking (use_lockfile),
+  OpenTelemetry tracing, -target-file/-exclude-file.
+example_prompts:
+- review this OpenTofu config
+- does tofu 1.11 support write-only attributes
+- which tofu version added OCI registry support
+- can I drop the DynamoDB table for S3 state locking
+- what changed in tofu lockfile behavior recently
+- is it safe to bump our required_version
+permalink: tooling/claude-plugins/plugins/tofu-quality/skills/tofu/skill
 ---
 
 # OpenTofu (tofu)
 
-Recent-release reference. The 3 latest minor releases live in this skill's
-`description` (always in context, since the model's training may predate them).
-This body adds a sentence or two per release plus deprecation/compatibility
-notes. For anything beyond this, read the release notes directly:
+<!-- Maintenance: when a new OpenTofu minor ships, update the three release lines
+in the `description` above AND the sections below, and verify against the
+per-version branch changelog (raw.githubusercontent.com/opentofu/opentofu/vX.Y/CHANGELOG.md). -->
+
+Recent OpenTofu release reference. For detail beyond the below, read the notes:
 <https://github.com/opentofu/opentofu/releases>.
 
 ## Recent releases
@@ -48,9 +61,3 @@ The `winrm` connection type (remote-exec/file provisioners) is deprecated in
 minimums (Linux kernel 3.2+, macOS 11+) and changed the PostgreSQL backend
 locking implementation (incompatible with older state locks) — check the OS and
 backend notes for the target version before upgrading a deployment.
-
-## More
-
-Read the relevant tag at <https://github.com/opentofu/opentofu/releases> when
-you need detail beyond the above — especially before raising a `required_version`
-floor or bumping a provider major version.
