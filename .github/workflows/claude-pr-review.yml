@@ -1,0 +1,26 @@
+# Claude PR review — calls the shared reusable workflow in
+# jedwards1230/release-workflows, which runs claude-code-action@v1 in Haiku
+# PR-review mode with the public jedwards1230-plugins marketplace + review-team
+# plugin enabled by default. The focus below is appended to the base prompt.
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  review:
+    uses: jedwards1230/release-workflows/.github/workflows/claude-pr-review.yml@v1
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      focus: |
+        claude-plugins is a Claude Code plugin marketplace.
+        - Manifest correctness: marketplace.json and plugin.json schema, source
+          paths resolve, version bumps are sane.
+        - Hook script safety: pre/post-tool-use, stop, session-* scripts — shell
+          quoting, no destructive or unguarded commands, correct exit codes,
+          proper use of ${CLAUDE_PLUGIN_ROOT}.
+        - Agent/skill/command frontmatter validity (name, description, triggers).
+        - No secrets committed in plugin files.
+        Do NOT re-flag formatting that CI owns.
