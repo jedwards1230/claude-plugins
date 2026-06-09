@@ -43,6 +43,19 @@ of a `.tf` / `.tofu` / `.tfvars` file (the `gofmt -w` equivalent). It never
 blocks. JSON config (`.tf.json` / `.tofu.json`) is left untouched — `tofu fmt`
 only formats HCL native syntax.
 
+## `/tofu` skill
+
+A `tofu` skill ships a recent-release reference. Its **description is always in
+context**, so a one-line summary of the three latest OpenTofu minor releases
+(v1.10–v1.12) rides along in every session — a hedge against the model's
+training cutoff predating those releases (e.g. not knowing 1.12 records
+all-platform lockfile checksums). Invoke `/tofu` to load the fuller body:
+a sentence or two per release plus deprecation and compatibility one-liners,
+with a pointer to <https://github.com/opentofu/opentofu/releases> for detail.
+
+Keep it current: when a new OpenTofu minor lands, update the three release lines
+in the skill `description` and the matching body section.
+
 ## Claude Code Web
 
 In Claude Code Web (`CLAUDE_CODE_REMOTE=true`), the `SessionStart` hook installs
