@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "18.1.1"
+    "version": "19.0.0"
   },
   "plugins": [
     {
@@ -36,6 +36,11 @@
       "name": "session-archiver",
       "source": "./plugins/session-archiver",
       "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end — per-machine configurable, nothing hardcoded"
+    },
+    {
+      "name": "review-team",
+      "source": "./plugins/review-team",
+      "description": "Dynamic review team composition with 13 stack-agnostic specialist agents (including an adversarial devils-advocate, a pre-publication safety auditor, and a Claude Code config reviewer) for collaborative, multi-angle review using Claude Code agent teams"
     }
   ]
 }
