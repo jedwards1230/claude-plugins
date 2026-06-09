@@ -35,7 +35,7 @@
     {
       "name": "tofu-quality",
       "source": "./plugins/tofu-quality",
-      "description": "OpenTofu quality gates — auto-format on edit, and format-check + validate modified config on stop, mirroring CI"
+      "description": "OpenTofu quality gates — auto-format on edit, and format-check + validate modified config on stop, mirroring CI. Includes a /tofu skill carrying recent-release summaries in context."
     },
     {
       "name": "session-archiver",
