@@ -9,7 +9,9 @@ Schema notes baked in here so they never get re-derived:
     timestamp (ISO8601), sessionId, cwd, gitBranch, version, isSidechain,
     isMeta, message{role, content}.
   - type is one of: user, assistant, system, summary, file-history-snapshot,
-    attachment.
+    attachment. PostToolUse hook output / harness attachments live in
+    type==attachment with text at attachment.stdout/stderr (no message.role);
+    `grep --role hook` opts into searching these (excluded by default).
   - message.content is EITHER a string OR a list of blocks. Block types:
     text{text}, thinking{thinking}, tool_use{id,name,input},
     tool_result{tool_use_id, content}, image{source}.
@@ -240,17 +242,27 @@ def cmd_grep(a):
     # and (under ensure_ascii) non-ASCII -> \uXXXX. Otherwise fall back to
     # decoded-text search so genuine matches aren't silently dropped.
     raw_safe = a.pattern.isascii() and '"' not in a.pattern and "\\" not in a.pattern
-    roles = {"user", "assistant"} if a.role == "both" else {a.role}
+    # "hook" is its own opt-in mode over type==attachment records (PostToolUse
+    # hook output / harness attachments); it is NOT folded into "both", so the
+    # default user+assistant search stays free of tool noise.
+    hook_mode = a.role == "hook"
+    roles = {"hook"} if hook_mode else ({"user", "assistant"} if a.role == "both" else {a.role})
     n = 0
     for path, slug, sid, _ in session_files(a.days, a.project, archive_root(a)):
         printed_header = False
         seen = set()
         for raw, rec in iter_records(path):
-            if rec.get("type") not in roles:
+            role = "hook" if rec.get("type") == "attachment" else rec.get("type")
+            if role not in roles:
                 continue
             if raw_safe and not pat.search(raw):  # escape-safe fast pre-filter
                 continue
-            txt = text_of(rec.get("message", {}))
+            if hook_mode:
+                att = rec.get("attachment") or {}
+                txt = "\n".join(att.get(k, "") for k in ("stdout", "stderr")
+                                if isinstance(att.get(k), str)).strip()
+            else:
+                txt = text_of(rec.get("message", {}))
             m = pat.search(txt)
             if not m:
                 continue
@@ -262,7 +274,7 @@ def cmd_grep(a):
                 printed_header = True
             s, e = max(0, m.start() - 50), m.end() + 80
             snip = txt[s:e].replace("\n", " ")
-            print(f"  [{short_ts(rec.get('timestamp'))}] {rec['type'][:4]}: …{snip}…")
+            print(f"  [{short_ts(rec.get('timestamp'))}] {role[:4]}: …{snip}…")
             n += 1
     print(f"\n{n} match(es).", file=sys.stderr)
 
@@ -347,7 +359,10 @@ def main():
 
     sp = sub.add_parser("grep", help="search decoded message text (skips tool noise)")
     sp.add_argument("pattern"); common(sp)
-    sp.add_argument("--role", choices=["user", "assistant", "both"], default="both")
+    sp.add_argument("--role", choices=["user", "assistant", "both", "hook"], default="both",
+                    help="user/assistant/both (default) search decoded message text; "
+                         "'hook' opts into PostToolUse hook output / harness attachments "
+                         "(type==attachment), excluded from the default search")
     sp.set_defaults(fn=cmd_grep)
 
     sp = sub.add_parser("show", help="render one session readable")

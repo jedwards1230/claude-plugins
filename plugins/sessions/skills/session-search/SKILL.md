@@ -17,7 +17,7 @@ The plugin's `bin/` is on `PATH` while it's enabled, so call `sessions` directly
 ```
 sessions ls    [--days N] [--project SLUG] [--limit K] [--json]   # list sessions: date, id, project, msg count, opening prompt
 sessions prompts [--days N] [--project SLUG] [--grep RE] [--session ID]  # your typed prompts per session
-sessions grep  PATTERN [--role user|assistant|both] [--days N] [--project SLUG]  # decoded text search, skips tool noise
+sessions grep  PATTERN [--role user|assistant|both|hook] [--days N] [--project SLUG]  # decoded text search, skips tool noise
 sessions show  SESSION_ID [--tools] [--thinking]                  # render one session readable (ID is a prefix)
 sessions tools [--days N] [--project SLUG] [--top K]              # normalized tool + bash command frequency
 ```
@@ -38,6 +38,7 @@ both. Override with `--archive-dir PATH` / `$SESSIONS_ARCHIVE_DIR`, or
 |---|---|
 | sessions where they asked/discussed something | `grep "PATTERN" --role user` |
 | everything (assistant too) mentioning a topic | `grep "PATTERN"` |
+| PostToolUse hook output / harness attachments | `grep "PATTERN" --role hook` (excluded from the default search) |
 | what they asked about over a period | `prompts --days N [--grep RE]` |
 | an overview / "what have I been working on" | `ls --days N` |
 | to read back one specific session | `show <id-prefix> [--tools]` |
