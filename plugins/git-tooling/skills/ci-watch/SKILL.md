@@ -28,7 +28,7 @@ permalink: tooling/claude-plugins/plugins/git-tooling/skills/ci-watch/skill
 
 # CI Watch
 
-Watch GitHub PR status through to merge without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits only when every watched PR is merged, closed, or gone. CI completion and review status are reported as intermediate milestones — a `READY` flag appears when a PR is mergeable (all checks green, reviews clear, no conflicts).
+Watch GitHub PR status through to merge without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits only when every watched PR is merged, closed, or gone. CI completion and review status are reported as intermediate milestones — a `READY` flag appears when a PR is mergeable (all checks green, reviews clear, no conflicts) **and** GitHub's own `mergeStateStatus` does not report the merge blocked (so required reviews, ruleset rules, and conversation-resolution gates are caught even when no tracked signal explains them).
 
 **Requirements:** `python3` (3.8+) and `gh` (authenticated). The script uses only the Python standard library — no `pip` install needed. Works on macOS and Linux without bash-version dependencies (the previous bash implementation needed bash 4+ for associative arrays, which broke on stock macOS bash 3.2).
 
@@ -98,6 +98,7 @@ Each notification line emitted by the script looks like:
 | `PR #48: P=2,F=0,W=3,CR` | Changes requested by a reviewer |
 | `PR #48: P=2,F=0,W=3,U=4` | 4 unresolved review threads |
 | `PR #48: P=5,F=0,W=0,RR=1` | All checks green but 1 requested reviewer (e.g. Copilot) hasn't posted yet — keep watching |
+| `PR #48: P=5,F=0,W=0,BLOCKED` | GitHub reports the merge blocked for a reason the counts don't show — a required review/ruleset (Copilot/CODEOWNERS), a required check, or an unresolved/conversation-resolution gate. Investigate before merging |
 | `PR #48: P=3,F=0,W=0,CONFLICT` | Merge conflict |
 | `PR #48: MERGED` / `CLOSED` / `GONE` | PR finished |
 | `ci-watch: all watched PRs reached a terminal state` | Final line, script exits cleanly |
@@ -108,6 +109,7 @@ How to react:
 - **Any failures** (`F>0`) — surface immediately. For detailed failing-check names, run `gh pr checks <pr> -R <owner/repo>`.
 - **`CR` or `U=N`** — point the user at reviewer feedback before merging.
 - **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher keeps polling until they post.
+- **`BLOCKED`** — GitHub's authoritative merge state is `BLOCKED` but the tracked counts (`F`/`CR`/`U`/`RR`) don't explain why — e.g. a ruleset requiring a Copilot/CODEOWNERS review, a required status check, or a conversation-resolution gate. Run `gh pr view <pr> --json mergeStateStatus,reviewDecision` and inspect the ruleset/branch protection; resolve the gate before merging. The `READY` flag will not appear while the PR is blocked.
 - **`CONFLICT`** — offer to rebase against the base branch.
 - **`MERGED`** — the PR was merged. Report success. The watcher exits once all watched PRs reach this (or `CLOSED`/`GONE`).
 - **`CLOSED`** / **`GONE`** — PR was closed without merging or deleted from the API.

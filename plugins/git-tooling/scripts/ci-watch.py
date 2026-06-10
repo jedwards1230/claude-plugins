@@ -68,6 +68,7 @@ query($owner: String!, $name: String!, $pr: Int!) {
     pullRequest(number: $pr) {
       state
       mergeable
+      mergeStateStatus
       reviewRequests(first: 1) { totalCount }
       reviewThreads(first: 50) { nodes { isResolved } }
       latestReviews(first: 10) { nodes { state } }
@@ -198,6 +199,13 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
                                         or _state(c) == "PENDING")
 
     mergeable = node.get("mergeable") or "UNKNOWN"
+    # mergeStateStatus is GitHub's authoritative merge-readiness verdict. Unlike
+    # the per-signal counts below (which only catch the blockers we explicitly
+    # query), BLOCKED captures *every* merge gate — unresolved review threads,
+    # required/conversation-resolution, ruleset rules (e.g. required Copilot or
+    # CODEOWNERS review), and required status checks — so a blocking review
+    # comment we don't individually track still prevents a false READY.
+    merge_state = node.get("mergeStateStatus") or "UNKNOWN"
     unresolved = _count((node.get("reviewThreads") or {}).get("nodes") or [],
                        lambda t: t.get("isResolved") is False)
     changes_requested = _count((node.get("latestReviews") or {}).get("nodes") or [],
@@ -218,10 +226,18 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
         parts.append(f"U={unresolved}")
     if review_requests > 0:
         parts.append(f"RR={review_requests}")
+    # Surface a generic block (a required review/ruleset/check or a blocking
+    # comment) that the counts above didn't already explain.
+    if merge_state == "BLOCKED" and not (changes_requested or unresolved or review_requests):
+        parts.append("BLOCKED")
 
+    # READY requires both: our tracked signals are clear AND GitHub does not
+    # report the PR as blocked/dirty/behind/draft. The merge_state gate is what
+    # generalizes READY to *any* blocking condition, not just the ones we count.
     ready = (pending == 0 and failed == 0 and review_requests == 0
              and changes_requested == 0 and unresolved == 0
-             and mergeable != "CONFLICTING")
+             and mergeable != "CONFLICTING"
+             and merge_state not in ("BLOCKED", "DIRTY", "BEHIND", "DRAFT"))
     if ready:
         parts.append("READY")
 
