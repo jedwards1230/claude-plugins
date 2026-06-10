@@ -1,12 +1,15 @@
 ---
 name: ci-watch
-description: This skill should be used when the user asks to "watch CI", "are
-  the checks green yet", "monitor PR checks", "tell me when CI passes", "follow
-  the build", "wait for CI", "ping me when checks finish", "is CI passing",
-  "watch the PR", "watch until merged", or any request to keep an eye on GitHub
-  PR status without manual polling. Invokes the Monitor tool with ci-watch.py to
-  stream CI pass/fail/pending, review status, and merge transitions as
-  notifications, stopping only when every watched PR is merged or closed.
+description: This skill should be used proactively after opening a PR (`gh pr
+  create`) or pushing to a branch with an open PR, and whenever the user asks to
+  "watch CI", "are the checks green yet", "monitor PR checks", "tell me when CI
+  passes", "follow the build", "wait for CI", "ping me when checks finish", "is
+  CI passing", "watch the PR", "watch until merged", or any request to keep an
+  eye on GitHub PR status without manual polling. Works for a single PR in the
+  current repo or many PRs across many repos in one call. Invokes the Monitor
+  tool with ci-watch.py to stream CI pass/fail/pending, review status, and merge
+  transitions as notifications, stopping only when every watched PR is merged or
+  closed.
 allowed-tools:
 - Bash(python3:*)
 - Bash(gh repo view:*)
@@ -31,6 +34,15 @@ permalink: tooling/claude-plugins/plugins/git-tooling/skills/ci-watch/skill
 Watch GitHub PR status through to merge without manually polling. This skill invokes the `Monitor` tool with `ci-watch.py`, which emits one notification per state transition and exits only when every watched PR is merged, closed, or gone. CI completion and review status are reported as intermediate milestones — a `READY` flag appears when a PR is mergeable (all checks green, reviews clear, no conflicts) **and** GitHub's own `mergeStateStatus` does not report the merge blocked (so required reviews, ruleset rules, and conversation-resolution gates are caught even when no tracked signal explains them).
 
 **Requirements:** `python3` (3.8+) and `gh` (authenticated). The script uses only the Python standard library — no `pip` install needed. Works on macOS and Linux without bash-version dependencies (the previous bash implementation needed bash 4+ for associative arrays, which broke on stock macOS bash 3.2).
+
+## When to run it
+
+Run ci-watch **after every PR you open or push to** — not only when the user explicitly asks. The `post-push-or-pr-reminder` hook fires on each `gh pr create` / `git push` to a branch with an open PR; treat that reminder as the trigger to start watching.
+
+- **Don't skip on a "trivial PR" judgement.** One-line bumps, config tweaks, and docs PRs still run the shared review/CI workflow in most repos. "It's just a small change" is not a reason to skip.
+- **The only valid skip** is when `gh pr checks <pr>` reports *zero* checks — a PR whose changed paths trigger no workflow at all. Verify that with the command; don't assume it.
+- **It's safe to start unconditionally.** The Monitor backgrounds itself and self-times-out (default 60 min cap), exiting the moment every watched PR reaches a terminal state. It never blocks your other work and needs no manual polling. This makes it the right tool *instead of* ad-hoc `gh run list` / `gh run watch` loops.
+- **Watch the whole batch.** If you opened or pushed several PRs (one repo or many), watch all of them in a single Monitor call — see the multi-repo row in Step 1. Don't watch only the "definitive" one.
 
 ## Current Repository State (Injected)
 
@@ -58,6 +70,10 @@ Watch GitHub PR status through to merge without manually polling. This skill inv
 | Named a PR number ("watch PR #48") | Pass that number |
 | Said "watch this" / "this PR" with no number | Resolve via `gh pr list --head "$(git symbolic-ref --short HEAD)" --state open --json number -q '.[].number'`. If no PR exists, tell the user and stop. |
 | Said "all PRs" or "every open PR" | Pass no PR-number args (script defaults to all open) |
+| Several PRs in **one** repo | Pass all the numbers: `ci-watch.py 48 49 50` (or `-R owner/repo 48 49`) |
+| PRs across **multiple** repos (batch push, nested-repo work) | Pass `owner/repo#N` tokens: `ci-watch.py owner/repoA#12 owner/repoB#4 owner/repoB#5`. One Monitor call covers the whole batch — do not start one watcher per repo, and do not watch only one of them. |
+
+`owner/repo#N` tokens, bare PR numbers, and `-R owner/repo` mix freely in a single invocation (e.g. `ci-watch.py -R owner/repoA 12 13 owner/repoB#4`). Bare numbers apply to the `-R` repo, or the auto-detected repo when no `-R` is given. This is not specific to any multi-repo layout — it works the same for several PRs in one standalone repo and for PRs spread across several repos.
 
 ### Step 2 — Invoke the Monitor tool
 
@@ -72,7 +88,12 @@ Monitor(
 
 **Always invoke via `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ci-watch.py"`** — do not call the script directly. This avoids depending on the executable bit being preserved through installation.
 
-Argument order: `-R owner/repo` must come *before* any PR numbers (e.g. `python3 ci-watch.py -R owner/repo 48 49`).
+Argument forms (mix freely in one call):
+- Current repo, specific PRs: `... ci-watch.py 48 49`
+- Explicit repo: `... ci-watch.py -R owner/repo 48 49` (the `-R` repo applies to bare numbers that follow)
+- Across repos (batch): `... ci-watch.py owner/repoA#12 owner/repoB#4 owner/repoB#5`
+
+A single Monitor call watches the entire set — prefer one watcher over the whole batch rather than one Monitor per repo.
 
 ### Step 3 — Pick `timeout_ms`
 
@@ -102,6 +123,8 @@ Each notification line emitted by the script looks like:
 | `PR #48: P=3,F=0,W=0,CONFLICT` | Merge conflict |
 | `PR #48: MERGED` / `CLOSED` / `GONE` | PR finished |
 | `ci-watch: all watched PRs reached a terminal state` | Final line, script exits cleanly |
+
+When watching more than one repo, each line is prefixed with `owner/repo#N:` instead of `PR #N:` (e.g. `owner/repoB#4: P=5,F=0,W=0,READY`) so PRs that share a number across repos stay distinct. Single-repo watches keep the familiar `PR #N:` form.
 
 How to react:
 

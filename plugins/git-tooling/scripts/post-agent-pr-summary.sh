@@ -152,7 +152,7 @@ done <<< "$pr_urls"
 if [ "$ci_watch_count" -gt 0 ]; then
   ctx="Subagent opened PR(s) ${pr_numbers} (${pr_url_list}) and started ci-watch — monitoring runs in background, expect notifications on every CI state transition. No action needed unless ci-watch reports failure."
 else
-  ctx="Subagent opened PR(s) ${pr_numbers} (${pr_url_list}) but did NOT invoke ci-watch. Consider running it yourself to monitor CI until terminal state."
+  ctx="Subagent opened PR(s) ${pr_numbers} (${pr_url_list}) but did NOT invoke ci-watch. Invoke the \`ci-watch\` skill now to monitor it/them through to a terminal state — the subagent's own PostToolUse reminder fired inside its context, not yours, so this is the only nudge you get. Watch every one (pass multiple as \`owner/repo#N\` targets); do not skip on a 'trivial PR' judgement. It backgrounds itself and self-times-out, so it never blocks your work."
 fi
 
 jq -n --arg ctx "$ctx" '{
