@@ -251,6 +251,17 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     return (",".join(parts), terminal, True)
 
 
+def valid_repo(repo: str) -> bool:
+    """True iff `repo` is exactly `owner/name` with both parts non-empty.
+
+    Guards against tokens that contain a slash but aren't a real repo slug
+    (e.g. `owner/repo/extra`, `/repo`, `owner/`) — they'd otherwise slip
+    through and fail opaquely later inside `gh`.
+    """
+    parts = repo.split("/")
+    return len(parts) == 2 and all(parts)
+
+
 def parse_args(argv: list[str]) -> tuple[Optional[str], "dict[Optional[str], list[int]]"]:
     """Parse CLI args into (default_repo, repo_prs).
 
@@ -278,12 +289,14 @@ def parse_args(argv: list[str]) -> tuple[Optional[str], "dict[Optional[str], lis
             continue
         if "#" in t:
             repo_part, _, num = t.rpartition("#")
-            if "/" not in repo_part or not num.isdigit():
+            if not valid_repo(repo_part) or not num.isdigit():
                 die(f"invalid target {t!r}; expected owner/repo#N")
             repo_prs.setdefault(repo_part, []).append(int(num))
         elif t.isdigit():
             repo_prs.setdefault(None, []).append(int(t))
         elif "/" in t:
+            if not valid_repo(t):
+                die(f"invalid repo {t!r}; expected owner/name")
             repo_prs.setdefault(t, [])  # all open PRs in this repo
         else:
             die(f"unrecognized argument {t!r}; expected a PR number, "
@@ -335,7 +348,7 @@ def main(argv: list[str]) -> int:
     # part of every target's identity.
     targets: "list[tuple[str, int]]" = []
     for repo, prs in repo_prs.items():
-        if "/" not in repo:
+        if not valid_repo(repo):
             die(f"invalid repo {repo!r}; expected owner/name")
         selected = prs if prs else list_open_prs(repo)
         for n in selected:
