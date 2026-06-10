@@ -22,6 +22,8 @@ jobs:
     with:
       extra_plugins: |
         plugin-dev@claude-plugins-official
+      extra_plugin_marketplaces: |
+        https://github.com/anthropics/claude-plugins-official.git
       focus: |
         claude-plugins is a Claude Code plugin marketplace.
         - Manifest correctness: marketplace.json and plugin.json schema, source
