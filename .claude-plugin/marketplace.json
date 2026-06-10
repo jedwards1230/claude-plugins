@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "20.0.1"
+    "version": "20.0.2"
   },
   "plugins": [
     {
@@ -15,32 +15,32 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
+      "description": "Git tooling \u2014 worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
     },
     {
       "name": "go-quality",
       "source": "./plugins/go-quality",
-      "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
+      "description": "Go quality gates \u2014 auto-format, vet, test, and lint on every turn"
     },
     {
       "name": "qml-quality",
       "source": "./plugins/qml-quality",
-      "description": "QML quality gates — auto-format and format-check QML files with qmlformat, mirroring CI"
+      "description": "QML quality gates \u2014 auto-format and format-check QML files with qmlformat, mirroring CI"
     },
     {
       "name": "rust-quality",
       "source": "./plugins/rust-quality",
-      "description": "Rust quality gates — auto-format, clippy, test, and audit on every turn"
+      "description": "Rust quality gates \u2014 auto-format, clippy, test, and audit on every turn"
     },
     {
       "name": "tofu-quality",
       "source": "./plugins/tofu-quality",
-      "description": "OpenTofu quality gates — auto-format on edit, and format-check + validate modified config on stop, mirroring CI. Includes a /tofu skill carrying recent-release summaries in context."
+      "description": "OpenTofu quality gates \u2014 auto-format on edit, and format-check + validate modified config on stop, mirroring CI. Includes a /tofu skill carrying recent-release summaries in context."
     },
     {
       "name": "session-archiver",
       "source": "./plugins/session-archiver",
-      "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end — per-machine configurable, nothing hardcoded"
+      "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end \u2014 per-machine configurable, nothing hardcoded"
     },
     {
       "name": "review-team",
