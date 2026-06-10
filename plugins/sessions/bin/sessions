@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+"""sessions — search and analyze past Claude Code session transcripts.
+
+Zero-dependency (stdlib only). Operates on the JSONL transcripts under
+~/.claude/projects/<slug>/<session-uuid>.jsonl.
+
+Schema notes baked in here so they never get re-derived:
+  - Each line is one JSON object. Top-level: type, uuid, parentUuid,
+    timestamp (ISO8601), sessionId, cwd, gitBranch, version, isSidechain,
+    isMeta, message{role, content}.
+  - type is one of: user, assistant, system, summary, file-history-snapshot,
+    attachment.
+  - message.content is EITHER a string OR a list of blocks. Block types:
+    text{text}, thinking{thinking}, tool_use{id,name,input},
+    tool_result{tool_use_id, content}, image{source}.
+  - "Typed" user prompts live in type==user with text blocks and NO
+    tool_result block; harness-injected turns are tagged isMeta or wrapped in
+    <command-*>/<*-hook>/<task-notification>/<system-reminder> tags.
+  - Subagent transcripts: <slug>/<session-uuid>/subagents/<agent>.jsonl
+  - Large tool outputs spill to: <slug>/<session-uuid>/tool-results/*.txt
+  - Files auto-delete after cleanupPeriodDays (default 30d) — archive early.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from glob import glob
+
+ROOT = os.path.expanduser("~/.claude/projects")
+
+NOISE_PREFIXES = (
+    "<command-", "<local-command", "<task-notification", "<system-reminder",
+    "<user-prompt-submit-hook", "<session-start-hook", "<post-tool-use-hook",
+    "<bash-input", "<bash-stdout", "<bash-stderr",
+)
+
+
+# --------------------------------------------------------------------------- #
+# discovery
+# --------------------------------------------------------------------------- #
+ARCHIVE_DEFAULT = os.path.expanduser("~/claude-archives")
+
+
+def archive_root(a):
+    """Resolve the archive dir to also search, or None.
+
+    Defaults to ~/claude-archives (where the session-archiver plugin mirrors
+    transcripts past the 30d cleanup). --no-archive disables it; --archive-dir
+    or $SESSIONS_ARCHIVE_DIR overrides the path.
+    """
+    if getattr(a, "no_archive", False):
+        return None
+    d = (getattr(a, "archive_dir", None) or os.environ.get("SESSIONS_ARCHIVE_DIR")
+         or ARCHIVE_DEFAULT)
+    return d if os.path.isdir(d) else None
+
+
+def _sidecar(path):
+    parts = path.split(os.sep)
+    return "subagents" in parts or "tool-results" in parts
+
+
+def _discover(root, recursive):
+    """Yield (path, slug, session_id) for top-level session transcripts.
+
+    Handles both the live layout (<slug>/<uuid>.jsonl) and the archiver's
+    deeper mirror layout (<host>/<slug>/<uuid>/<uuid>.jsonl). Subagent and
+    tool-result sidecars are excluded in both.
+    """
+    pattern = (os.path.join(root, "**", "*.jsonl") if recursive
+               else os.path.join(root, "*", "*.jsonl"))
+    for path in glob(pattern, recursive=recursive):
+        if _sidecar(path):
+            continue
+        stem = os.path.basename(path)[:-6]  # strip .jsonl
+        parent = os.path.basename(os.path.dirname(path))
+        # the archive nests the session file as <slug>/<uuid>/<uuid>.jsonl
+        slug = (os.path.basename(os.path.dirname(os.path.dirname(path)))
+                if parent == stem else parent)
+        yield path, slug, stem
+
+
+def session_files(days=None, project=None, archive=None):
+    """Yield (path, slug, session_id, mtime) for top-level session files,
+    newest first, optionally merging an archive dir (live copy wins on dup).
+
+    Project filtering happens before stat()ing, and a vanished file (30d
+    cleanup racing the scan) is skipped rather than crashing.
+    """
+    import time
+    cutoff = (time.time() - days * 86400) if days else None
+    roots = [(ROOT, False)]
+    if archive:
+        roots.append((archive, True))  # live first so it wins de-dup
+    seen, cand = set(), []
+    for root, recursive in roots:
+        for path, slug, sid in _discover(root, recursive):
+            if project and project.lower() not in slug.lower():
+                continue
+            if sid in seen:
+                continue
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:  # file vanished between glob and stat
+                continue
+            seen.add(sid)
+            if cutoff and mtime < cutoff:
+                continue
+            cand.append((path, slug, sid, mtime))
+    yield from sorted(cand, key=lambda r: r[3], reverse=True)
+
+
+def find_session(prefix, archive=None):
+    """Resolve a session-id prefix to a path (live first, then archive)."""
+    hits = glob(os.path.join(ROOT, "*", prefix + "*.jsonl"))
+    if not hits:
+        hits = glob(os.path.join(ROOT, "**", prefix + "*.jsonl"), recursive=True)
+    if not hits and archive:
+        hits = [p for p in glob(os.path.join(archive, "**", prefix + "*.jsonl"),
+                                recursive=True) if not _sidecar(p)]
+    if not hits:
+        return None
+    if len(hits) > 1:
+        print(f"warning: '{prefix}' matches {len(hits)} sessions; showing "
+              f"{os.path.basename(hits[0])[:-6]} — narrow the prefix to pick another.",
+              file=sys.stderr)
+    return hits[0]
+
+
+def compile_re(pattern):
+    """Compile a user-supplied regex, exiting cleanly on a bad pattern."""
+    try:
+        return re.compile(pattern, re.I)
+    except re.error as e:
+        sys.exit(f"invalid regex {pattern!r}: {e}")
+
+
+def short_slug(slug):
+    # project dirs look like -Users-<name>-… (macOS) or -home-<name>-… (Linux devcontainer)
+    s = re.sub(r"^-(Users|home)-[^-]+-", "", slug)
+    return s or "home"
+
+
+def short_ts(ts):
+    return ts[:16].replace("T", " ") if ts else "?"
+
+
+# --------------------------------------------------------------------------- #
+# content decoding (handles string-or-array, the #1 re-derived gotcha)
+# --------------------------------------------------------------------------- #
+def blocks(msg):
+    c = msg.get("content")
+    if isinstance(c, str):
+        return [{"type": "text", "text": c}]
+    if isinstance(c, list):
+        return [b for b in c if isinstance(b, dict)]
+    return []
+
+
+def text_of(msg):
+    """Concatenate plain text blocks (ignores tool_use/thinking/tool_result)."""
+    return "\n".join(b.get("text", "") for b in blocks(msg) if b.get("type") == "text").strip()
+
+
+def is_typed_prompt(rec):
+    """True if rec is a genuine user-typed prompt (not tool result / injected)."""
+    if rec.get("type") != "user" or rec.get("isMeta"):
+        return False
+    bs = blocks(rec.get("message", {}))
+    if any(b.get("type") == "tool_result" for b in bs):
+        return False
+    txt = text_of(rec.get("message", {}))
+    if not txt:
+        return False
+    return not txt.startswith(NOISE_PREFIXES)
+
+
+def iter_records(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                yield raw, json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+
+
+# --------------------------------------------------------------------------- #
+# commands
+# --------------------------------------------------------------------------- #
+def cmd_ls(a):
+    rows = []
+    for path, slug, sid, _ in session_files(a.days, a.project, archive_root(a)):
+        first, count, last_ts = None, 0, None
+        for _, rec in iter_records(path):
+            if rec.get("type") in ("user", "assistant"):
+                count += 1
+                last_ts = rec.get("timestamp") or last_ts
+            if first is None and is_typed_prompt(rec):
+                first = text_of(rec["message"])
+        rows.append((short_ts(last_ts), short_slug(slug), sid[:8], count,
+                     (first or "—").replace("\n", " ")[:80]))
+        if a.limit and len(rows) >= a.limit:
+            break
+    if a.json:
+        print(json.dumps([dict(zip(("date", "project", "id", "msgs", "first"), r))
+                          for r in rows], indent=2))
+        return
+    for date, proj, sid, count, first in rows:
+        print(f"{date}  {sid}  {proj:<18.18}  {count:>4} msg  {first}")
+
+
+def cmd_prompts(a):
+    pat = compile_re(a.grep) if a.grep else None
+    for path, slug, sid, _ in session_files(a.days, a.project, archive_root(a)):
+        if a.session and not sid.startswith(a.session):
+            continue
+        out = []
+        for _, rec in iter_records(path):
+            if is_typed_prompt(rec):
+                t = text_of(rec["message"])
+                if pat and not pat.search(t):
+                    continue
+                out.append((short_ts(rec.get("timestamp")), t.replace("\n", " ")))
+        if out:
+            print(f"\n=== {short_slug(slug)}  {sid[:8]} ===")
+            for ts, t in out:
+                print(f"  [{ts}] {t[:240]}")
+
+
+def cmd_grep(a):
+    pat = compile_re(a.pattern)
+    # The raw-line pre-filter is a speed hack and is only valid when JSON
+    # escaping can't alter the pattern's literals: quotes -> \", backslashes,
+    # and (under ensure_ascii) non-ASCII -> \uXXXX. Otherwise fall back to
+    # decoded-text search so genuine matches aren't silently dropped.
+    raw_safe = a.pattern.isascii() and '"' not in a.pattern and "\\" not in a.pattern
+    roles = {"user", "assistant"} if a.role == "both" else {a.role}
+    n = 0
+    for path, slug, sid, _ in session_files(a.days, a.project, archive_root(a)):
+        printed_header = False
+        seen = set()
+        for raw, rec in iter_records(path):
+            if rec.get("type") not in roles:
+                continue
+            if raw_safe and not pat.search(raw):  # escape-safe fast pre-filter
+                continue
+            txt = text_of(rec.get("message", {}))
+            m = pat.search(txt)
+            if not m:
+                continue
+            if txt in seen:  # same message can recur across JSONL lines
+                continue
+            seen.add(txt)
+            if not printed_header:
+                print(f"\n=== {short_slug(slug)}  {sid[:8]} ===")
+                printed_header = True
+            s, e = max(0, m.start() - 50), m.end() + 80
+            snip = txt[s:e].replace("\n", " ")
+            print(f"  [{short_ts(rec.get('timestamp'))}] {rec['type'][:4]}: …{snip}…")
+            n += 1
+    print(f"\n{n} match(es).", file=sys.stderr)
+
+
+def cmd_show(a):
+    path = find_session(a.session, archive_root(a))
+    if not path:
+        sys.exit(f"no session matching '{a.session}'")
+    print(f"# {path}\n")
+    for _, rec in iter_records(path):
+        t, msg, ts = rec.get("type"), rec.get("message", {}), short_ts(rec.get("timestamp"))
+        if t == "user" and is_typed_prompt(rec):
+            print(f"\n[{ts}] 🧑 USER\n{text_of(msg)}\n")
+        elif t == "assistant":
+            txt = text_of(msg)
+            if txt:
+                print(f"[{ts}] 🤖 ASSISTANT\n{txt}\n")
+            if a.tools:
+                for b in blocks(msg):
+                    if b.get("type") == "tool_use":
+                        inp = json.dumps(b.get("input", {}))[:160]
+                        print(f"    ⚙ {b.get('name')}({inp})")
+            if a.thinking:
+                for b in blocks(msg):
+                    if b.get("type") == "thinking":
+                        print(f"    💭 {b.get('thinking', '')[:300]}")
+
+
+def cmd_tools(a):
+    from collections import Counter
+    tools, cmds = Counter(), Counter()
+    for path, _, _, _ in session_files(a.days, a.project, archive_root(a)):
+        for _, rec in iter_records(path):
+            if rec.get("type") != "assistant":
+                continue
+            for b in blocks(rec.get("message", {})):
+                if b.get("type") != "tool_use":
+                    continue
+                name = b.get("name", "?")
+                tools[name] += 1
+                if name == "Bash":
+                    line = (b.get("input", {}).get("command") or "").lstrip()
+                    line = re.sub(r"^(cd [^&|;]+&&|[A-Z_][A-Z0-9_]*=\S+|sudo|timeout \S+)\s+", "",
+                                  line.split("\n")[0]).lstrip()
+                    toks = line.split()
+                    if toks:
+                        cmds[" ".join(toks[:2])] += 1
+    top = a.top
+    print(f"=== tool usage (top {top}) ===")
+    for name, c in tools.most_common(top):
+        print(f"  {c:>5}  {name}")
+    print(f"\n=== bash commands (top {top}) ===")
+    for cmd, c in cmds.most_common(top):
+        print(f"  {c:>5}  {cmd}")
+
+
+# --------------------------------------------------------------------------- #
+def main():
+    p = argparse.ArgumentParser(prog="sessions", description=__doc__.splitlines()[0])
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def add_archive(sp):
+        sp.add_argument("--archive-dir", help="also search this archive dir "
+                        "(default ~/claude-archives, set by session-archiver; "
+                        "or $SESSIONS_ARCHIVE_DIR)")
+        sp.add_argument("--no-archive", action="store_true",
+                        help="search only the live ~/.claude dir, not the archive")
+
+    def common(sp):
+        sp.add_argument("--days", type=int, help="only sessions modified in the last N days")
+        sp.add_argument("--project", help="filter to project slugs containing this substring")
+        add_archive(sp)
+
+    sp = sub.add_parser("ls", help="list sessions (date, id, project, msg count, opening prompt)")
+    common(sp); sp.add_argument("--limit", type=int); sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_ls)
+
+    sp = sub.add_parser("prompts", help="list your typed prompts per session")
+    common(sp); sp.add_argument("--grep", help="only prompts matching this regex")
+    sp.add_argument("--session", help="limit to a session-id prefix")
+    sp.set_defaults(fn=cmd_prompts)
+
+    sp = sub.add_parser("grep", help="search decoded message text (skips tool noise)")
+    sp.add_argument("pattern"); common(sp)
+    sp.add_argument("--role", choices=["user", "assistant", "both"], default="both")
+    sp.set_defaults(fn=cmd_grep)
+
+    sp = sub.add_parser("show", help="render one session readable")
+    sp.add_argument("session", help="session-id prefix")
+    sp.add_argument("--tools", action="store_true", help="include tool calls")
+    sp.add_argument("--thinking", action="store_true", help="include thinking blocks")
+    add_archive(sp)
+    sp.set_defaults(fn=cmd_show)
+
+    sp = sub.add_parser("tools", help="normalized tool + bash command frequency")
+    common(sp); sp.add_argument("--top", type=int, default=25)
+    sp.set_defaults(fn=cmd_tools)
+
+    a = p.parse_args()
+    try:
+        a.fn(a)
+    except BrokenPipeError:
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()
