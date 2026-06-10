@@ -33,4 +33,5 @@ jobs:
           proper use of ${CLAUDE_PLUGIN_ROOT}.
         - Agent/skill/command frontmatter validity (name, description, triggers).
         - No secrets committed in plugin files.
+        - For plugin files (manifest, hooks, skills, agents, commands), use plugin-dev's plugin-validator / skill-reviewer agents.
         Do NOT re-flag formatting that CI owns.
