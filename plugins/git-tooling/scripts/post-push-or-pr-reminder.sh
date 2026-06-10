@@ -145,7 +145,9 @@ Reminder: if the pushed scope or intent changed since the PR was opened, update 
 
 Only update if the current title or body no longer accurately describe what is on the branch. Skip silently if they still match.
 
-Now invoke the \`ci-watch\` skill to monitor CI until it reaches a terminal state. This runs in the background and notifies on every status transition; no manual polling needed."
+Now invoke the \`ci-watch\` skill to monitor PR #${pr_number} until it reaches a terminal state. This runs in the background and notifies on every status transition; no manual polling needed.
+
+Run it for every PR — including one-line, config, version-bump, and docs PRs. The shared review/CI workflow runs on most PRs regardless of which files changed, so do NOT skip on a 'trivial change / no meaningful CI' judgement. The only valid skip is when \`gh pr checks ${pr_number}\` reports zero checks. ci-watch is safe to start unconditionally: it backgrounds itself and self-times-out, so it never blocks your work."
 
 jq -n --arg ctx "$reminder" '{
   "hookSpecificOutput": {

@@ -11,9 +11,14 @@ Designed to be invoked via the Monitor tool from the ci-watch skill —
 each stdout line becomes a notification.
 
 Usage:
-    ci-watch.py                # watch all open PRs in current repo
-    ci-watch.py <pr> [pr...]   # watch specific PR numbers
-    ci-watch.py -R owner/repo  # ...in a specific repo (combine with PR list)
+    ci-watch.py                       # watch all open PRs in current repo
+    ci-watch.py <pr> [pr...]          # watch specific PR numbers (current repo)
+    ci-watch.py -R owner/repo [pr...] # ...in a specific repo (all open if no PRs)
+    ci-watch.py owner/repo#N ...      # watch PRs across multiple repos in one call
+    ci-watch.py owner/repo            # all open PRs in an explicit repo
+
+Forms mix freely, e.g.:
+    ci-watch.py -R me/api 12 13 me/web#4   # PRs 12,13 in me/api + PR 4 in me/web
 
 Env:
     GIT_TOOLING_CI_POLL_SECONDS   poll interval in seconds (default 30)
@@ -246,19 +251,45 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     return (",".join(parts), terminal, True)
 
 
-def parse_args(argv: list[str]) -> tuple[Optional[str], list[int]]:
-    repo: Optional[str] = None
-    args = list(argv)
-    if args and args[0] == "-R":
-        if len(args) < 2:
-            die("missing repo for -R flag")
-        repo = args[1]
-        args = args[2:]
-    try:
-        prs = [int(x) for x in args]
-    except ValueError:
-        die(f"PR numbers must be integers, got: {args!r}")
-    return repo, prs
+def parse_args(argv: list[str]) -> tuple[Optional[str], "dict[Optional[str], list[int]]"]:
+    """Parse CLI args into (default_repo, repo_prs).
+
+    Accepted token forms, mixable in one invocation:
+      -R owner/repo     set the default repo for bare PR numbers that follow
+      <N>               PR number N in the default/detected repo
+      owner/repo#<N>    PR number N in an explicit repo (cross-repo batches)
+      owner/repo        all open PRs in an explicit repo
+
+    repo_prs maps a repo key -> explicit PR numbers; an empty list means
+    "all open PRs in that repo". The key None stands for the default repo,
+    resolved later from -R or repo auto-detection.
+    """
+    default_repo: Optional[str] = None
+    repo_prs: "dict[Optional[str], list[int]]" = {}
+    tokens = list(argv)
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "-R":
+            if i + 1 >= len(tokens):
+                die("missing repo for -R flag")
+            default_repo = tokens[i + 1]
+            i += 2
+            continue
+        if "#" in t:
+            repo_part, _, num = t.rpartition("#")
+            if "/" not in repo_part or not num.isdigit():
+                die(f"invalid target {t!r}; expected owner/repo#N")
+            repo_prs.setdefault(repo_part, []).append(int(num))
+        elif t.isdigit():
+            repo_prs.setdefault(None, []).append(int(t))
+        elif "/" in t:
+            repo_prs.setdefault(t, [])  # all open PRs in this repo
+        else:
+            die(f"unrecognized argument {t!r}; expected a PR number, "
+                f"owner/repo, owner/repo#N, or -R owner/repo")
+        i += 1
+    return default_repo, repo_prs
 
 
 def parse_poll_interval() -> int:
@@ -282,36 +313,65 @@ def main(argv: list[str]) -> int:
     if run(["gh", "auth", "status"]).returncode != 0:
         die("gh not authenticated")
 
-    repo, pr_nums = parse_args(argv)
-    if not repo:
-        repo = detect_repo()
-    if not repo:
-        die("cannot determine GitHub repo (run inside a repo, or pass -R owner/name)")
-    if "/" not in repo:
-        die(f"invalid repo {repo!r}; expected owner/name")
-    owner, name = repo.split("/", 1)
+    default_repo, repo_prs = parse_args(argv)
+    if not repo_prs:
+        repo_prs = {None: []}
 
-    if not pr_nums:
-        pr_nums = list_open_prs(repo)
-    if not pr_nums:
-        emit(f"ci-watch: no open PRs to watch in {repo}")
+    # Resolve the None (default) key to a concrete repo, merging any bare PR
+    # numbers into it. detect_repo() only runs when a default repo is needed.
+    if None in repo_prs:
+        base = default_repo or detect_repo()
+        if not base:
+            die("cannot determine GitHub repo (run inside a repo, or pass "
+                "-R owner/name or owner/repo#N targets)")
+        bare_prs = repo_prs.pop(None)
+        repo_prs.setdefault(base, [])
+        for n in bare_prs:
+            if n not in repo_prs[base]:
+                repo_prs[base].append(n)
+
+    # Expand "all open" (empty list) selections into a flat, ordered list of
+    # (repo, pr) targets. PR numbers can collide across repos, so the repo is
+    # part of every target's identity.
+    targets: "list[tuple[str, int]]" = []
+    for repo, prs in repo_prs.items():
+        if "/" not in repo:
+            die(f"invalid repo {repo!r}; expected owner/name")
+        selected = prs if prs else list_open_prs(repo)
+        for n in selected:
+            if (repo, n) not in targets:
+                targets.append((repo, n))
+
+    repos_list = ", ".join(dict.fromkeys(repo_prs.keys()))
+    if not targets:
+        emit(f"ci-watch: no open PRs to watch in {repos_list}")
         return 0
 
-    emit(f"ci-watch: watching {len(pr_nums)} PR(s) in {repo} (poll every {poll}s)")
+    # Only label lines with the repo when watching more than one — keeps the
+    # familiar `PR #N` output for the common single-repo case.
+    multi_repo = len({r for r, _ in targets}) > 1
 
-    previous: dict[int, str] = {}
+    def label(repo: str, pr: int) -> str:
+        return f"{repo}#{pr}" if multi_repo else f"PR #{pr}"
+
+    emit(f"ci-watch: watching {len(targets)} PR(s) in {repos_list} "
+         f"(poll every {poll}s)")
+
+    previous: "dict[tuple[str, int], str]" = {}
     while True:
         all_terminal = True
-        for pr in pr_nums:
+        for repo, pr in targets:
+            owner, name = repo.split("/", 1)
             sig, terminal, should_emit = build_signature(owner, name, pr)
             if not terminal:
                 # Transient errors also fall through here (terminal=False,
                 # should_emit=False), so a one-off API blip never lets the
                 # loop conclude "all watched PRs reached terminal state".
                 all_terminal = False
-            if should_emit and (pr not in previous or sig != previous[pr]):
-                emit(f"PR #{pr}: {sig}")
-                previous[pr] = sig
+            key = (repo, pr)
+            if should_emit and (key not in previous or sig != previous[key]):
+                emit(f"{label(repo, pr)}: {sig}")
+                previous[key] = sig
 
         if all_terminal:
             emit("ci-watch: all watched PRs reached a terminal state")
