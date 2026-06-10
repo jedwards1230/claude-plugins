@@ -20,6 +20,8 @@ jobs:
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     with:
+      extra_plugins: |
+        plugin-dev@claude-plugins-official
       focus: |
         claude-plugins is a Claude Code plugin marketplace.
         - Manifest correctness: marketplace.json and plugin.json schema, source
