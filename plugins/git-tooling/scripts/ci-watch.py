@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -182,15 +183,20 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     state = node.get("state") or "UNKNOWN"
     if state == "MERGED":
         # Branch was merged — nudge the agent to refresh the base branch and
-        # drop the now-stale local feature branch. Names come straight from the
-        # PR so the suggestion is copy-pasteable; the agent decides whether the
-        # local branch actually exists before acting.
-        base = node.get("baseRefName") or "the default branch"
+        # drop the now-stale local feature branch. Branch names come from the
+        # GitHub API; shlex.quote() them so a ref containing shell-significant
+        # characters can't produce a broken or unsafe copy-pasteable command.
+        # The agent decides whether the local branch actually exists first.
+        base = node.get("baseRefName")
         head = node.get("headRefName")
-        cleanup = f" — pull latest {base}"
-        if head:
-            cleanup += f" and prune local branch {head} (git checkout {base} && git pull --prune && git branch -d {head})"
-        return (f"MERGED{cleanup}", True, True)
+        if base and head:
+            cmd = (f"git checkout {shlex.quote(base)} && git pull --prune "
+                   f"&& git branch -d {shlex.quote(head)}")
+            return (f"MERGED — pull latest {base} and prune local branch "
+                    f"{head} ({cmd})", True, True)
+        # Missing branch name(s): prose-only guidance, no broken command.
+        return ("MERGED — pull the latest default branch and prune the local "
+                "feature branch", True, True)
     if state == "CLOSED":
         return (state, True, True)
 
