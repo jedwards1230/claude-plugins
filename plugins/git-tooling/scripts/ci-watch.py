@@ -74,6 +74,8 @@ query($owner: String!, $name: String!, $pr: Int!) {
       state
       mergeable
       mergeStateStatus
+      headRefName
+      baseRefName
       reviewRequests(first: 1) { totalCount }
       reviewThreads(first: 50) { nodes { isResolved } }
       latestReviews(first: 10) { nodes { state } }
@@ -178,7 +180,18 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     node = result.node
 
     state = node.get("state") or "UNKNOWN"
-    if state in ("MERGED", "CLOSED"):
+    if state == "MERGED":
+        # Branch was merged — nudge the agent to refresh the base branch and
+        # drop the now-stale local feature branch. Names come straight from the
+        # PR so the suggestion is copy-pasteable; the agent decides whether the
+        # local branch actually exists before acting.
+        base = node.get("baseRefName") or "the default branch"
+        head = node.get("headRefName")
+        cleanup = f" — pull latest {base}"
+        if head:
+            cleanup += f" and prune local branch {head} (git checkout {base} && git pull --prune && git branch -d {head})"
+        return (f"MERGED{cleanup}", True, True)
+    if state == "CLOSED":
         return (state, True, True)
 
     # Pull check contexts off the latest commit; default to empty when missing.

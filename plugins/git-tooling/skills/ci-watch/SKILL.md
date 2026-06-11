@@ -121,7 +121,8 @@ Each notification line emitted by the script looks like:
 | `PR #48: P=5,F=0,W=0,RR=1` | All checks green but 1 requested reviewer (e.g. Copilot) hasn't posted yet — keep watching |
 | `PR #48: P=5,F=0,W=0,BLOCKED` | GitHub reports the merge blocked for a reason the counts don't show — a required review/ruleset (Copilot/CODEOWNERS), a required check, or an unresolved/conversation-resolution gate. Investigate before merging |
 | `PR #48: P=3,F=0,W=0,CONFLICT` | Merge conflict |
-| `PR #48: MERGED` / `CLOSED` / `GONE` | PR finished |
+| `PR #48: MERGED — pull latest main and prune local branch feat-x (git checkout main && git pull --prune && git branch -d feat-x)` | PR merged; line carries a copy-pasteable post-merge cleanup suggestion using the PR's real base/head branch names |
+| `PR #48: CLOSED` / `PR #48: GONE` | PR finished without merging |
 | `ci-watch: all watched PRs reached a terminal state` | Final line, script exits cleanly |
 
 When watching more than one repo, each line is prefixed with `owner/repo#N:` instead of `PR #N:` (e.g. `owner/repoB#4: P=5,F=0,W=0,READY`) so PRs that share a number across repos stay distinct. Single-repo watches keep the familiar `PR #N:` form.
@@ -134,7 +135,7 @@ How to react:
 - **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher keeps polling until they post.
 - **`BLOCKED`** — GitHub's authoritative merge state is `BLOCKED` but the tracked counts (`F`/`CR`/`U`/`RR`) don't explain why — e.g. a ruleset requiring a Copilot/CODEOWNERS review, a required status check, or a conversation-resolution gate. Run `gh pr view <pr> --json mergeStateStatus,reviewDecision` and inspect the ruleset/branch protection; resolve the gate before merging. The `READY` flag will not appear while the PR is blocked.
 - **`CONFLICT`** — offer to rebase against the base branch.
-- **`MERGED`** — the PR was merged. Report success. The watcher exits once all watched PRs reach this (or `CLOSED`/`GONE`).
+- **`MERGED`** — the PR was merged. Report success. The line includes a brief cleanup suggestion (pull the latest base branch, prune the now-stale local feature branch) with the PR's actual branch names. If you're working in that repo and the local branch exists, offer to run it; otherwise just relay it. The watcher exits once all watched PRs reach this (or `CLOSED`/`GONE`).
 - **`CLOSED`** / **`GONE`** — PR was closed without merging or deleted from the API.
 
 If the user changes their mind mid-watch, call `TaskStop` to cancel early.
