@@ -19,22 +19,17 @@ Personal Claude Code plugin marketplace. Provides specialized skills and automat
 ./scripts/check-plugin-versions.sh origin/main
 ```
 
-This runs automatically on pushes to main that modify `plugins/` or `.claude-plugin/marketplace.json`.
+This runs automatically on pushes to main and on pull requests that modify `plugins/` or `.claude-plugin/marketplace.json`.
 
-### Plugin Installation (for users)
-
-```bash
-/plugin marketplace add jedwards1230/claude-plugins
-/plugin list
-/plugin install <plugin-name>
-```
+See README for installation instructions.
 
 ## Architecture
 
 ### Plugin Types
 
-1. **Skill-based plugins** (e.g., `dream`) - Define workflows in markdown that Claude invokes via `/plugin-name` commands
-2. **Hook-based plugins** - Run shell scripts on Claude Code events (SessionStart, PostToolUse)
+1. **Skill-based plugins** (e.g., `sessions`) - Define workflows in markdown that Claude invokes via `/plugin-name` commands
+2. **Agent-based plugins** (e.g., `review-team`) - Package named agents (`.md` files under `agents/`) that Claude Code loads as specialized sub-agents; use an agent instead of a skill when the workflow is best driven autonomously (multi-step, tool-heavy, or needs its own system prompt)
+3. **Hook-based plugins** - Run shell scripts on Claude Code events (SessionStart, PostToolUse)
 
 ### Plugin Structure
 
@@ -45,8 +40,9 @@ plugins/<plugin-name>/
 ├── skills/
 │   └── <skill-name>/
 │       ├── SKILL.md         # Workflow definition
-│       ├── TEMPLATE.md      # Templates for the skill
-│       └── STYLE.md         # Optional: style conventions
+│       └── *.md             # Optional: domain reference files (e.g. DESIGN-PRINCIPLES.md)
+├── agents/
+│   └── <agent-name>.md      # Agent definition (system prompt + tool grants)
 ├── hooks/
 │   └── hooks.json           # Hook definitions (SessionStart, PostToolUse)
 ├── scripts/                 # Shell scripts for hooks (referenced via ${CLAUDE_PLUGIN_ROOT})
