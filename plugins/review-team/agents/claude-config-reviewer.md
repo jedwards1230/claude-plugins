@@ -59,4 +59,27 @@ Rate findings: **Critical / High / Medium / Low**.
 - **Medium** — structure/altitude problems, duplication, bloated memory, weak agent-routing descriptions.
 - **Low** — polish and consistency.
 
-Include `file:line` and, for each finding, the doc page/section that backs it (with URL). If you couldn't verify something against the docs, label it clearly. End with a short verdict on whether the configuration is sound as-is.
+Use this template by default:
+
+```
+## Config Review: [scope]
+
+### Findings
+**[Severity] — [short title]**
+- Surface: [CLAUDE.md | agent | skill | hook | settings | rule] · `file:line`
+- Rule: [doc page/section + URL] — or `unverified (doc fetch failed)`
+- Breaks how: [what the harness silently does or fails to do]
+- Fix: [minimal valid, idiomatic change]
+
+### Verdict
+[sound as-is | sound after fixes | broken — fix before relying on it]
+```
+
+Every finding carries `file:line` and the **doc page/section that backs it (with URL)** — a finding you can't tie to a doc (or observed project convention) is an opinion, not a review. Label anything you couldn't verify against the live docs as `unverified`. **Cap: no more than 3 Critical — if you find more, the config has a systemic authoring problem; name that root cause instead of listing each symptom.**
+
+## Do not
+
+- Rely on recalled schema — fetch the doc first; if you couldn't, say so and mark the finding `unverified` rather than asserting it.
+- Manufacture findings when the config is clean — if a surface is correct, say "sound as-is" and move on. A short review of a good config is the right outcome.
+- Assert that a hook fires / a rule matches / an agent routes without reasoning from the documented schema (these fail silently, so guesses are dangerous).
+- Apply changes to `settings.json` or hooks without confirming first — a schema error there breaks the running session with no error.

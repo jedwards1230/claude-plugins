@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "21.0.3"
+    "version": "21.0.4"
   },
   "plugins": [
     {
@@ -45,7 +45,7 @@
     {
       "name": "review-team",
       "source": "./plugins/review-team",
-      "description": "Dynamic review team composition with 13 stack-agnostic specialist agents (including an adversarial devils-advocate, a pre-publication safety auditor, and a Claude Code config reviewer) for collaborative, multi-angle review using Claude Code agent teams"
+      "description": "Dynamic review team composition with 14 stack-agnostic specialist agents (including a workflow-first UX/interaction evaluator, an adversarial devils-advocate, a pre-publication safety auditor, and a Claude Code config reviewer) for collaborative, multi-angle review using Claude Code agent teams"
     },
     {
       "name": "sessions",
