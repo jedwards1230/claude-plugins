@@ -73,10 +73,16 @@ query($owner: String!, $name: String!, $pr: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $pr) {
       state
+      isDraft
       mergeable
       mergeStateStatus
       headRefName
       baseRefName
+      timelineItems(itemTypes: [CONVERT_TO_DRAFT_EVENT], last: 1) {
+        nodes {
+          ... on ConvertToDraftEvent { actor { login } }
+        }
+      }
       reviewRequests(first: 1) { totalCount }
       reviewThreads(first: 50) { nodes { isResolved } }
       latestReviews(first: 10) { nodes { state } }
@@ -241,6 +247,20 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     # any other requested reviewer) has weighed in.
     review_requests = ((node.get("reviewRequests") or {}).get("totalCount") or 0)
 
+    # A PR converted back to draft is a deliberate "pause review" signal — most
+    # often our claude-pr-review reusable's `draft_on_blocking`, which flips the
+    # PR to draft when a review posts blocking comments so re-reviews don't fire
+    # until the author resolves them and marks it ready again. Without surfacing
+    # this, a watching agent only sees READY silently never arrive. mergeState is
+    # DRAFT while drafted (so READY is already suppressed below); we add an
+    # explicit flag and, when the timeline knows it, who did the conversion.
+    is_draft = bool(node.get("isDraft"))
+    draft_actor = ""
+    if is_draft:
+        draft_events = (node.get("timelineItems") or {}).get("nodes") or []
+        if draft_events:
+            draft_actor = ((draft_events[-1] or {}).get("actor") or {}).get("login") or ""
+
     parts = [f"P={passed}", f"F={failed}", f"W={pending}"]
     if mergeable == "CONFLICTING":
         parts.append("CONFLICT")
@@ -250,9 +270,12 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
         parts.append(f"U={unresolved}")
     if review_requests > 0:
         parts.append(f"RR={review_requests}")
+    if is_draft:
+        parts.append(f"DRAFT(by {draft_actor})" if draft_actor else "DRAFT")
     # Surface a generic block (a required review/ruleset/check or a blocking
-    # comment) that the counts above didn't already explain.
-    if merge_state == "BLOCKED" and not (changes_requested or unresolved or review_requests):
+    # comment) that the counts above didn't already explain. Draft is reported
+    # separately above, so don't double-flag it as a generic BLOCKED.
+    elif merge_state == "BLOCKED" and not (changes_requested or unresolved or review_requests):
         parts.append("BLOCKED")
 
     # READY requires both: our tracked signals are clear AND GitHub does not
