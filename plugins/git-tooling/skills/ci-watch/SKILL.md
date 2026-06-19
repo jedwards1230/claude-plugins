@@ -147,5 +147,6 @@ If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 - The script's stdout is one notification per line. Lines within 200ms are batched into a single notification by the Monitor tool.
 - Poll interval defaults to 30s. Override via `GIT_TOOLING_CI_POLL_SECONDS` env var if the user explicitly wants faster/slower polling (rare — respect GitHub rate limits).
 - The script is null-safe for PRs with no checks at all (will report `P=0,F=0,W=0,READY`).
+- When the token can't read some check-runs (app-authored checks like Copilot's review surface as `null` rollup nodes — common with fine-grained PATs), the script recovers the `P`/`F`/`W` counts from the Actions API (workflow run conclusions) for that commit instead of going silent on the PR. Other PR-level signals (`U`, `CR`, `RR`, `BLOCKED`, merge state) are unaffected.
 - Once all watched PRs reach READY, the poll interval doubles (e.g. 30s → 60s) to reduce API usage while waiting for merge.
 - For a one-shot status snapshot without watching, use `gh pr checks <pr>` or `gh pr view <pr> --json statusCheckRollup`.
