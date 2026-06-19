@@ -89,6 +89,7 @@ query($owner: String!, $name: String!, $pr: Int!) {
       commits(last: 1) {
         nodes {
           commit {
+            oid
             statusCheckRollup {
               contexts(first: 100) {
                 nodes {
@@ -153,22 +154,75 @@ def query_pr(owner: str, name: str, pr: int) -> QueryResult:
         if (err.get("type") == "NOT_FOUND"
                 and err.get("path") == ["repository", "pullRequest"]):
             return QueryResult(gone=True)
-    if p.returncode != 0 or data.get("errors"):
-        return QueryResult(transient_error=True)
 
     repo = (data.get("data") or {}).get("repository")
-    if repo is None:
+    pr_node = repo.get("pullRequest") if repo else None
+
+    # If we have a usable PR node, use it even when the response also carries a
+    # non-fatal `errors` array. The common case: GitHub returns FORBIDDEN on the
+    # individual statusCheckRollup check-run nodes this token can't read (e.g.
+    # app-authored checks like Copilot's review), which surface as null context
+    # nodes while leaving every PR-level field intact. gh exits non-zero in that
+    # case, but discarding the whole node would make the watcher go silent on
+    # the PR forever. build_signature recovers the CI counts from the Actions
+    # API when it sees those null nodes.
+    if pr_node is not None:
+        return QueryResult(node=pr_node)
+
+    # No usable node: a genuine transient/fatal error (rate limit, network,
+    # auth) or a malformed response. Keep polling without changing known state.
+    if p.returncode != 0 or data.get("errors") or repo is None:
         return QueryResult(transient_error=True)
-    pr_node = repo.get("pullRequest")
-    if pr_node is None:
-        # Defensive: success response with null pullRequest (no errors
-        # surfaced) — rare in practice; treat as gone.
-        return QueryResult(gone=True)
-    return QueryResult(node=pr_node)
+    # Defensive: success response with null pullRequest and no errors — rare in
+    # practice; treat as gone.
+    return QueryResult(gone=True)
 
 
 def _count(items: list, predicate) -> int:
     return sum(1 for x in items if x and predicate(x))
+
+
+def actions_check_counts(owner: str, name: str, sha: str) -> tuple[int, int, int]:
+    """Best-effort (passed, failed, pending) from the Actions API for a commit.
+
+    Fallback for when statusCheckRollup returns null context nodes — i.e. the
+    token can't read some check-runs (app-authored checks). The Actions API
+    (/actions/runs) reports workflow run conclusions and stays readable with
+    only Actions:read, even when the unified check-runs view is forbidden.
+
+    Counts the latest run per workflow (the API returns newest-first). Only
+    covers GitHub Actions workflow runs — legacy commit statuses and other
+    apps' checks aren't represented, which is acceptable for this fallback
+    (the Actions workflows are the CI signal that "is the build green" means).
+    Returns (0, 0, 0) on any error so the caller degrades gracefully.
+    """
+    p = run([
+        "gh", "api", f"repos/{owner}/{name}/actions/runs?head_sha={sha}&per_page=100",
+        "-q", '.workflow_runs[] | "\\(.name)\\t\\(.status)\\t\\(.conclusion // "")"',
+    ])
+    if p.returncode != 0:
+        return (0, 0, 0)
+
+    latest: dict[str, tuple[str, str]] = {}
+    for line in p.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        workflow, status, conclusion = parts
+        # Newest-first ordering means the first row per workflow is the latest.
+        latest.setdefault(workflow, (status, conclusion))
+
+    passed = failed = pending = 0
+    for status, conclusion in latest.values():
+        if status != "completed":
+            pending += 1
+        elif conclusion == "success":
+            passed += 1
+        elif conclusion in ("failure", "timed_out", "startup_failure"):
+            failed += 1
+        # neutral / skipped / cancelled / action_required → neither pass nor
+        # fail, mirroring how the rollup ignores SKIPPED/NEUTRAL contexts.
+    return (passed, failed, pending)
 
 
 def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
@@ -209,8 +263,11 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     # Pull check contexts off the latest commit; default to empty when missing.
     commits = (node.get("commits") or {}).get("nodes") or []
     contexts: list[dict] = []
+    head_oid = None
     if commits:
-        rollup = ((commits[0] or {}).get("commit") or {}).get("statusCheckRollup") or {}
+        commit = (commits[0] or {}).get("commit") or {}
+        head_oid = commit.get("oid")
+        rollup = commit.get("statusCheckRollup") or {}
         contexts = ((rollup.get("contexts") or {}).get("nodes") or [])
 
     def _conclusion(c: dict) -> str:
@@ -222,11 +279,17 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     def _state(c: dict) -> str:
         return c.get("state") or ""
 
-    passed = _count(contexts, lambda c: _conclusion(c) == "SUCCESS" or _state(c) == "SUCCESS")
-    failed = _count(contexts, lambda c: _conclusion(c) in ("FAILURE", "TIMED_OUT")
-                                       or _state(c) in ("FAILURE", "ERROR"))
-    pending = _count(contexts, lambda c: _status(c) in ("QUEUED", "WAITING", "IN_PROGRESS")
-                                        or _state(c) == "PENDING")
+    # Null context nodes mean the token couldn't read those check-runs
+    # (app-authored checks) — the rollup counts would silently undercount. Fall
+    # back to the Actions API for an authoritative GitHub Actions view instead.
+    if any(c is None for c in contexts) and head_oid:
+        passed, failed, pending = actions_check_counts(owner, name, head_oid)
+    else:
+        passed = _count(contexts, lambda c: _conclusion(c) == "SUCCESS" or _state(c) == "SUCCESS")
+        failed = _count(contexts, lambda c: _conclusion(c) in ("FAILURE", "TIMED_OUT")
+                                           or _state(c) in ("FAILURE", "ERROR"))
+        pending = _count(contexts, lambda c: _status(c) in ("QUEUED", "WAITING", "IN_PROGRESS")
+                                            or _state(c) == "PENDING")
 
     mergeable = node.get("mergeable") or "UNKNOWN"
     # mergeStateStatus is GitHub's authoritative merge-readiness verdict. Unlike

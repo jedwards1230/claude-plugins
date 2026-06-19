@@ -1,6 +1,6 @@
 {
   "name": "git-tooling",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Git tooling for Claude Code \u2014 worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching",
   "author": {
     "name": "jedwards1230"
