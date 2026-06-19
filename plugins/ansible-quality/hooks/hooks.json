@@ -1,0 +1,111 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/session-setup.sh\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-lint.sh\"",
+            "timeout": 120,
+            "statusMessage": "Linting Ansible (ansible-lint)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-syntax.sh\"",
+            "timeout": 90,
+            "statusMessage": "Syntax-checking Ansible playbooks..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-vault-check.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking for plaintext vault files..."
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-lint.sh\"",
+            "timeout": 120,
+            "statusMessage": "Linting Ansible (ansible-lint)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-syntax.sh\"",
+            "timeout": 90,
+            "statusMessage": "Syntax-checking Ansible playbooks..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-vault-check.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking for plaintext vault files..."
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-lint.sh\"",
+            "timeout": 120,
+            "statusMessage": "Linting Ansible (ansible-lint)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-syntax.sh\"",
+            "timeout": 90,
+            "statusMessage": "Syntax-checking Ansible playbooks..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-vault-check.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking for plaintext vault files..."
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-lint.sh\"",
+            "timeout": 120,
+            "statusMessage": "Linting Ansible (ansible-lint)..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-syntax.sh\"",
+            "timeout": 90,
+            "statusMessage": "Syntax-checking Ansible playbooks..."
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/ansible-vault-check.sh\"",
+            "timeout": 30,
+            "statusMessage": "Checking for plaintext vault files..."
+          }
+        ]
+      }
+    ]
+  }
+}
