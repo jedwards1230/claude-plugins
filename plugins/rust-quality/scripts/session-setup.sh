@@ -64,8 +64,29 @@ fi
 # Probes (always run; stdout is injected into Claude's context)
 # ---------------------------------------------------------------------------
 
+# Detect whether this repo actually contains any tracked Rust source. The
+# plugin's hooks all self-gate by file extension (the PostToolUse/Stop hooks
+# no-op when no .rs files were modified), so in a repo with zero Rust code the
+# plugin is dormant — there's no point nagging about missing Rust tooling.
+#
+# We use `git ls-files` so the check respects .gitignore and nested git
+# boundaries: independently cloned repos under this tree (with their own .git
+# dirs) are excluded by git's worktree semantics, so we don't false-fire on
+# ops repos that vendor unrelated Rust projects. Outside a git repo we fall
+# back to a depth-limited `find` that won't hang on huge trees.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+HAS_RS_FILES=false
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+  [ -n "$(cd "$REPO_ROOT" && git ls-files -- '*.rs' 2>/dev/null | head -n 1)" ] && HAS_RS_FILES=true
+else
+  [ -n "$(find . -maxdepth 4 -name '*.rs' -not -path '*/.git/*' -print -quit 2>/dev/null)" ] && HAS_RS_FILES=true
+fi
+
 # Probe 1: missing tools, with per-tool impact messaging.
 # Matches the lookup logic the hook scripts actually use.
+# Only emitted when the repo actually has Rust source — otherwise the plugin
+# is dormant and a "missing cargo" warning is pure noise (e.g. in an Ansible
+# repo).
 MISSING_CARGO=true
 MISSING_RUSTFMT=true
 MISSING_CLIPPY=true
@@ -94,7 +115,7 @@ if ! $MISSING_CARGO; then
 fi
 $MISSING_JQ && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and test/clippy lose their stop_hook_active loop guard.")
 
-if [ ${#IMPACT_LINES[@]} -gt 0 ]; then
+if $HAS_RS_FILES && [ ${#IMPACT_LINES[@]} -gt 0 ]; then
   printf '[rust-quality] Quality gates degraded — missing tools detected:\n\n'
   for line in "${IMPACT_LINES[@]}"; do
     printf '%s\n' "$line"
@@ -126,22 +147,17 @@ fi
 # Multi-crate repos with nested Cargo.toml files also work via per-crate
 # dispatch — emit an info message so the assistant knows the gates are active.
 #
-# We use \`git ls-files\` instead of \`find\` so the probe naturally respects
-# .gitignore and nested git boundaries: independently cloned repos under
-# this tree (with their own .git dirs) are excluded by git's worktree
-# semantics, so we don't false-fire on ops repos that vendor unrelated Rust
-# projects.
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+# Gated on $HAS_RS_FILES (computed above via \`git ls-files\`, which respects
+# .gitignore and nested git boundaries) so it stays silent in repos with no
+# tracked Rust source.
+if $HAS_RS_FILES && [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
   # Skip silently if root has a Cargo.toml — toolchain runs from root.
   if [ ! -f "$REPO_ROOT/Cargo.toml" ]; then
-    TRACKED_RS=$(cd "$REPO_ROOT" && git ls-files -- '*.rs' 2>/dev/null | head -n 1)
-    if [ -n "$TRACKED_RS" ]; then
-      # Tracked Rust but no root Cargo.toml. Look for nested Cargo.toml files.
-      NESTED_CRATES=$(cd "$REPO_ROOT" && git ls-files 2>/dev/null | grep '/Cargo\.toml$' || true)
-      if [ -z "$NESTED_CRATES" ]; then
-        # No crates anywhere — real problem
-        cat <<EOF
+    # Tracked Rust but no root Cargo.toml. Look for nested Cargo.toml files.
+    NESTED_CRATES=$(cd "$REPO_ROOT" && git ls-files 2>/dev/null | grep '/Cargo\.toml$' || true)
+    if [ -z "$NESTED_CRATES" ]; then
+      # No crates anywhere — real problem
+      cat <<EOF
 [rust-quality] Tracked Rust source files but no Cargo.toml anywhere in the repo.
 
 The plugin's Stop hooks need a crate to run \`cargo test\` / \`cargo clippy\` /
@@ -154,19 +170,17 @@ multiple crates.
 
 Please alert the user — not all chat clients surface hook output.
 EOF
-      else
-        # Multi-crate repo — gates dispatch per-crate, friendly info only.
-        nested_count=$(printf '%s\n' "$NESTED_CRATES" | wc -l | tr -d ' ')
-        echo "[rust-quality] Multi-crate repo detected — $nested_count nested Cargo.toml file(s):"
-        printf '%s\n' "$NESTED_CRATES" | head -10 | sed 's|^|  - |'
-        if [ "$nested_count" -gt 10 ]; then
-          echo "  ... ($((nested_count - 10)) more)"
-        fi
-        echo ""
-        echo "Stop hooks will dispatch test/clippy/audit per-crate on the crate owning each modified file. No action needed."
+    else
+      # Multi-crate repo — gates dispatch per-crate, friendly info only.
+      nested_count=$(printf '%s\n' "$NESTED_CRATES" | wc -l | tr -d ' ')
+      echo "[rust-quality] Multi-crate repo detected — $nested_count nested Cargo.toml file(s):"
+      printf '%s\n' "$NESTED_CRATES" | head -10 | sed 's|^|  - |'
+      if [ "$nested_count" -gt 10 ]; then
+        echo "  ... ($((nested_count - 10)) more)"
       fi
+      echo ""
+      echo "Stop hooks will dispatch test/clippy/audit per-crate on the crate owning each modified file. No action needed."
     fi
-    # else: no tracked Rust at all — plugin is dormant here, silent.
   fi
   # else: root has Cargo.toml — toolchain works from root, silent.
 fi

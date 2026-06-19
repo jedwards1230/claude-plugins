@@ -1,6 +1,6 @@
 {
   "name": "rust-quality",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Rust quality gates — auto-format, clippy, test, and audit on every turn",
   "author": {
     "name": "jedwards1230"

@@ -62,6 +62,26 @@ fi
 # ---------------------------------------------------------------------------
 # Probe: missing tools, with per-tool impact messaging.
 # ---------------------------------------------------------------------------
+
+# Detect whether this repo actually contains any tracked OpenTofu/Terraform
+# source. The plugin's hooks all self-gate by file extension (the
+# PostToolUse/Stop hooks no-op when no .tf/.tofu/.tfvars files were modified),
+# so in a repo with zero IaC the plugin is dormant — there's no point nagging
+# about missing tofu/jq.
+#
+# We use `git ls-files` so the check respects .gitignore and nested git
+# boundaries: independently cloned repos under this tree (with their own .git
+# dirs) are excluded by git's worktree semantics, so we don't false-fire on
+# ops repos that vendor unrelated Terraform projects. Outside a git repo we
+# fall back to a depth-limited `find` that won't hang on huge trees.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+HAS_TF_FILES=false
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+  [ -n "$(cd "$REPO_ROOT" && git ls-files -- '*.tf' '*.tofu' '*.tfvars' 2>/dev/null | head -n 1)" ] && HAS_TF_FILES=true
+else
+  [ -n "$(find . -maxdepth 4 \( -name '*.tf' -o -name '*.tofu' -o -name '*.tfvars' \) -not -path '*/.git/*' -print -quit 2>/dev/null)" ] && HAS_TF_FILES=true
+fi
+
 MISSING_TOFU=true
 MISSING_JQ=true
 
@@ -72,7 +92,9 @@ IMPACT_LINES=()
 $MISSING_TOFU && IMPACT_LINES+=("  - tofu missing — format auto-fix (PostToolUse), the Stop format check, and validate all skip; no OpenTofu quality gates run this session.")
 $MISSING_JQ && IMPACT_LINES+=("  - jq missing — PostToolUse format hook exits early (no auto-format), and the check/validate hooks lose their stop_hook_active loop guard.")
 
-if [ ${#IMPACT_LINES[@]} -gt 0 ]; then
+# Only emit when the repo actually has OpenTofu/Terraform source — otherwise
+# the plugin is dormant and the warning is pure noise (e.g. in an Ansible repo).
+if $HAS_TF_FILES && [ ${#IMPACT_LINES[@]} -gt 0 ]; then
   printf '[tofu-quality] Quality gates degraded — missing tools detected:\n\n'
   for line in "${IMPACT_LINES[@]}"; do
     printf '%s\n' "$line"
