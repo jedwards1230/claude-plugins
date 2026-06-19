@@ -8,7 +8,9 @@ read-only, nothing leaves your machine.
 The CLI bakes in the JSONL schema and the recurring gotchas (string-vs-array
 content, tool-result noise, huge files, subagent layout). A `session-search`
 skill points Claude at it automatically when you ask to search or summarize past
-sessions.
+sessions. A matching `session-search` **agent** does the same job as a subagent —
+spawn it mid-chat to run the search in its own context and get back a digest
+instead of raw transcript output.
 
 ## Install
 
