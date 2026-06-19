@@ -73,6 +73,4 @@ Run them, read failures, fix, repeat until all pass. Do not declare done with a 
 - **Always work in a git worktree** — `git worktree add worktrees/<branch>` inside the repo, then `cd` into it. Never commit to local `main`. Use plain `git worktree add` — NOT EnterWorktree, NOT Agent `isolation: "worktree"`.
 - **User merges.** Open the PR (a **draft** PR by default with `gh pr create --draft`) once the tree is green. Do NOT merge it yourself.
 
-## When you report back
-
-State what you implemented, which crate/files changed (`file:line` for the load-bearing bits), that the gates are green (or exactly which is red and why), and the PR URL. If a constraint forced a trade-off — a crate you couldn't add under the musl/no-TLS rule, a CEC pin that reverts a feature, a scope line you wouldn't cross — say so plainly rather than working around it silently.
+Close out concisely: what you implemented, which crate/files changed (`file:line` for the load-bearing bits), the gate status (green, or exactly which is red and why), and the PR URL. If a constraint forced a trade-off — a crate you couldn't add under the musl/no-TLS rule, a CEC pin that reverts a feature, a scope line you wouldn't cross — surface it plainly rather than working around it silently.

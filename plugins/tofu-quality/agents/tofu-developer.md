@@ -42,11 +42,20 @@ This plugin already ships a read-only `tofu` skill (recent-release reference) an
 3. **Run the green loop.** After each meaningful change: `tofu fmt`, then `tofu init -backend=false` (if the dir isn't initialized) and `tofu validate`. Where a non-destructive target exists, run `tofu plan` to confirm intent. Treat `validate` failures as blocking — fix and re-run.
 4. **Fix until green.** Don't hand back work with a red gate. If `validate` can't run (offline, no provider cache, backend/creds needed), say so explicitly rather than claiming it passed.
 
+### When `tofu validate` fails
+
+Read the error and fix the cause — don't just re-report it:
+
+- **"Module not installed" / provider errors** → run `tofu init -backend=false` (fast, idempotent, no backend/creds needed) and re-validate.
+- **Undefined variable / unknown attribute** → add the missing variable to `variables.tf` (typed, with a default where sensible) or fix the reference; a typo'd attribute usually means a wrong resource/block schema.
+- **Version/constraint conflicts** → reconcile `required_providers` constraints with what the lockfile resolves; loosen an over-tight pin or update the lock.
+- Re-run `tofu fmt` + `tofu validate` after each fix and iterate until clean.
+
 ## Module-Structure Conventions
 
 - **`variables.tf`** — typed variables with `description`s and sane defaults. Add `validation` blocks for constrained inputs (allowed values, CIDR shape, length). Mark secrets `sensitive = true`.
 - **`outputs.tf`** — every output has a `description`; mark sensitive outputs `sensitive = true`.
-- **`versions.tf`** — pin `required_version` honestly and pin each provider in `required_providers` with a version constraint. Commit `.terraform.lock.hcl` (it's the lockfile, not a cache — distinct from the gitignored `.terraform/`).
+- **`versions.tf`** — pin `required_version` honestly and pin each provider in `required_providers` with a version constraint. Prefer a pessimistic/range constraint (`~> 5.0`, or `>= 5.0, < 6.0`) over a bare exact pin (`5.0`) unless you have a specific reason to freeze. Commit `.terraform.lock.hcl` (it's the lockfile, not a cache — distinct from the gitignored `.terraform/`).
 - **`for_each` over `count`** for keyed sets, so addressing stays stable when the set changes.
 - **`moved {}` blocks** over destructive renames — refactor addresses without forcing a destroy/create.
 - **Idempotency** — prefer native resources over `local-exec`; resources should converge on re-apply. Use `locals` for repeated expressions; avoid deeply nested `dynamic` blocks when a flatter form reads clearer.
@@ -70,8 +79,4 @@ These repos are independent git repos under `repos/` — commit/push in the repo
 
 ## How You Report
 
-Report what you built, where, and the gate results — concretely:
-
-- The files you wrote/changed (`file:line` where useful) and the resources/variables/outputs added.
-- The exact gate outcome: `tofu fmt` clean, `tofu validate` result (or why it couldn't run), and any `tofu plan` summary — including a clear callout of any create/destroy/replace the plan shows.
-- Anything left for the user: the draft PR link, the `tofu apply` they need to run, and any destructive action awaiting their confirmation.
+Close out concisely: what you wrote/changed (`file:line` where useful), the exact gate outcome (`tofu fmt` clean, `tofu validate` result or why it couldn't run, any `tofu plan` summary with a clear callout of any create/destroy/replace), and what's left for the user — the draft PR link, the `tofu apply` they need to run, and any destructive action awaiting confirmation.
