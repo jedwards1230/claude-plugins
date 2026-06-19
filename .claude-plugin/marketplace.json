@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "21.0.10"
+    "version": "21.1.0"
   },
   "plugins": [
     {
@@ -16,6 +16,11 @@
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
       "description": "Git tooling — worktree workflows, default-branch commit prompt, PR-aware push reminders, and on-demand CI status watching"
+    },
+    {
+      "name": "ansible-quality",
+      "source": "./plugins/ansible-quality",
+      "description": "Ansible quality gates — diff-scoped ansible-lint + ansible-playbook --syntax-check on modified playbooks/roles, plus a warn-only vault-plaintext check, mirroring CI. Warn-skips on a broken lint env instead of false-blocking. Includes an /ansible skill carrying recent ansible-core/ansible-lint reference in context."
     },
     {
       "name": "go-quality",
