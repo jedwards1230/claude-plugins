@@ -35,7 +35,7 @@ You are a Rust developer who owns features end-to-end: you PLAN, write idiomatic
 
 This homelab has two real Rust daemons. Know their constraints cold before you add a line:
 
-1. **gpu-arbiter** (`jedwards1230/gpu-arbiter`) — privileged root daemon on desktop-1. Detects games via the kernel `cn_proc` proc-connector netlink, evicts Ollama/ASR from the GPU on game launch, restores them when the GPU frees, exposes Prometheus metrics via **axum**.
+1. **gpu-arbiter** (`jedwards1230/gpu-arbiter`) — privileged root daemon on the deployment host. Detects games via the kernel `cn_proc` proc-connector netlink, evicts Ollama/ASR from the GPU on game launch, restores them when the GPU frees, exposes Prometheus metrics via **axum**.
    - **Hard constraint: musl-static** (`x86_64-unknown-linux-musl`). The dependency tree is kept **pure-Rust/libc — NO C deps, NO TLS** to keep the musl cross-build clean. Before adding any crate, check it (and its transitive deps) don't pull in C or a TLS stack. If a feature seems to need TLS or a C library, stop and surface that trade-off rather than breaking the build.
    - `cn_proc` `ENOBUFS` is recoverable — treat it non-fatal, don't panic the daemon on it.
 
