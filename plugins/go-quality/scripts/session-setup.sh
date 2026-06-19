@@ -84,8 +84,28 @@ fi
 # Probes (always run; stdout is injected into Claude's context)
 # ---------------------------------------------------------------------------
 
+# Detect whether this repo actually contains any tracked Go source. The
+# plugin's hooks all self-gate by file extension (the PostToolUse/Stop hooks
+# no-op when no .go files were modified), so in a repo with zero Go code the
+# plugin is dormant — there's no point nagging about missing Go tooling.
+#
+# We use `git ls-files` so the check respects .gitignore and nested git
+# boundaries: independently cloned repos under this tree (with their own .git
+# dirs) are excluded by git's worktree semantics, so we don't false-fire on
+# ops repos that vendor unrelated Go projects. Outside a git repo we fall back
+# to a depth-limited `find` that won't hang on huge trees.
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+HAS_GO_FILES=false
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+  [ -n "$(cd "$REPO_ROOT" && git ls-files -- '*.go' 2>/dev/null | head -n 1)" ] && HAS_GO_FILES=true
+else
+  [ -n "$(find . -maxdepth 4 -name '*.go' -not -path '*/.git/*' -print -quit 2>/dev/null)" ] && HAS_GO_FILES=true
+fi
+
 # Probe 1: missing tools, with per-tool impact messaging.
 # Matches the lookup logic the hook scripts actually use.
+# Only emitted when the repo actually has Go source — otherwise the plugin is
+# dormant and a "missing go" warning is pure noise (e.g. in an Ansible repo).
 MISSING_GO=true
 MISSING_GOFMT=true
 MISSING_GOLANGCI=true
@@ -118,7 +138,7 @@ if ! $MISSING_GO; then
 fi
 $MISSING_JQ && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and vet/test/lint lose their stop_hook_active loop guard.")
 
-if [ ${#IMPACT_LINES[@]} -gt 0 ]; then
+if $HAS_GO_FILES && [ ${#IMPACT_LINES[@]} -gt 0 ]; then
   printf '[go-quality] Quality gates degraded — missing tools detected:\n\n'
   for line in "${IMPACT_LINES[@]}"; do
     printf '%s\n' "$line"
@@ -150,22 +170,17 @@ fi
 # nested go.mod files also work via per-module dispatch — emit an info
 # message so the assistant knows the gates are active.
 #
-# We use \`git ls-files\` instead of \`find\` so the probe naturally respects
-# .gitignore and nested git boundaries: independently cloned repos under
-# this tree (with their own .git dirs) are excluded by git's worktree
-# semantics, so we don't false-fire on ops repos that vendor unrelated Go
-# projects.
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+# Gated on $HAS_GO_FILES (computed above via `git ls-files`, which respects
+# .gitignore and nested git boundaries) so it stays silent in repos with no
+# tracked Go source.
+if $HAS_GO_FILES && [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
   # Skip silently if root has go.mod or go.work — toolchain runs from root.
   if [ ! -f "$REPO_ROOT/go.mod" ] && [ ! -f "$REPO_ROOT/go.work" ]; then
-    TRACKED_GO=$(cd "$REPO_ROOT" && git ls-files -- '*.go' 2>/dev/null | head -n 1)
-    if [ -n "$TRACKED_GO" ]; then
-      # Tracked Go but no root module. Look for nested go.mod files.
-      NESTED_MODS=$(cd "$REPO_ROOT" && git ls-files 2>/dev/null | grep '/go\.mod$' || true)
-      if [ -z "$NESTED_MODS" ]; then
-        # No modules anywhere — real problem
-        cat <<EOF
+    # Tracked Go but no root module. Look for nested go.mod files.
+    NESTED_MODS=$(cd "$REPO_ROOT" && git ls-files 2>/dev/null | grep '/go\.mod$' || true)
+    if [ -z "$NESTED_MODS" ]; then
+      # No modules anywhere — real problem
+      cat <<EOF
 [go-quality] Tracked Go source files but no go.mod anywhere in the repo.
 
 The plugin's Stop hooks need a module to run \`go vet\` / \`go test\` /
@@ -177,19 +192,17 @@ The plugin's Stop hooks need a module to run \`go vet\` / \`go test\` /
 
 Please alert the user — not all chat clients surface hook output.
 EOF
-      else
-        # Multi-module repo — gates dispatch per-module, friendly info only.
-        nested_count=$(printf '%s\n' "$NESTED_MODS" | wc -l | tr -d ' ')
-        echo "[go-quality] Multi-module repo detected — $nested_count nested go.mod file(s):"
-        printf '%s\n' "$NESTED_MODS" | head -10 | sed 's|^|  - |'
-        if [ "$nested_count" -gt 10 ]; then
-          echo "  ... ($((nested_count - 10)) more)"
-        fi
-        echo ""
-        echo "Stop hooks will dispatch vet/test/lint per-module on the module owning each modified file. No action needed."
+    else
+      # Multi-module repo — gates dispatch per-module, friendly info only.
+      nested_count=$(printf '%s\n' "$NESTED_MODS" | wc -l | tr -d ' ')
+      echo "[go-quality] Multi-module repo detected — $nested_count nested go.mod file(s):"
+      printf '%s\n' "$NESTED_MODS" | head -10 | sed 's|^|  - |'
+      if [ "$nested_count" -gt 10 ]; then
+        echo "  ... ($((nested_count - 10)) more)"
       fi
+      echo ""
+      echo "Stop hooks will dispatch vet/test/lint per-module on the module owning each modified file. No action needed."
     fi
-    # else: no tracked Go at all — plugin is dormant here, silent.
   fi
   # else: root has go.mod or go.work — toolchain works from root, silent.
 fi
