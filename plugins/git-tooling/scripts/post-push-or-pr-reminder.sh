@@ -140,10 +140,9 @@ reminder="${lead_line}
 Recent commits on this branch:
 ${recent_commits}
 
-Reminder: if the pushed scope or intent changed since the PR was opened, update the PR title and description with:
+Reminder: check the PR title and description against the whole branch — every commit listed above, not just the one you just pushed (an earlier push may have already made the body stale). If any of them changed scope or behavior the body does not cover, update it:
   gh pr edit ${pr_number} --title \"...\" --body \"...\"
-
-Only update if the current title or body no longer accurately describe what is on the branch. Skip silently if they still match.
+Skip only once you have confirmed the body still describes the full branch.
 
 Now invoke the \`ci-watch\` skill to monitor PR #${pr_number} until it reaches a terminal state. This runs in the background and notifies on every status transition; no manual polling needed.
 
