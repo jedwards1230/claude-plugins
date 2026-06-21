@@ -7,6 +7,7 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Worktree management** (skill `git-worktree`) — create, inspect, and clean up worktrees for parallel branch development
 - **Default-branch commit prompt** (hook) — routes `git commit` through Claude Code's permission prompt when HEAD is on the repo's default branch (discovered dynamically — works with `main`, `master`, `trunk`, etc.), so the user gets a "pause and consider" moment to switch to a worktree -> branch -> PR workflow
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
+- **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 
 ## Prerequisites
@@ -44,6 +45,20 @@ GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 git commit -m "..."
 ```
 
 > Note: `permissionDecision: "ask"` semantics across all of Claude Code's permission modes (`acceptEdits`, `bypassPermissions`, headless, subagents) aren't fully documented at the time of writing. Expected behavior is that the prompt flows through whatever the surrounding mode would do for an unallowlisted tool call — auto-allow under `bypassPermissions`, real prompt in default interactive mode. If you hit unexpected behavior in a specific mode, open an issue.
+
+### Bulk worktree force-remove guard
+
+**`PreToolUse(Bash)`** runs `scripts/worktree-remove-guard.sh`. It returns `permissionDecision: "ask"` **only** when a Bash command both (1) force-removes worktrees (`--force`/`-f` with `git worktree remove`) **and** (2) targets a bulk/dynamic set — an enumerate-then-remove pipe (`git worktree list | … remove`), a `for`/`while`/`xargs` loop, a glob target (`worktrees/*`), or two-plus `remove` invocations.
+
+The hazard: in a shared checkout (multiple sessions sharing one set of `<repo>/worktrees/*` roots), a bulk `git worktree remove --force` discards uncommitted work and can wipe *other* sessions' worktrees, not just yours. Plain `git worktree remove` (no `--force`) already refuses a dirty/unmerged tree, so the guard nudges you to drop `--force` and let git's own per-target safety do the filtering.
+
+Intentionally narrow — a single literal-path removal (`git worktree remove --force worktrees/foo`, the normal post-merge cleanup) is **not** bulk and passes silently.
+
+Bypass — set `GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1` for a deliberate bulk force-remove:
+
+```bash
+GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1 git worktree list | xargs git worktree remove --force
+```
 
 ### Push reminder hook
 
