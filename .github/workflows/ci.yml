@@ -2,11 +2,20 @@
 # Runs on every push to main and every PR.
 name: CI
 
+run-name: "CI — ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -51,3 +60,20 @@ jobs:
           fi
 
           exit $status
+
+  ci:
+    name: CI
+    if: always()
+    needs: [validate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          results=("${{ needs.validate.result }}")
+          for r in "${results[@]}"; do
+            if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
+              echo "CI failed"
+              exit 1
+            fi
+          done
+          echo "All checks passed"
