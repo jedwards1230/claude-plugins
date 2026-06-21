@@ -35,17 +35,3 @@ jobs:
         - No secrets committed in plugin files.
         - For plugin files (manifest, hooks, skills, agents, commands), use plugin-dev's plugin-validator / skill-reviewer agents.
         Do NOT re-flag formatting that CI owns.
-
-  pr-review:
-    name: PR Review
-    if: always()
-    needs: [review]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check review result
-        run: |
-          result="${{ needs.review.result }}"
-          if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-            echo "PR Review passed (result: $result)"; exit 0
-          fi
-          echo "PR Review failed (result: $result)"; exit 1
