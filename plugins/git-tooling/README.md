@@ -8,6 +8,7 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Default-branch commit prompt** (hook) — routes `git commit` through Claude Code's permission prompt when HEAD is on the repo's default branch (discovered dynamically — works with `main`, `master`, `trunk`, etc.), so the user gets a "pause and consider" moment to switch to a worktree -> branch -> PR workflow
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
 - **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
+- **Force-push guard** (hook) — routes a `git push` through the permission prompt when it uses a *non-lease* force (`--force`/`-f`/`+refspec`) or targets the repo's default/protected branch. Stays silent for the normal feature-branch flow, including pre-approved `--force-with-lease` rebase hygiene on feature branches. Catches the case where a *subagent* is instructed to force-push (settings don't gate subagent Bash; this hook does).
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 
 ## Prerequisites
@@ -58,6 +59,26 @@ Bypass — set `GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1` for a deliberate bulk
 
 ```bash
 GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1 git worktree list | xargs git worktree remove --force
+```
+
+### Force-push guard
+
+**`PreToolUse(Bash)`** runs `scripts/force-push-guard.sh`. It returns `permissionDecision: "ask"` when a `git push` crosses a gated boundary, while staying silent for the normal feature-branch flow. It fires when **either**:
+
+1. the push uses a **non-lease force** — `--force`, `-f`, or a `+refspec` (these overwrite the remote unconditionally and can clobber another session's/teammate's commits), **or**
+2. the push **targets the default/protected branch** — the cached repo default branch (see the commit-prompt cache above) or a literal `main`/`master`. Covers both direct-to-main pushes and force-pushes to main.
+
+It deliberately does **not** fire on:
+
+- a plain `git push` of a feature branch (the normal PR flow), or
+- `--force-with-lease` / `--force-if-includes` to a **non-default** branch — the pre-approved "rebase onto moved main" hygiene on feature branches.
+
+Why a hook rather than a settings rule: `git push` isn't allow-listed, so the gate is behavioral — and the realistic failure mode is a *subagent* being told to force-push as part of a rebase. Settings don't reliably gate subagent Bash calls; a plugin hook fires for them too. The guard reuses the same `default-branches.json` cache as the commit prompt and does no network calls on the hot path.
+
+Bypass — set `GIT_TOOLING_ALLOW_FORCE_PUSH=1` for a deliberate force-push:
+
+```bash
+GIT_TOOLING_ALLOW_FORCE_PUSH=1 git push --force origin main
 ```
 
 ### Push reminder hook
