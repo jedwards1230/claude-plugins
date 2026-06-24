@@ -84,28 +84,46 @@ fi
 # Probes (always run; stdout is injected into Claude's context)
 # ---------------------------------------------------------------------------
 
-# Detect whether this repo actually contains any tracked Go source. The
-# plugin's hooks all self-gate by file extension (the PostToolUse/Stop hooks
-# no-op when no .go files were modified), so in a repo with zero Go code the
-# plugin is dormant — there's no point nagging about missing Go tooling.
+# Detect whether this repo actually has Go work — a single signal reused by
+# both probes below. The plugin's hooks all self-gate by file extension (the
+# PostToolUse/Stop hooks no-op when no .go files were modified), so in a repo
+# with zero Go code the plugin is dormant — there's no point nagging about
+# missing Go tooling (e.g. in an Ansible/K8s ops repo).
 #
-# We use `git ls-files` so the check respects .gitignore and nested git
-# boundaries: independently cloned repos under this tree (with their own .git
-# dirs) are excluded by git's worktree semantics, so we don't false-fire on
-# ops repos that vendor unrelated Go projects. Outside a git repo we fall back
-# to a depth-limited `find` that won't hang on huge trees.
+# "Has Go" = a root go.mod OR a root go.work OR any git-tracked *.go file. The
+# root-module check covers a freshly `go mod init`'d repo whose .go files
+# aren't committed yet; the tracked-source check covers everything else.
+#
+# We use `git ls-files` for the source check so it respects .gitignore and
+# nested git boundaries: independently cloned repos under this tree (with their
+# own .git dirs) are excluded by git's worktree semantics, so we don't
+# false-fire on ops repos that vendor unrelated Go projects. The hook's CWD may
+# not be a git repo at all — `git rev-parse` then fails and REPO_ROOT is empty,
+# in which case we fall back to checking go.mod/go.work in the CWD plus a
+# depth-limited `find` that won't hang on huge trees.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-HAS_GO_FILES=false
+HAS_GO=false
 if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
-  [ -n "$(cd "$REPO_ROOT" && git ls-files -- '*.go' 2>/dev/null | head -n 1)" ] && HAS_GO_FILES=true
+  if [ -f "$REPO_ROOT/go.mod" ] || [ -f "$REPO_ROOT/go.work" ]; then
+    HAS_GO=true
+  elif [ -n "$(cd "$REPO_ROOT" && git ls-files -- '*.go' 2>/dev/null | head -n 1)" ]; then
+    HAS_GO=true
+  fi
 else
-  [ -n "$(find . -maxdepth 4 -name '*.go' -not -path '*/.git/*' -print -quit 2>/dev/null)" ] && HAS_GO_FILES=true
+  if [ -f go.mod ] || [ -f go.work ]; then
+    HAS_GO=true
+  elif [ -n "$(find . -maxdepth 4 -name '*.go' -not -path '*/.git/*' -print -quit 2>/dev/null)" ]; then
+    HAS_GO=true
+  fi
 fi
 
 # Probe 1: missing tools, with per-tool impact messaging.
 # Matches the lookup logic the hook scripts actually use.
-# Only emitted when the repo actually has Go source — otherwise the plugin is
-# dormant and a "missing go" warning is pure noise (e.g. in an Ansible repo).
+# Only emitted when the repo actually has Go work ($HAS_GO above) — otherwise
+# the plugin is dormant and a missing-toolchain warning (go/gofmt/golangci-lint
+# /jq) is pure noise (e.g. in an Ansible/K8s ops repo). The jq line is part of
+# this block and is suppressed too: jq only matters because the Go hooks use
+# it, so no Go means no need to warn about it.
 MISSING_GO=true
 MISSING_GOFMT=true
 MISSING_GOLANGCI=true
@@ -138,7 +156,7 @@ if ! $MISSING_GO; then
 fi
 $MISSING_JQ && IMPACT_LINES+=("  - jq missing — format hook exits early (no auto-format), and vet/test/lint lose their stop_hook_active loop guard.")
 
-if $HAS_GO_FILES && [ ${#IMPACT_LINES[@]} -gt 0 ]; then
+if $HAS_GO && [ ${#IMPACT_LINES[@]} -gt 0 ]; then
   printf '[go-quality] Quality gates degraded — missing tools detected:\n\n'
   for line in "${IMPACT_LINES[@]}"; do
     printf '%s\n' "$line"
@@ -170,10 +188,10 @@ fi
 # nested go.mod files also work via per-module dispatch — emit an info
 # message so the assistant knows the gates are active.
 #
-# Gated on $HAS_GO_FILES (computed above via `git ls-files`, which respects
-# .gitignore and nested git boundaries) so it stays silent in repos with no
-# tracked Go source.
-if $HAS_GO_FILES && [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
+# Gated on $HAS_GO (computed above; root go.mod/go.work or git-tracked *.go,
+# which respects .gitignore and nested git boundaries) so it stays silent in
+# repos with no Go work.
+if $HAS_GO && [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT" ]; then
   # Skip silently if root has go.mod or go.work — toolchain runs from root.
   if [ ! -f "$REPO_ROOT/go.mod" ] && [ ! -f "$REPO_ROOT/go.work" ]; then
     # Tracked Go but no root module. Look for nested go.mod files.
