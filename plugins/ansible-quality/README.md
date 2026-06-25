@@ -68,8 +68,8 @@ missing tools in a repo that has no Ansible.
 ## `ansible-developer` agent
 
 A full-lifecycle authoring agent: it plans, writes idempotent playbooks/roles,
-and drives `ansible-lint` + `--syntax-check` to green, then opens a **draft
-PR**. It owns the things the gates can't check (idempotency, FQCN, `# noqa`
+and drives `ansible-lint` + `--syntax-check` to green, then opens a PR for
+review. It owns the things the gates can't check (idempotency, FQCN, `# noqa`
 discipline, vault hygiene) and never runs plays against live hosts. See
 `agents/ansible-developer.md`.
 

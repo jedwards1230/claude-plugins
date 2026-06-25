@@ -1,6 +1,6 @@
 {
   "name": "ansible-quality",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ansible quality gates — on stop, diff-scoped ansible-lint + ansible-playbook --syntax-check on modified playbooks/roles, plus a warn-only vault-plaintext check, mirroring CI. Warn-skips on a broken lint env instead of false-blocking. Includes an /ansible skill carrying recent ansible-core/ansible-lint reference in context.",
   "author": {
     "name": "jedwards1230"
