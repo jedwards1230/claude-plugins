@@ -20,6 +20,12 @@
 # deliberately don't fix, so a repo-wide gate would false-block. The repo's
 # profile/warn_list/skip_list WINS; we only impose `--profile production` when
 # the repo ships no ansible-lint config of its own.
+#
+# Role auto-discovery: ansible-lint has no flag to disable it — passing any
+# file inside a role causes the whole role to be linted. This hook uses
+# `-f pep8` (one finding per line: path:line:col: ...) and post-filters to only
+# those lines whose path is in the changed-file set, so pre-existing role debt
+# in sibling files never false-blocks a PR that didn't author it.
 set -euo pipefail
 
 # shellcheck source=/dev/null
@@ -68,29 +74,73 @@ if [ ! -f .ansible-lint ] && [ ! -f .ansible-lint.yml ] && [ ! -f .ansible-lint.
   PROFILE_ARGS=(--profile production)
 fi
 
-# Batch every changed file into a single invocation (not one run per file).
+# Capture stdout (pep8 one-line-per-finding) and stderr separately.
+# Use mktemp under $TMPDIR so parallel hook runs don't collide on a shared path.
+# -f pep8 format: path:line:col: TAGS[rule-id] message — one line per finding,
+# trivially filterable by leading path unlike the default grouped human output.
+_LINT_ERR=$(mktemp "${TMPDIR:-/tmp}/ansible-lint-XXXXXX")
+trap 'rm -f "$_LINT_ERR"' EXIT
+
 set +e
 # ${PROFILE_ARGS[@]+...} guards the empty-array case under `set -u` on bash 3.2
 # (macOS), where a bare "${PROFILE_ARGS[@]}" on an empty array is "unbound".
-OUT=$(ansible-lint --nocolor ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} -- "${FILES[@]}" 2>&1)
+FINDINGS=$(ansible-lint --nocolor -f pep8 ${PROFILE_ARGS[@]+"${PROFILE_ARGS[@]}"} -- "${FILES[@]}" 2>"$_LINT_ERR")
 RC=$?
 set -e
+
+ERR=$(cat "$_LINT_ERR")
 
 [ "$RC" -eq 0 ] && exit 0
 
 # Environment-gap signatures — these mean "ansible-lint couldn't run cleanly
 # here", NOT "your playbook is wrong". Warn-skip on any of them, even when the
 # exit code is 2 (an unresolved collection is reported as a violation).
+# Check both stdout and stderr — env errors can appear in either stream.
 ENV_SIGNATURES='ModuleNotFoundError|Traceback \(most recent call last\)|ansible\.parsing\.yaml\.constructor|resolve module/action|not find or access|collections? (were|was) not found|Attempting to decrypt|Decryption failed|no vault secrets|vault password|Unable to load|Failed to load the plugin'
 
-if printf '%s\n' "$OUT" | grep -qE "$ENV_SIGNATURES"; then
+if printf '%s\n%s\n' "$FINDINGS" "$ERR" | grep -qE "$ENV_SIGNATURES"; then
   echo "note: ansible-lint skipped — its environment can't run cleanly here (missing collection, broken Python/ansible env, or undecryptable vault). This is an environment gap, not a code defect; run 'ansible-lint ${FILES[*]}' in a working env to see real findings." >&2
   exit 0
 fi
 
 if [ "$RC" -eq 2 ]; then
+  # ansible-lint auto-discovers the enclosing role for any file inside one,
+  # linting the whole role even when only one file was passed. Post-filter
+  # pep8 findings to only those whose path is in the changed-file set.
+  #
+  # Exact-match the path field with awk rather than building a regex from
+  # filenames — a path with regex metacharacters ([ ] ( ) . * + ?) would
+  # otherwise be mis-interpreted (even main.yaml's "." is a wildcard). pep8
+  # lines are `path:line:col: …`, and a path never contains a colon, so the
+  # first ":"-delimited field IS the path. Compare it as a literal string
+  # against the changed-file set (both sides ./-normalized). Robust to any
+  # filename; no escaping needed.
+  # Pass the file list via the environment (ENVIRON), not -v: a -v value
+  # containing newlines is rejected by BSD awk (macOS) with "newline in string".
+  SCOPED=$(printf '%s\n' "$FINDINGS" | _LIST=$(printf '%s\n' "${FILES[@]}") awk -F: '
+    BEGIN { n = split(ENVIRON["_LIST"], a, "\n"); for (i = 1; i <= n; i++) { p = a[i]; sub(/^\.\//, "", p); if (p != "") set[p] = 1 } }
+    { path = $1; sub(/^\.\//, "", path); if (path in set) print }
+  ')
+
+  # Drop warn-listed / warning-severity findings — pep8 marks them with a
+  # trailing "(warning)". ansible-lint does not raise its own exit on those, and
+  # the repo deliberately warn-lists rules like yaml[line-length]/name[template],
+  # so CI wouldn't fail on them either. The hook must mirror that: only genuine
+  # failures in changed files gate the commit. (A bare "$RC -eq 2" can come from
+  # real failures in *sibling* role files that role auto-discovery pulled in, so
+  # the changed-file + non-warning filter is what makes the decision correct.)
+  FAILURES=""
+  if [ -n "$SCOPED" ]; then
+    FAILURES=$(printf '%s\n' "$SCOPED" | grep -vE '\(warning\)$' || true)
+  fi
+
+  if [ -z "$FAILURES" ]; then
+    echo "note: ansible-lint found no blocking violations in the ${#FILES[@]} changed file(s) — passing. Any findings were pre-existing role debt outside this change (role auto-discovery) or warn-listed warnings. Run 'ansible-lint ${FILES[*]}' to see details." >&2
+    exit 0
+  fi
+
   echo "ansible-lint found issues in modified files:" >&2
-  printf '%s\n' "$OUT" | emit_bounded "ansible-lint.log" "ansible-lint ${FILES[*]}"
+  printf '%s\n' "$FAILURES" | emit_bounded "ansible-lint.log" "ansible-lint ${FILES[*]}"
   exit 2
 fi
 
