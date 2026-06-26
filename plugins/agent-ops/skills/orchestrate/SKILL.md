@@ -97,6 +97,25 @@ its type:
   specialist agent) have **no** Agent tool — they can't delegate. They're great
   *workers* under an owner, but they can't *be* an owner.
 
+## Fork vs. fresh spawn
+
+There are two ways to hand work to a subagent, differing in how much of *your*
+context travels with it:
+
+- **Fresh spawn with a packed brief (the default):** a clean agent that inherits
+  CLAUDE.md, memory, and a git snapshot but **not** this conversation or the files
+  you've read. You hand it a standalone task description, pointers, prior
+  findings, and a return contract (see "Pack context down" below). Independent and
+  isolated — the right choice almost always.
+- **Fork** (the `fork` agent type): hand the child your *entire* current context —
+  the conversation, the files you've read, the analysis so far — so it continues
+  from where you are instead of rediscovering it. Reserve `fork` for a tight
+  continuation of the work in flight, where that context transfer matters more
+  than a clean slate.
+
+Most orchestration uses fresh spawns with packed briefs; fork is the exception,
+for when context continuity is genuinely critical.
+
 ## Borrowing a specialist's expertise as an owner
 
 The prebuilt specialist agents (`rust-developer`, `k8s-engineer`,
@@ -109,20 +128,27 @@ they're leaves, so they can't own-and-delegate. Two ways to use them:
   **unrestricted** agent and tell it to *become* the specialist:
 
   > "Read `<path>/agents/rust-developer.md`, adopt that role and its standards as
-  > your own, then own this task as that agent — delegating to subagents as you
-  > see fit."
+  > your own, then own this task as that agent — delegating to your own subagents
+  > as you see fit."
 
-  The agent inherits the persona's judgment while keeping the Agent tool, so it
-  can orchestrate. (Find the file via the plugin's `agents/` dir or
+  Two independent things are happening here — keep them straight. The
+  **unrestricted agent type** is what keeps the Agent tool, so the owner can still
+  delegate; **reading the specialist `.md`** is what shapes its judgment to that
+  domain. The file read grants *persona, not tools*. This differs from spawning
+  the specialist directly as a worker — that gives you the expertise but no
+  orchestration ability. (Find the file via the plugin's `agents/` dir or
   `~/.claude/agents/`.)
 
 ## Depth: 5 levels, but stay shallow
 
-Nesting is capped at **depth 5** and fixed at spawn time. A subagent at depth 5
-gets no Agent tool and can't go deeper. In practice keep it to **1–2 levels**:
-one owner per task (depth 1), workers under it (depth 2). Reach for a deeper
-chain only when a worker's slice genuinely re-splits. Prefer **breadth** (more
-siblings) over depth — depth multiplies context-loss and burns the ceiling.
+Claude Code enforces a maximum nesting depth of **5**, automatically — you don't
+set it. It's a technical ceiling (to prevent context runaway and keep subagents
+responsive), not a design target. The depth is fixed when an agent is spawned: a
+subagent at depth 5 gets no Agent tool and can't go deeper. In practice keep it
+to **1–2 levels**: one owner per task (depth 1), workers under it (depth 2).
+Reach for a deeper chain only when a worker's slice genuinely re-splits. Prefer
+**breadth** (more siblings) over depth — depth multiplies context-loss and burns
+toward the ceiling.
 
 You can pin a cheaper/faster model per spawn — e.g. explore and implement with
 `model: sonnet` subagents and reserve a stronger model for the hard verify step.
@@ -163,6 +189,7 @@ user never sees the subagents' raw output.
 | Many tasks                 | One owner per task, spawned in parallel; each owns its subtree.    |
 | Owner type                 | Must be unrestricted (`general-purpose` / `claude` / `fork`).      |
 | Worker-only types          | `Explore`, `Plan`, `*-developer` (no Agent tool).                  |
+| Fork vs fresh              | Fresh packed brief by default; `fork` only for tight continuation. |
 | Specialist as owner        | Spawn unrestricted; tell it to read the agent `.md` and assume it. |
 | Max nesting                | Depth 5, fixed at spawn. Keep it 1–2; prefer breadth.              |
 | Context down               | Pack: task, pointers, prior findings, constraints, return shape.   |
