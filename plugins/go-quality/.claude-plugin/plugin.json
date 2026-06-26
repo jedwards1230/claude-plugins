@@ -1,6 +1,6 @@
 {
   "name": "go-quality",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Go quality gates — auto-format, vet, test, and lint on every turn",
   "author": {
     "name": "jedwards1230"
