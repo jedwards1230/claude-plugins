@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@CONTRIBUTING.md
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## IMPORTANT: Use plugin-dev Skills First
@@ -9,19 +11,6 @@ Before creating or modifying plugins, invoke the appropriate `plugin-dev` skill 
 ## Overview
 
 Personal Claude Code plugin marketplace. Provides specialized skills and automation tools that extend Claude's capabilities.
-
-## Commands
-
-### CI/CD Validation
-
-```bash
-# Validate plugin versions were bumped when plugin files change
-./scripts/check-plugin-versions.sh origin/main
-```
-
-This runs automatically on pushes to main and on pull requests that modify `plugins/` or `.claude-plugin/marketplace.json`.
-
-See README for installation instructions.
 
 ## Architecture
 

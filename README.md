@@ -21,3 +21,7 @@ From a local clone:
 /plugin marketplace add .
 /plugin validate .
 ```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branching, commit, validation, and release conventions.
