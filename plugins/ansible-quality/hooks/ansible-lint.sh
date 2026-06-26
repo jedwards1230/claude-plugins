@@ -108,24 +108,17 @@ if [ "$RC" -eq 2 ]; then
   # linting the whole role even when only one file was passed. Post-filter
   # pep8 findings to only those whose path is in the changed-file set.
   #
-  # Build an anchored grep pattern: ^<file>: for each path in FILES.
-  # Normalize away a leading ./ — ansible-lint -f pep8 prints paths relative
-  # to cwd (repo root), same as FILES from ansible_quality_changed_yaml, but
-  # guard against the ./ prefix just in case.
-  FILTER_PATTERN=""
-  for f in "${FILES[@]}"; do
-    f_norm="${f#./}"
-    if [ -z "$FILTER_PATTERN" ]; then
-      FILTER_PATTERN="^${f_norm}:"
-    else
-      FILTER_PATTERN="${FILTER_PATTERN}|^${f_norm}:"
-    fi
-  done
-
-  # Keep only pep8 lines whose leading path is in the changed-file set.
-  # The colon anchor (^path:) is exact: roles/x/tasks/main.yaml: will not
-  # match roles/x/tasks/main.yaml.bak: or any sibling file.
-  SCOPED=$(printf '%s\n' "$FINDINGS" | grep -E "$FILTER_PATTERN" || true)
+  # Exact-match the path field with awk rather than building a regex from
+  # filenames — a path with regex metacharacters ([ ] ( ) . * + ?) would
+  # otherwise be mis-interpreted (even main.yaml's "." is a wildcard). pep8
+  # lines are `path:line:col: …`, and a path never contains a colon, so the
+  # first ":"-delimited field IS the path. Compare it as a literal string
+  # against the changed-file set (both sides ./-normalized). Robust to any
+  # filename; no escaping needed.
+  SCOPED=$(printf '%s\n' "$FINDINGS" | awk -F: -v list="$(printf '%s\n' "${FILES[@]}")" '
+    BEGIN { n = split(list, a, "\n"); for (i = 1; i <= n; i++) { p = a[i]; sub(/^\.\//, "", p); if (p != "") set[p] = 1 } }
+    { path = $1; sub(/^\.\//, "", path); if (path in set) print }
+  ')
 
   # Drop warn-listed / warning-severity findings — pep8 marks them with a
   # trailing "(warning)". ansible-lint does not raise its own exit on those, and
