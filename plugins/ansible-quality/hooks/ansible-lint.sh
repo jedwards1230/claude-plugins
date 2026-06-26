@@ -127,13 +127,25 @@ if [ "$RC" -eq 2 ]; then
   # match roles/x/tasks/main.yaml.bak: or any sibling file.
   SCOPED=$(printf '%s\n' "$FINDINGS" | grep -E "$FILTER_PATTERN" || true)
 
-  if [ -z "$SCOPED" ]; then
-    echo "note: ansible-lint found only pre-existing violations in role files outside this change (role auto-discovery), none in the ${#FILES[@]} changed file(s) — passing. Run 'ansible-lint ${FILES[*]}' to see them." >&2
+  # Drop warn-listed / warning-severity findings — pep8 marks them with a
+  # trailing "(warning)". ansible-lint does not raise its own exit on those, and
+  # the repo deliberately warn-lists rules like yaml[line-length]/name[template],
+  # so CI wouldn't fail on them either. The hook must mirror that: only genuine
+  # failures in changed files gate the commit. (A bare "$RC -eq 2" can come from
+  # real failures in *sibling* role files that role auto-discovery pulled in, so
+  # the changed-file + non-warning filter is what makes the decision correct.)
+  FAILURES=""
+  if [ -n "$SCOPED" ]; then
+    FAILURES=$(printf '%s\n' "$SCOPED" | grep -vE '\(warning\)$' || true)
+  fi
+
+  if [ -z "$FAILURES" ]; then
+    echo "note: ansible-lint found no blocking violations in the ${#FILES[@]} changed file(s) — passing. Any findings were pre-existing role debt outside this change (role auto-discovery) or warn-listed warnings. Run 'ansible-lint ${FILES[*]}' to see details." >&2
     exit 0
   fi
 
   echo "ansible-lint found issues in modified files:" >&2
-  printf '%s\n' "$SCOPED" | emit_bounded "ansible-lint.log" "ansible-lint ${FILES[*]}"
+  printf '%s\n' "$FAILURES" | emit_bounded "ansible-lint.log" "ansible-lint ${FILES[*]}"
   exit 2
 fi
 
