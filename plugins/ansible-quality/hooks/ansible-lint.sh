@@ -115,8 +115,10 @@ if [ "$RC" -eq 2 ]; then
   # first ":"-delimited field IS the path. Compare it as a literal string
   # against the changed-file set (both sides ./-normalized). Robust to any
   # filename; no escaping needed.
-  SCOPED=$(printf '%s\n' "$FINDINGS" | awk -F: -v list="$(printf '%s\n' "${FILES[@]}")" '
-    BEGIN { n = split(list, a, "\n"); for (i = 1; i <= n; i++) { p = a[i]; sub(/^\.\//, "", p); if (p != "") set[p] = 1 } }
+  # Pass the file list via the environment (ENVIRON), not -v: a -v value
+  # containing newlines is rejected by BSD awk (macOS) with "newline in string".
+  SCOPED=$(printf '%s\n' "$FINDINGS" | _LIST=$(printf '%s\n' "${FILES[@]}") awk -F: '
+    BEGIN { n = split(ENVIRON["_LIST"], a, "\n"); for (i = 1; i <= n; i++) { p = a[i]; sub(/^\.\//, "", p); if (p != "") set[p] = 1 } }
     { path = $1; sub(/^\.\//, "", path); if (path in set) print }
   ')
 
