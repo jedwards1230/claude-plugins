@@ -115,7 +115,7 @@ Each notification line emitted by the script looks like:
 |---|---|
 | `PR #48: P=3,F=0,W=2` | 3 passed, 0 failed, 2 still waiting |
 | `PR #48: P=5,F=0,W=0,READY` | All checks green, reviews done, no conflicts — ready to merge |
-| `PR #48: P=4,F=1,W=0` | A check failed — surface to user |
+| `PR #48: P=4,F=1,W=0,FAIL[build]` | A check failed — `FAIL[…]` names the failing check(s) inline (deduped, capped at 5 with a trailing `+N` overflow marker, e.g. `FAIL[build,lint,+2]`). Only appears when `F>0`. Surface to user |
 | `PR #48: P=2,F=0,W=3,CR` | Changes requested by a reviewer |
 | `PR #48: P=2,F=0,W=3,U=4` | 4 unresolved review threads |
 | `PR #48: P=5,F=0,W=0,RR=1` | All checks green but 1 requested reviewer (e.g. Copilot) hasn't posted yet — keep watching |
@@ -131,7 +131,7 @@ When watching more than one repo, each line is prefixed with `owner/repo#N:` ins
 How to react:
 
 - **`READY`** — all checks passed, reviews complete, no conflicts. Tell the user the PR is ready to merge. Ask if they want to merge now. The watcher keeps running — it will report `MERGED` once the merge happens.
-- **Any failures** (`F>0`) — surface immediately. For detailed failing-check names, run `gh pr checks <pr> -R <owner/repo>`.
+- **Any failures** (`F>0`) — surface immediately. The failing check name(s) are already inline in the `FAIL[…]` token, so relay those directly. Run `gh pr checks <pr> -R <owner/repo>` only when you need the full check list or a link to the failing run's logs.
 - **`CR` or `U=N`** — point the user at reviewer feedback before merging.
 - **`RR=N`** — N reviewers (typically Copilot's auto-review) still owe a verdict. Watcher keeps polling until they post.
 - **`BLOCKED`** — GitHub's authoritative merge state is `BLOCKED` but the tracked counts (`F`/`CR`/`U`/`RR`) don't explain why — e.g. a ruleset requiring a Copilot/CODEOWNERS review, a required status check, or a conversation-resolution gate. Run `gh pr view <pr> --json mergeStateStatus,reviewDecision` and inspect the ruleset/branch protection; resolve the gate before merging. The `READY` flag will not appear while the PR is blocked.
@@ -147,6 +147,7 @@ If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 - The script's stdout is one notification per line. Lines within 200ms are batched into a single notification by the Monitor tool.
 - Poll interval defaults to 30s. Override via `GIT_TOOLING_CI_POLL_SECONDS` env var if the user explicitly wants faster/slower polling (rare — respect GitHub rate limits).
 - The script is null-safe for PRs with no checks at all (will report `P=0,F=0,W=0,READY`).
-- When the token can't read some check-runs (app-authored checks like Copilot's review surface as `null` rollup nodes — common with fine-grained PATs), the script recovers the `P`/`F`/`W` counts from the Actions API (workflow run conclusions) for that commit instead of going silent on the PR. Other PR-level signals (`U`, `CR`, `RR`, `BLOCKED`, merge state) are unaffected.
+- When the token can't read some check-runs (app-authored checks like Copilot's review surface as `null` rollup nodes — common with fine-grained PATs), the script recovers the `P`/`F`/`W` counts **and the `FAIL[…]` names** from the Actions API (workflow run conclusions) for that commit instead of going silent on the PR. Other PR-level signals (`U`, `CR`, `RR`, `BLOCKED`, merge state) are unaffected.
+- The `FAIL[…]` failing-check names work on both the GraphQL `statusCheckRollup` path and the Actions-API fallback. On the rollup path they're the check/context names; on the fallback path they're the failing workflow names (the only check signal that path can see). Names are part of the emitted line, so a change in *which* checks fail is itself a transition that re-notifies.
 - Once all watched PRs reach READY, the poll interval doubles (e.g. 30s → 60s) to reduce API usage while waiting for merge.
 - For a one-shot status snapshot without watching, use `gh pr checks <pr>` or `gh pr view <pr> --json statusCheckRollup`.
