@@ -182,26 +182,49 @@ def _count(items: list, predicate) -> int:
     return sum(1 for x in items if x and predicate(x))
 
 
-def actions_check_counts(owner: str, name: str, sha: str) -> tuple[int, int, int]:
-    """Best-effort (passed, failed, pending) from the Actions API for a commit.
+def _fail_label(names: list[str], limit: int = 5) -> str:
+    """Render failing-check names as a compact `FAIL[a,b,c]` token.
+
+    Deduplicates (a workflow can surface as several rollup contexts), preserves
+    order, and caps the list at `limit` with a `+N` overflow marker so the
+    one-line-per-transition output stays bounded no matter how many checks
+    fail. Returns "" when there are no usable names, in which case the caller
+    omits the token and the bare `F=N` count still conveys the failure.
+    """
+    uniq = list(dict.fromkeys(n for n in names if n))
+    if not uniq:
+        return ""
+    shown = uniq[:limit]
+    body = ",".join(shown)
+    extra = len(uniq) - len(shown)
+    if extra > 0:
+        body += f",+{extra}"
+    return f"FAIL[{body}]"
+
+
+def actions_check_counts(owner: str, name: str,
+                         sha: str) -> tuple[int, int, int, list[str]]:
+    """Best-effort (passed, failed, pending, fail_names) from the Actions API.
 
     Fallback for when statusCheckRollup returns null context nodes — i.e. the
     token can't read some check-runs (app-authored checks). The Actions API
     (/actions/runs) reports workflow run conclusions and stays readable with
     only Actions:read, even when the unified check-runs view is forbidden.
 
-    Counts the latest run per workflow (the API returns newest-first). Only
-    covers GitHub Actions workflow runs — legacy commit statuses and other
-    apps' checks aren't represented, which is acceptable for this fallback
-    (the Actions workflows are the CI signal that "is the build green" means).
-    Returns (0, 0, 0) on any error so the caller degrades gracefully.
+    Counts the latest run per workflow (the API returns newest-first) and
+    collects the names of the failing workflows so the caller can surface them
+    inline. Only covers GitHub Actions workflow runs — legacy commit statuses
+    and other apps' checks aren't represented, which is acceptable for this
+    fallback (the Actions workflows are the CI signal that "is the build green"
+    means). Returns (0, 0, 0, []) on any error so the caller degrades
+    gracefully.
     """
     p = run([
         "gh", "api", f"repos/{owner}/{name}/actions/runs?head_sha={sha}&per_page=100",
         "-q", '.workflow_runs[] | "\\(.name)\\t\\(.status)\\t\\(.conclusion // "")"',
     ])
     if p.returncode != 0:
-        return (0, 0, 0)
+        return (0, 0, 0, [])
 
     latest: dict[str, tuple[str, str]] = {}
     for line in p.stdout.splitlines():
@@ -213,16 +236,18 @@ def actions_check_counts(owner: str, name: str, sha: str) -> tuple[int, int, int
         latest.setdefault(workflow, (status, conclusion))
 
     passed = failed = pending = 0
-    for status, conclusion in latest.values():
+    fail_names: list[str] = []
+    for workflow, (status, conclusion) in latest.items():
         if status != "completed":
             pending += 1
         elif conclusion == "success":
             passed += 1
         elif conclusion in ("failure", "timed_out", "startup_failure"):
             failed += 1
+            fail_names.append(workflow)
         # neutral / skipped / cancelled / action_required → neither pass nor
         # fail, mirroring how the rollup ignores SKIPPED/NEUTRAL contexts.
-    return (passed, failed, pending)
+    return (passed, failed, pending, fail_names)
 
 
 def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
@@ -279,17 +304,27 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
     def _state(c: dict) -> str:
         return c.get("state") or ""
 
+    def _name(c: dict) -> str:
+        # CheckRun has `name`; legacy StatusContext has `context`.
+        return c.get("name") or c.get("context") or ""
+
+    def _is_failing(c: dict) -> bool:
+        return (_conclusion(c) in ("FAILURE", "TIMED_OUT")
+                or _state(c) in ("FAILURE", "ERROR"))
+
     # Null context nodes mean the token couldn't read those check-runs
     # (app-authored checks) — the rollup counts would silently undercount. Fall
     # back to the Actions API for an authoritative GitHub Actions view instead.
+    # The fallback returns failing workflow names too, so failing-check names
+    # are surfaced on both the GraphQL and Actions-API paths.
     if any(c is None for c in contexts) and head_oid:
-        passed, failed, pending = actions_check_counts(owner, name, head_oid)
+        passed, failed, pending, fail_names = actions_check_counts(owner, name, head_oid)
     else:
         passed = _count(contexts, lambda c: _conclusion(c) == "SUCCESS" or _state(c) == "SUCCESS")
-        failed = _count(contexts, lambda c: _conclusion(c) in ("FAILURE", "TIMED_OUT")
-                                           or _state(c) in ("FAILURE", "ERROR"))
+        failed = _count(contexts, _is_failing)
         pending = _count(contexts, lambda c: _status(c) in ("QUEUED", "WAITING", "IN_PROGRESS")
                                             or _state(c) == "PENDING")
+        fail_names = [_name(c) for c in contexts if c and _is_failing(c)]
 
     mergeable = node.get("mergeable") or "UNKNOWN"
     # mergeStateStatus is GitHub's authoritative merge-readiness verdict. Unlike
@@ -325,6 +360,13 @@ def build_signature(owner: str, name: str, pr: int) -> tuple[str, bool, bool]:
             draft_actor = ((draft_events[-1] or {}).get("actor") or {}).get("login") or ""
 
     parts = [f"P={passed}", f"F={failed}", f"W={pending}"]
+    # Inline the failing-check names on a failure so the agent doesn't have to
+    # run `gh pr checks` for the most common follow-up question. Only on F>0,
+    # so passing/pending transitions stay as terse as before.
+    if failed > 0:
+        label = _fail_label(fail_names)
+        if label:
+            parts.append(label)
     if mergeable == "CONFLICTING":
         parts.append("CONFLICT")
     if changes_requested > 0:
