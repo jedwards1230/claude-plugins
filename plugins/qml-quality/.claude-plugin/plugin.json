@@ -1,6 +1,6 @@
 {
   "name": "qml-quality",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "QML quality gates — auto-format with qmlformat on edit, format check on stop (qmllint warn-only). Includes a qml-developer agent for authoring QML / Qt Quick UI.",
   "author": {
     "name": "jedwards1230"
