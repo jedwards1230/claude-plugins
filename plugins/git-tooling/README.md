@@ -16,9 +16,9 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 
 - `git` (2.15+)
 - `gh` (GitHub CLI, authenticated) — for PR-based workflows, push reminder, and CI/release watch
-- `jq` — used by the CI watch script and push reminder hook
+- `jq` — used by the push-reminder hook (and other hook scripts)
 
-> The `ci-watch` and `release-watch` scripts use only the Python 3 standard library (no `pip`/Docker) and need `python3` (3.8+).
+> The `ci-watch` and `release-watch` scripts use only the Python 3 standard library (no `pip`/Docker/`jq`) and need `python3` (3.8+).
 
 ## Usage
 
@@ -125,6 +125,8 @@ release-watch.py owner/svc --ghcr owner/svc       # both halves of one release i
 ```
 
 `--tag T` binds to the immediately preceding target. The script polls every 30s (override via `GIT_TOOLING_RELEASE_POLL_SECONDS`), emits one notification per transition, and exits when every target is published or its release workflow concludes — exit 1 if any target hit a failure terminal (release workflow failed, or a private package the token can't read). Pass `--tag` for an already-published release/version and it reports it and exits at once. Use `TaskStop` to cancel early.
+
+Each notification is one line per transition — good terminals (`RELEASED <tag>`, `PUBLISHED <pkg>:<tag>`, `PUBLISHED <pkg>:latest repointed -> <digest>`), neutral terminals (`RUN success — no new release`, `idle — no release in flight`), and failure terminals (`RUN failure — release workflow failed (<url>)`, `INACCESSIBLE — … needs read:packages`). The full signature/output reference is the table in [`skills/release-watch/SKILL.md`](skills/release-watch/SKILL.md) (its source of truth), the same way `ci-watch`'s lives in its own SKILL.md.
 
 ## Worktree Directory Convention
 

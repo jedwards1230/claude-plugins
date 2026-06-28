@@ -62,6 +62,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Optional
 
@@ -174,14 +175,19 @@ class Snapshot:
 def _http(url: str, headers: dict, method: str = "GET"):
     """Return (status, body_bytes, resp_headers). Raises urllib URLError on a
     network-level failure (caller treats that as transient)."""
+    def lower_headers(raw) -> dict:
+        # HTTP header names are case-insensitive (RFC 9110); normalize to
+        # lowercase keys so callers can look them up deterministically.
+        return {k.lower(): v for k, v in dict(raw or {}).items()}
+
     req = urllib.request.Request(url, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=GHCR_HTTP_TIMEOUT) as resp:
-            return resp.status, resp.read(), dict(resp.headers)
+            return resp.status, resp.read(), lower_headers(resp.headers)
     except urllib.error.HTTPError as e:
         # HTTP errors (401/403/404/...) carry a status and body — return them
         # so the caller can classify permanent vs transient.
-        return e.code, e.read(), dict(e.headers or {})
+        return e.code, e.read(), lower_headers(e.headers)
 
 
 def gh_token() -> Optional[str]:
@@ -196,8 +202,10 @@ def registry_token(repo: str, authed_tok: Optional[str]) -> Optional[str]:
     url = f"https://ghcr.io/token?service=ghcr.io&scope=repository:{repo}:pull"
     headers = {"Accept": "application/json"}
     if authed_tok:
-        basic = base64.b64encode(f"jedwards1230:{authed_tok}".encode()).decode()
-        # Username is ignored by ghcr for token grants; the PAT is what matters.
+        # ghcr ignores the username for token grants (the PAT is what matters),
+        # but Basic auth still needs a non-empty user field — use `_`, never a
+        # hardcoded login, so this works for any user's token.
+        basic = base64.b64encode(f"_:{authed_tok}".encode()).decode()
         headers["Authorization"] = f"Basic {basic}"
     status, body, _ = _http(url, headers)
     if status != 200:
@@ -230,7 +238,9 @@ def registry_tags(repo: str, token: str):
 def registry_digest(repo: str, token: str, tag: str) -> Optional[str]:
     """The manifest digest a tag points at (to detect moving-tag republishes).
     Best-effort: None if the HEAD doesn't yield a digest."""
-    url = f"https://ghcr.io/v2/{repo}/manifests/{tag}"
+    # URL-encode the tag (safe='') so tags with reserved characters — e.g. a
+    # SemVer build-metadata tag like v1.0.0+build.123 — can't corrupt the URL.
+    url = f"https://ghcr.io/v2/{repo}/manifests/{urllib.parse.quote(tag, safe='')}"
     accept = ("application/vnd.oci.image.index.v1+json,"
               "application/vnd.oci.image.manifest.v1+json,"
               "application/vnd.docker.distribution.manifest.list.v2+json,"
@@ -240,7 +250,7 @@ def registry_digest(repo: str, token: str, tag: str) -> Optional[str]:
                                  "Accept": accept}, method="HEAD")
     except urllib.error.URLError:
         return None
-    return hdrs.get("Docker-Content-Digest") or hdrs.get("docker-content-digest")
+    return hdrs.get("docker-content-digest")
 
 
 def ghcr_rest_versions(owner: str, pkg: str):
@@ -343,7 +353,7 @@ def build_ghcr_signature(t: Target) -> tuple[str, bool, bool, bool]:
 
 def latest_release_tag(owner: str, name: str) -> Optional[str]:
     data = gh_json(f"repos/{owner}/{name}/releases/latest")
-    return (data or {}).get("tag_name") if data else None
+    return (data or {}).get("tag_name")
 
 
 def tag_published(owner: str, name: str, tag: str) -> bool:
