@@ -1,7 +1,7 @@
 {
   "name": "git-tooling",
-  "version": "1.8.0",
-  "description": "Git tooling for Claude Code — worktree workflows, default-branch commit prompt, bulk worktree force-remove guard, force-push guard, PR-aware push reminders, and on-demand CI status watching with failing-check names surfaced inline",
+  "version": "1.9.0",
+  "description": "Git tooling for Claude Code — worktree workflows, default-branch commit prompt, bulk worktree force-remove guard, force-push guard, PR-aware push reminders, on-demand CI status watching with failing-check names surfaced inline, and release watching (GitHub Release + GHCR package publishes)",
   "author": {
     "name": "jedwards1230"
   }
