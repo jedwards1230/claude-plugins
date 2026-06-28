@@ -1,6 +1,6 @@
 # git-tooling
 
-Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on-demand CI status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
+Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
 
 ## Features
 
@@ -10,12 +10,15 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
 - **Force-push guard** (hook) — routes a `git push` through the permission prompt when it uses a *non-lease* force (`--force`/`-f`/`+refspec`) or targets the repo's default/protected branch. Stays silent for the normal feature-branch flow, including pre-approved `--force-with-lease` rebase hygiene on feature branches. Catches the case where a *subagent* is instructed to force-push (settings don't gate subagent Bash; this hook does).
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
+- **Release watching** (skill `release-watch`) — the sibling of `ci-watch` that begins where it ends (at `MERGED`). Invoke the `Monitor` tool with a bundled poller that follows a release through to publication: the GitHub release workflow run, the git tag + GitHub Release, **and** GHCR container/chart package publishes (a new image version — or a moving tag like `latest` repointed to a new digest — at `ghcr.io/<owner>/<pkg>`, incl. nested names like `charts/hermes`). Emits on success **and** failure terminals (a failed release workflow is surfaced, never silent). Public GHCR packages read anonymously; private ones need the `gh` token to carry `read:packages` (else that target fails gracefully without crashing the watch).
 
 ## Prerequisites
 
 - `git` (2.15+)
-- `gh` (GitHub CLI, authenticated) — for PR-based workflows, push reminder, and CI watch
-- `jq` — used by the CI watch script and push reminder hook
+- `gh` (GitHub CLI, authenticated) — for PR-based workflows, push reminder, and CI/release watch
+- `jq` — used by the push-reminder hook (and other hook scripts)
+
+> The `ci-watch` and `release-watch` scripts use only the Python 3 standard library (no `pip`/Docker/`jq`) and need `python3` (3.8+).
 
 ## Usage
 
@@ -97,6 +100,33 @@ Activates on prompts like:
 ```
 
 Internally invokes the `Monitor` tool with `scripts/ci-watch.py`. The script polls open-PR status every 30s (60s once all PRs are ready), emits one notification per state transition, and exits when every watched PR is merged or closed. Use `TaskStop` to cancel early.
+
+### Release watch skill
+
+Activates on prompts like:
+
+```
+> Watch the release for owner/repo
+> Did the release publish yet?
+> Wait for tag v1.4.0 to publish
+> Watch for the new ghcr image
+> Did the chart push to ghcr?
+```
+
+Internally invokes the `Monitor` tool with `scripts/release-watch.py`. Argument forms mix freely in one call:
+
+```
+release-watch.py owner/repo                       # release workflow run + newest release tag
+release-watch.py owner/repo --tag v1.4.0          # wait for a specific GitHub Release
+release-watch.py --ghcr owner/pkg                 # new GHCR image version vs baseline at start
+release-watch.py --ghcr owner/charts/hermes       # nested package name
+release-watch.py --ghcr owner/pkg --tag v1.4.0    # wait for a specific image tag
+release-watch.py owner/svc --ghcr owner/svc       # both halves of one release in one watcher
+```
+
+`--tag T` binds to the immediately preceding target. The script polls every 30s (override via `GIT_TOOLING_RELEASE_POLL_SECONDS`), emits one notification per transition, and exits when every target is published or its release workflow concludes — exit 1 if any target hit a failure terminal (release workflow failed, or a private package the token can't read). Pass `--tag` for an already-published release/version and it reports it and exits at once. Use `TaskStop` to cancel early.
+
+Each notification is one line per transition — good terminals (`RELEASED <tag>`, `PUBLISHED <pkg>:<tag>`, `PUBLISHED <pkg>:latest repointed -> <digest>`), neutral terminals (`RUN success — no new release`, `idle — no release in flight`), and failure terminals (`RUN failure — release workflow failed (<url>)`, `INACCESSIBLE — … needs read:packages`). The full signature/output reference is the table in [`skills/release-watch/SKILL.md`](skills/release-watch/SKILL.md) (its source of truth), the same way `ci-watch`'s lives in its own SKILL.md.
 
 ## Worktree Directory Convention
 
