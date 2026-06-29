@@ -1,0 +1,17 @@
+# systemd user service for session-archiver periodic backfill (periodic-sync mode).
+# Runs `backfill.sh --remote` — an incremental, gap-free sync of ~/.claude/projects
+# into the local mirror (and on to remote targets when sync_mode is not local-only).
+# The recommended, more-robust alternative to the event hooks: it scans the source
+# of truth, catching idle / crashed / abnormally-exited sessions, with zero per-turn
+# cost. Pair with "hook_events": ["PreCompact"] in config.json.
+# Install (per user, no root):
+#   1. Edit ExecStart path to your installed plugin's backfill.sh.
+#   2. cp this + the .timer to ~/.config/systemd/user/
+#   3. systemctl --user daemon-reload
+#      systemctl --user enable --now session-archiver-backfill.timer
+[Unit]
+Description=Periodic backfill of Claude Code sessions into the session-archiver mirror
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash "REPLACE_WITH_PATH_TO/session-archiver/scripts/backfill.sh" --remote

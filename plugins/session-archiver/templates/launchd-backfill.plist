@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS periodic-backfill agent for session-archiver (periodic-sync mode).
+  Runs `backfill.sh --remote` on an interval — an incremental, gap-free sync of
+  ~/.claude/projects into the local mirror (and, when sync_mode is not
+  local-only, on to remote targets). This is the recommended, more-robust
+  alternative to the event hooks: it scans the source of truth, so it catches
+  idle / crashed / abnormally-exited sessions the hooks can miss, with zero
+  per-turn cost. Pair it with "hook_events": ["PreCompact"] in config.json so
+  the in-Claude-Code hook only fires as a pre-compaction hedge.
+
+  Install:
+    1. Edit ProgramArguments path below to your installed plugin location, e.g.
+       ~/.claude/plugins/cache/<marketplace>/session-archiver/scripts/backfill.sh
+    2. Set your own reverse-DNS prefix in the Label below (e.g. com.yourname...) before copying.
+    3. cp this file to ~/Library/LaunchAgents/REPLACE_WITH_REVERSE_DNS.session-archiver-backfill.plist
+    4. launchctl load ~/Library/LaunchAgents/REPLACE_WITH_REVERSE_DNS.session-archiver-backfill.plist
+  Runs backfill.sh every 180s. Logs to <data-dir>/archive.log (the script's own log).
+
+  NOTE: launchd starts agents with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+  that does NOT include Homebrew, so backfill.sh can't find `jq` and aborts. The
+  EnvironmentVariables/PATH below prepends the Homebrew bin dirs — /opt/homebrew/bin
+  (Apple Silicon) and /usr/local/bin (Intel). Adjust if jq lives elsewhere.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>REPLACE_WITH_REVERSE_DNS.session-archiver-backfill</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>REPLACE_WITH_PATH_TO/session-archiver/scripts/backfill.sh</string>
+    <string>--remote</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>180</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

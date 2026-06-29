@@ -12,6 +12,9 @@
   "//spool_dir": "Optional. Defaults to <data-dir>/spool.",
   "spool_dir": "",
 
+  "//hook_events": "Optional allowlist of hook event names the in-Claude-Code hook acts on. Absent/empty = act on all events (SessionEnd, Stop, StopFailure, PreCompact) — the default, fully backward-compatible. For periodic-sync mode (recommended), set this to [\"PreCompact\"] so the hook is a no-op except as a pre-compaction hedge, and let an OS timer run backfill.sh --remote (see templates/launchd-backfill.plist / session-archiver-backfill.{service,timer}).",
+  "//hook_events_example": ["PreCompact"],
+
   "//include": "Whether to archive the per-session sidecar dirs.",
   "include_subagents": true,
   "include_tool_results": true,

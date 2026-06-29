@@ -48,6 +48,18 @@ if [ "$SA_ENABLED" != "true" ]; then
   exit 1
 fi
 
+# Serialize overlapping runs. A periodic backfill timer (the recommended
+# periodic-sync mode) can fire while a slow previous run is still copying; a
+# second concurrent run detects the lock and exits cleanly (0), leaving the
+# in-flight run to finish — rather than racing it on the same state files.
+# Uses the same mkdir-based lock as the hook/drainer (no flock dependency).
+if ! sa_acquire_lock "backfill"; then
+  echo "backfill: another backfill run is in progress — exiting." >&2
+  sa_log "backfill: another run holds the lock — exiting"
+  exit 0
+fi
+trap 'sa_release_lock "backfill"' EXIT
+
 PROJECTS_DIR="${PROJECTS_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects}"
 [ -d "$PROJECTS_DIR" ] || { echo "backfill: no projects dir at $PROJECTS_DIR" >&2; exit 1; }
 
