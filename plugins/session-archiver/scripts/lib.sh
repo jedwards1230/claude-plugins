@@ -17,13 +17,50 @@ set -u
 # ── Data/config locations (independent of Claude Code env) ────────────────────
 sa_data_dir() {
   # Persistent state: spool, locks, last-synced markers, log.
+  #
+  # MUST resolve identically in BOTH contexts that touch this dir:
+  #   - the hook (runs inside Claude Code, where CLAUDE_PLUGIN_DATA IS set)
+  #   - the standalone drainer (runs from launchd/systemd, where it is NOT set)
+  # so the config-dir anchor below is the canonical default. We deliberately do
+  # NOT consult CLAUDE_PLUGIN_DATA: it is visible only to the hook, so anchoring
+  # to it stranded every spooled marker where the drainer could never find it.
+  # SESSION_ARCHIVER_DATA stays as the explicit override (set it in BOTH the hook
+  # env and the timer unit if you want a custom dir).
   if [ -n "${SESSION_ARCHIVER_DATA:-}" ]; then
     printf '%s' "$SESSION_ARCHIVER_DATA"
-  elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-    printf '%s' "$CLAUDE_PLUGIN_DATA"
   else
     printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/session-archiver"
   fi
+}
+
+# One-time migration of legacy data. Versions <=0.2.1 anchored the data dir to
+# $CLAUDE_PLUGIN_DATA (visible only to the in-Claude-Code hook), so any spooled
+# marker / state / log written there was invisible to the standalone drainer.
+# When the hook runs under the new resolution it carries that legacy state over
+# to the canonical dir so in-flight markers aren't stranded. Best-effort, never
+# fatal; only the hook context sees CLAUDE_PLUGIN_DATA, so the drainer is a no-op.
+sa_migrate_legacy_data() {
+  local legacy="${CLAUDE_PLUGIN_DATA:-}"
+  [ -n "$legacy" ] || return 0
+  [ -d "$legacy" ] || return 0
+  [ "$legacy" = "$SA_DATA" ] && return 0   # nothing to do when they coincide
+
+  local moved=0 sub entry name
+  for sub in spool state; do
+    [ -d "$legacy/$sub" ] || continue
+    mkdir -p "$SA_DATA/$sub" 2>/dev/null || continue
+    for entry in "$legacy/$sub"/* "$legacy/$sub"/.[!.]*; do
+      [ -e "$entry" ] || continue
+      name="$(basename "$entry")"
+      [ -e "$SA_DATA/$sub/$name" ] && continue   # never clobber canonical state
+      mv "$entry" "$SA_DATA/$sub/$name" 2>/dev/null && moved=1
+    done
+  done
+  # Move the legacy log only if the canonical one doesn't exist yet (no merge).
+  if [ -f "$legacy/archive.log" ] && [ ! -e "$SA_DATA/archive.log" ]; then
+    mv "$legacy/archive.log" "$SA_DATA/archive.log" 2>/dev/null && moved=1
+  fi
+  [ "$moved" = 1 ] && sa_log "migrated legacy data dir '$legacy' -> '$SA_DATA'"
 }
 
 sa_config_file() {
@@ -88,6 +125,10 @@ sa_init() {
   SA_STATE="$SA_DATA/state"
   SA_LOG="$SA_DATA/archive.log"
   mkdir -p "$SA_SPOOL" "$SA_LOCKS" "$SA_STATE" 2>/dev/null || true
+
+  # Carry over any state left under the legacy CLAUDE_PLUGIN_DATA location so an
+  # upgrade doesn't strand in-flight spool markers (no-op outside the hook).
+  sa_migrate_legacy_data
 
   SA_HOST="${SESSION_ARCHIVER_HOST:-}"
   [ -n "$SA_HOST" ] || SA_HOST="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
