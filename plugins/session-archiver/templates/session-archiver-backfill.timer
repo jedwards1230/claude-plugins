@@ -1,0 +1,11 @@
+# systemd user timer — runs the periodic backfill every 3 minutes.
+[Unit]
+Description=Periodic backfill of Claude Code sessions into the session-archiver mirror
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

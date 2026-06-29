@@ -71,6 +71,10 @@ order of precedence:
 | `spool` | Mirror + drop a marker; a timer runs `drain.sh` to push with **retries**. Most robust for flaky networks / offline NAS. Install a timer (see `templates/`). |
 | `blocking` | Mirror, then push **synchronously** in the hook (every event). For ephemeral CI runners where a detached/spooled upload would be killed at job end. |
 
+> For the most robust setup, drive replication from an OS timer instead of the
+> event hooks — see [Periodic sync mode (recommended)](#periodic-sync-mode-recommended).
+> It pairs any non-`blocking` `sync_mode` with `"hook_events": ["PreCompact"]`.
+
 #### Installing the spool drain timer
 
 `spool` mode needs a timer to run `drain.sh` periodically. Templates are in
@@ -111,6 +115,84 @@ The plugin is identical on every host; only each host's gitignored
 `local-only`). `{host}` in the key keeps one bucket collision-free across all
 your Claude instances.
 
+## Periodic sync mode (recommended)
+
+Archiving transcripts is fundamentally a **file-replication** problem, not an
+event problem — so the most robust deployment isn't the event hooks at all, it's
+a periodic incremental sync on an OS timer.
+
+**Why it works without ever losing a session:**
+
+- The source `~/.claude/projects/<slug>/<uuid>.jsonl` files persist ~30 days
+  (`cleanupPeriodDays`, and Claude Code only deletes them at startup), so even a
+  **daily** incremental sync never loses a session to cleanup.
+- The transcript is **append-only across compaction** (empirically verified on
+  current Claude Code: a 10,238-line session compacted 4× kept all 696
+  pre-compaction messages — compaction writes a `compact_boundary` /
+  `isCompactSummary` entry but never truncates prior messages). So a plain
+  periodic file copy already captures full pre-compaction detail.
+- A periodic `backfill.sh --remote` therefore scans the **source of truth**,
+  making it **gap-free**: it catches idle, crashed, and abnormally-exited
+  sessions that the event hooks can miss. `SessionEnd` isn't even guaranteed on
+  crash / `SIGKILL`.
+- It has **zero per-turn latency** and never re-mirrors a growing transcript on
+  every turn — and needs no spool/marker machinery.
+
+The event hooks only add *immediacy*, which is worthless for an archive whose
+source persists 30 days. **The one hook worth keeping is `PreCompact`**, purely
+as a hedge: the append-only behavior is observed, not *documented* (Claude
+Code's docs say the transcript format "is internal and changes between
+versions"), so `PreCompact` fires right before compaction and guarantees a
+pre-compaction capture *in case* some future version ever truncates the file.
+It's cheap (compaction is infrequent) with zero downside.
+
+### Configure it
+
+1. In `config.json`, restrict the hook to the `PreCompact` hedge:
+
+   ```json
+   {
+     "enabled": true,
+     "local_mirror": "~/claude-archives",
+     "sync_mode": "spool",
+     "hook_events": ["PreCompact"]
+   }
+   ```
+
+   `hook_events` is an **allowlist** of event names the in-Claude-Code hook acts
+   on. Absent/empty = act on **all** events (the prior, default behavior — fully
+   backward-compatible). With `["PreCompact"]`, the hook exits immediately
+   (no-op, non-blocking) for `Stop`, `StopFailure`, and `SessionEnd`. No
+   `hooks.json` edit is needed.
+
+2. Install the **periodic-backfill** timer (instead of, or alongside, the spool
+   drain timer) so `backfill.sh --remote` runs on an interval. Templates are in
+   [`templates/`](./templates): `launchd-backfill.plist` (macOS, every 180s) and
+   `session-archiver-backfill.{service,timer}` (systemd user units, every 3min).
+   Edit the path to your installed `backfill.sh`, then load the agent/timer. The
+   same launchd Homebrew-`PATH` fix as the drain agent applies (launchd's default
+   `PATH` lacks `/opt/homebrew/bin`, so `jq` wouldn't be found).
+
+`backfill.sh` takes a lock, so an interval shorter than a slow run is safe — a
+second run that overlaps a still-running one exits cleanly rather than racing it.
+
+### Periodic-sync vs event-hook tradeoffs
+
+| | Periodic sync *(recommended)* | Event hooks |
+|---|---|---|
+| Coverage | Gap-free — scans the source of truth; catches idle/crashed/SIGKILLed sessions | Misses sessions where no event fires (`SessionEnd` not guaranteed on crash) |
+| Per-turn cost | None | Re-mirrors on every `Stop`/`PreCompact` |
+| Off-box recency | The timer interval (minutes) | Near-immediate |
+| Machinery | One OS timer | Hooks (+ a drain timer for `spool`) |
+| Pre-compaction detail | Captured (transcript is append-only) + `PreCompact` hedge | Captured by `PreCompact` |
+
+The one honest tradeoff: **off-box recency equals the timer interval** (minutes),
+and there's a small window of un-synced recent turns **only if the local disk
+itself dies between ticks**. Since the local mirror is the durable record and the
+source persists 30 days, that window is negligible for an archive. Keep
+`PreCompact` enabled as the hedge because the append-only guarantee is observed,
+not documented.
+
 ## How it works
 
 `SessionEnd`, `Stop`, `StopFailure`, and `PreCompact` all trigger
@@ -121,6 +203,11 @@ or a spool marker (`spool`) — so it never blocks session exit and always exits
 destination key + `aws s3 sync`/`rsync -a` deltas + per-session `mkdir` lock),
 so all four events firing collapse to at most one real archive per change.
 `PreCompact` captures the full transcript before compaction summarizes it away.
+
+The `hook_events` config option narrows which of those four events the hook acts
+on (absent = all of them). Setting `["PreCompact"]` makes the hook a no-op for
+every other event — the basis of the [periodic sync mode](#periodic-sync-mode-recommended)
+above, where an OS timer does the real replication.
 
 ## Backfilling existing sessions
 

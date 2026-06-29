@@ -81,6 +81,9 @@ SA_CONFIG=""; SA_DATA=""; SA_SPOOL=""; SA_LOCKS=""; SA_STATE=""; SA_LOG=""
 SA_ENABLED="false"; SA_MIRROR=""; SA_MODE="local-only"
 SA_INCLUDE_SUBAGENTS="true"; SA_INCLUDE_TOOL_RESULTS="true"
 SA_HOST=""
+# Optional allowlist of hook event names the in-Claude-Code hook acts on.
+# Empty = act on every event (backward compatible). Newline-delimited.
+SA_HOOK_EVENTS=""
 
 sa_expand_tilde() {
   case "$1" in
@@ -154,11 +157,40 @@ sa_init() {
   v="$(sa_cfg_bool include_subagents)";    [ -n "$v" ] && SA_INCLUDE_SUBAGENTS="$v"
   v="$(sa_cfg_bool include_tool_results)"; [ -n "$v" ] && SA_INCLUDE_TOOL_RESULTS="$v"
 
+  # Optional hook-event allowlist (newline-delimited). Absent/empty = all events
+  # (backward compatible). Must be an array of strings — anything else is a
+  # config error: log it and fall back to "all events" rather than silently
+  # disabling every hook.
+  SA_HOOK_EVENTS=""
+  if jq -e 'has("hook_events")' "$SA_CONFIG" >/dev/null 2>&1; then
+    if jq -e '.hook_events | type == "array" and all(.[]; type == "string")' "$SA_CONFIG" >/dev/null 2>&1; then
+      SA_HOOK_EVENTS="$(jq -r '.hook_events[]? // empty' "$SA_CONFIG" 2>/dev/null)"
+    else
+      sa_log "warning: hook_events must be an array of event-name strings — ignoring (acting on all events)"
+    fi
+  fi
+
   local sp; sp="$(sa_cfg '.spool_dir')"
   if [ -n "$sp" ]; then
     SA_SPOOL="$(sa_expand_tilde "$sp")"
     mkdir -p "$SA_SPOOL" 2>/dev/null || sa_log "warning: cannot create spool_dir '$SA_SPOOL' — spool mode will not persist markers"
   fi
+}
+
+# sa_event_enabled <event-name> -> 0 if the hook should act on this event.
+# True when no allowlist is configured (act on every event) or the event is in
+# the configured hook_events list. An empty event name never filters (preserves
+# legacy behavior for payloads without hook_event_name).
+sa_event_enabled() {
+  local ev="$1" line
+  [ -n "$ev" ] || return 0                 # no event name -> don't filter
+  [ -n "$SA_HOOK_EVENTS" ] || return 0     # no allowlist -> all events
+  while IFS= read -r line; do
+    [ "$line" = "$ev" ] && return 0
+  done <<EOF
+$SA_HOOK_EVENTS
+EOF
+  return 1
 }
 
 # ── Logging (best-effort, never fatal) ────────────────────────────────────────

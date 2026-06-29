@@ -27,6 +27,16 @@ TRANSCRIPT="$(printf '%s' "$PAYLOAD" | jq -r '.transcript_path // empty' 2>/dev/
 sa_init
 [ "$SA_ENABLED" = "true" ] || exit_clean
 
+# Honor the optional hook_events allowlist. In periodic-sync mode a user sets
+# e.g. "hook_events": ["PreCompact"] to make this hook a no-op for every other
+# event (the OS timer running backfill.sh --remote does the real work). Default
+# (no allowlist) acts on all events, exactly as before.
+EVENT="$(printf '%s' "$PAYLOAD" | jq -r '.hook_event_name // empty' 2>/dev/null)"
+if ! sa_event_enabled "$EVENT"; then
+  sa_log "skip $(basename "$TRANSCRIPT" .jsonl): event '$EVENT' not in hook_events allowlist"
+  exit_clean
+fi
+
 # Derive the session unit from the authoritative transcript_path.
 BASE="$(dirname "$TRANSCRIPT")"          # ~/.claude/projects/<slug>
 UUID="$(basename "$TRANSCRIPT" .jsonl)"  # <session-uuid>
