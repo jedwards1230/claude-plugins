@@ -34,13 +34,33 @@ Copy [`config.example.json`](./config.example.json) to one of (first found wins)
 
 1. `$SESSION_ARCHIVER_CONFIG` (explicit path)
 2. `${CLAUDE_CONFIG_DIR:-~/.claude}/session-archiver/config.json`  ← recommended
-3. `<plugin-data-dir>/config.json`
+3. `<data-dir>/config.json` (see [Data directory](#data-directory) below)
 
 This file is **per-machine and should not be committed**. Minimal config:
 
 ```json
 { "enabled": true, "local_mirror": "~/claude-archives", "sync_mode": "local-only" }
 ```
+
+### Data directory
+
+Spool markers, sync state, locks, and the log live in a data directory that
+**both** the in-Claude-Code hook and the standalone drainer must resolve
+identically — otherwise the drainer can't find what the hook spooled. It is, in
+order of precedence:
+
+1. `$SESSION_ARCHIVER_DATA` (explicit override — set it in **both** the hook env
+   *and* the drain timer/agent if you use it)
+2. `${CLAUDE_CONFIG_DIR:-~/.claude}/session-archiver`  ← canonical default
+
+> **Upgrading from ≤ 0.2.1:** older versions anchored this dir to the plugin's
+> `CLAUDE_PLUGIN_DATA` location, which only the hook could see — so in `spool`
+> mode the standalone drainer looked elsewhere and never drained. As of 0.2.2
+> the hook automatically migrates any leftover spool markers / state / log from
+> that legacy location into the canonical dir on its next run. No manual step is
+> needed; if you'd rather move it yourself, copy the `spool/`, `state/`, and
+> `archive.log` from `~/.claude/plugins/.../data/session-archiver*/` into
+> `~/.claude/session-archiver/`.
 
 ### Sync modes
 
@@ -50,6 +70,19 @@ This file is **per-machine and should not be committed**. Minimal config:
 | `inline` | Mirror, then push to remotes in a **detached background** process. No timer to install; the local mirror is the safety net if an upload drops. |
 | `spool` | Mirror + drop a marker; a timer runs `drain.sh` to push with **retries**. Most robust for flaky networks / offline NAS. Install a timer (see `templates/`). |
 | `blocking` | Mirror, then push **synchronously** in the hook (every event). For ephemeral CI runners where a detached/spooled upload would be killed at job end. |
+
+#### Installing the spool drain timer
+
+`spool` mode needs a timer to run `drain.sh` periodically. Templates are in
+[`templates/`](./templates): `launchd-drain.plist` (macOS) and
+`session-archiver-drain.{service,timer}` (systemd user units on Linux). Edit the
+path to your installed `drain.sh`, then load the agent/timer.
+
+> **macOS gotcha:** launchd starts agents with a minimal `PATH`
+> (`/usr/bin:/bin:/usr/sbin:/sbin`) that excludes Homebrew, so `drain.sh` can't
+> find `jq` and aborts (exit 0, nothing drained). The shipped plist sets an
+> `EnvironmentVariables` `PATH` that prepends `/opt/homebrew/bin` (Apple Silicon)
+> and `/usr/local/bin` (Intel) — adjust it if your `jq` lives elsewhere.
 
 ### Remote targets
 

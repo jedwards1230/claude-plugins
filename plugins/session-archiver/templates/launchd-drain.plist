@@ -8,11 +8,21 @@
     3. cp this file to ~/Library/LaunchAgents/REPLACE_WITH_REVERSE_DNS.session-archiver-drain.plist
     4. launchctl load ~/Library/LaunchAgents/REPLACE_WITH_REVERSE_DNS.session-archiver-drain.plist
   Runs drain.sh every 300s. Logs to <data-dir>/archive.log (the script's own log).
+
+  NOTE: launchd starts agents with a minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin)
+  that does NOT include Homebrew, so drain.sh can't find `jq` and aborts. The
+  EnvironmentVariables/PATH below prepends the Homebrew bin dirs — /opt/homebrew/bin
+  (Apple Silicon) and /usr/local/bin (Intel). Adjust if jq lives elsewhere.
 -->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>REPLACE_WITH_REVERSE_DNS.session-archiver-drain</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
