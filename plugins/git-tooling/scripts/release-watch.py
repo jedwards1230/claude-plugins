@@ -43,13 +43,24 @@ Usage:
 `--tag T` binds to the immediately preceding target (repo or --ghcr).
 
 Env:
-    GIT_TOOLING_RELEASE_POLL_SECONDS   poll interval in seconds (default 30)
+    GIT_TOOLING_RELEASE_POLL_SECONDS        poll interval in seconds (default 30)
+    GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS  how long a GHCR package may stay
+                                            HTTP-404 before the target is
+                                            declared INACCESSIBLE (default 600).
+                                            A first-ever publish 404s until the
+                                            release run pushes the image, so a
+                                            404 is treated as "not published
+                                            yet (waiting)" until this window
+                                            elapses. 0 disables the grace (404
+                                            is terminal at once).
 
 Requires: python3 (3.8+), gh (authenticated). GHCR reads use only the Python
 standard library (urllib) — no Docker/pip needed. Public GHCR packages read
 anonymously; private packages need the gh token to carry the `read:packages`
-scope (else the target fails gracefully with a clear message — it never
-crashes the watch). Portable across macOS and Linux.
+scope. A private/unscoped package returns 401/403 (an unambiguous scope denial)
+and fails the target gracefully at once; a 404 (not-yet-published OR private)
+is polled through the grace window above, then fails — it never crashes the
+watch. Portable across macOS and Linux.
 """
 
 from __future__ import annotations
@@ -82,6 +93,14 @@ BAD_CONCLUSIONS = {"failure", "timed_out", "startup_failure", "cancelled"}
 IDLE_GRACE_POLLS = 2
 
 GHCR_HTTP_TIMEOUT = 15
+
+# How long a GHCR target may stay continuously HTTP-404 before we give up and
+# declare it INACCESSIBLE. Bridges the gap between a watch starting and a first-
+# ever package publish (the release run builds/pushes the image minutes later),
+# while still failing a genuinely-private/never-appearing package eventually
+# instead of polling until the Monitor's overall timeout. Overridable via
+# GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS (set in main from the environment).
+GHCR_GRACE_SECONDS = 600
 
 
 def die(msg: str, code: int = 1) -> None:
@@ -135,7 +154,8 @@ class Target:
     tag    : optional specific tag to wait for
     """
 
-    __slots__ = ("kind", "owner", "name", "tag", "baseline", "state", "_idle")
+    __slots__ = ("kind", "owner", "name", "tag", "baseline", "state", "_idle",
+                 "_first_404")
 
     def __init__(self, kind: str, owner: str, name: str):
         self.kind = kind
@@ -145,6 +165,7 @@ class Target:
         self.baseline = None          # kind-specific baseline captured at start
         self.state = ""               # last emitted signature
         self._idle = 0                # idle-poll counter (repo, no --tag)
+        self._first_404: Optional[float] = None  # monotonic time of first GHCR 404
 
     @property
     def repo(self) -> str:
@@ -161,14 +182,18 @@ class Target:
 # ── GHCR reads (stdlib only) ─────────────────────────────────────────────
 
 class Snapshot:
-    __slots__ = ("tags", "ref_digest", "err", "permanent", "source")
+    __slots__ = ("tags", "ref_digest", "err", "permanent", "not_found", "source")
 
     def __init__(self, tags=None, ref_digest=None, err=None,
-                 permanent=False, source=""):
+                 permanent=False, not_found=False, source=""):
         self.tags = tags if tags is not None else set()
         self.ref_digest = ref_digest
         self.err = err
         self.permanent = permanent
+        # 404 from GHCR is ambiguous: package-not-published-yet (first publish)
+        # vs private-and-unreadable. Flagged separately so the caller can apply
+        # a poll-through grace window instead of failing immediately.
+        self.not_found = not_found
         self.source = source
 
 
@@ -217,22 +242,28 @@ def registry_token(repo: str, authed_tok: Optional[str]) -> Optional[str]:
 
 
 def registry_tags(repo: str, token: str):
-    """Return (tags_set, err, permanent). tags_set is None on error."""
+    """Return (tags_set, err, permanent, not_found). tags_set is None on error.
+
+    `not_found` flags an HTTP 404 specifically — ambiguous between "package not
+    published yet" and "private package hidden from this token" — so the caller
+    can poll through a grace window rather than failing immediately. 401/403 is
+    an unambiguous scope denial and stays terminal (permanent=True).
+    """
     url = f"https://ghcr.io/v2/{repo}/tags/list?n=1000"
     status, body, _ = _http(url, {"Authorization": f"Bearer {token}",
                                   "Accept": "application/json"})
     if status == 200:
         try:
-            return set((json.loads(body) or {}).get("tags") or []), None, False
+            return set((json.loads(body) or {}).get("tags") or []), None, False, False
         except json.JSONDecodeError:
-            return None, "malformed tags response", False
+            return None, "malformed tags response", False, False
     if status in (401, 403):
         return (None,
                 "registry denied (token lacks read:packages scope for this "
-                "private package)", True)
+                "private package)", True, False)
     if status == 404:
-        return None, "package not found", True
-    return None, f"registry HTTP {status}", False
+        return None, "package not found", True, True
+    return None, f"registry HTTP {status}", False, False
 
 
 def registry_digest(repo: str, token: str, tag: str) -> Optional[str]:
@@ -308,9 +339,9 @@ def ghcr_snapshot(owner: str, pkg: str, ref_tag: str) -> Snapshot:
                                 "private and the gh token can't read it "
                                 "(needs read:packages scope)",
                             permanent=True)
-        tags, err, permanent = registry_tags(repo, token)
+        tags, err, permanent, not_found = registry_tags(repo, token)
         if tags is None:
-            return Snapshot(err=err, permanent=permanent)
+            return Snapshot(err=err, permanent=permanent, not_found=not_found)
         ref_digest = registry_digest(repo, token, ref_tag) if ref_tag in tags else None
         return Snapshot(tags=tags, ref_digest=ref_digest,
                         source="registry/auth" if used_auth else "registry")
@@ -325,9 +356,26 @@ def build_ghcr_signature(t: Target) -> tuple[str, bool, bool, bool]:
     snap = ghcr_snapshot(t.owner, t.name, ref_tag)
 
     if snap.err:
+        if snap.not_found:
+            # A 404 is ambiguous: (a) the package isn't published yet — common
+            # on a first-ever publish, where the release run creates it minutes
+            # later — or (b) it's private and this token can't see it (GHCR 404s
+            # rather than 403 to avoid leaking existence). Poll through it: keep
+            # the target alive so a first publish is caught, but start a grace
+            # clock so a genuinely-private/never-appearing package still fails
+            # instead of polling until the Monitor's overall timeout.
+            now = time.monotonic()
+            if t._first_404 is None:
+                t._first_404 = now
+            if now - t._first_404 >= GHCR_GRACE_SECONDS:
+                return (f"INACCESSIBLE — {snap.err}", True, True, True)
+            return (f"{t.repo}: not published yet (waiting)", False, True, False)
         if snap.permanent:
             return (f"INACCESSIBLE — {snap.err}", True, True, True)
         return ("", False, False, False)  # transient: keep polling, don't emit
+
+    # Package is readable again — reset the 404 grace clock.
+    t._first_404 = None
 
     base: Snapshot = t.baseline
 
@@ -501,6 +549,19 @@ def parse_poll_interval() -> int:
     return value
 
 
+def parse_ghcr_grace() -> int:
+    raw = os.environ.get("GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS", "").strip()
+    if not raw:
+        return GHCR_GRACE_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        die(f"GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS={raw!r} is not an integer")
+    if value < 0:
+        die(f"GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS={raw!r} must be >= 0")
+    return value
+
+
 # ── baseline capture ─────────────────────────────────────────────────────
 
 def init_baseline(t: Target) -> None:
@@ -518,7 +579,9 @@ def init_baseline(t: Target) -> None:
 # ── main loop ────────────────────────────────────────────────────────────
 
 def main(argv: list[str]) -> int:
+    global GHCR_GRACE_SECONDS
     poll = parse_poll_interval()
+    GHCR_GRACE_SECONDS = parse_ghcr_grace()
 
     if not shutil.which("gh"):
         die("gh not found")

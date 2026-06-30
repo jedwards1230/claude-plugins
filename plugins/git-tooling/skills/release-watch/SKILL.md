@@ -130,7 +130,9 @@ Each notification line is `<target>: <signature>`:
 | `ghcr:owner/pkg: PUBLISHED owner/pkg new tag(s): v1.4.0` | A new image tag appeared vs baseline — terminal (good) |
 | `ghcr:owner/pkg: PUBLISHED owner/pkg:latest repointed -> sha256:abc…` | A moving tag (`latest`) now points at a new digest — terminal (good) |
 | `ghcr:owner/pkg: owner/pkg: 22 tags, no new version` | Still polling; no new version yet |
-| `ghcr:owner/pkg: INACCESSIBLE — … (needs read:packages scope)` | The package is private and the gh token can't read it — **terminal (failure)**, fails gracefully without crashing the watch |
+| `ghcr:owner/pkg: owner/pkg: not published yet (waiting)` | The package 404s — not published yet (common on a first-ever publish). Still polling inside the grace window; **not terminal** |
+| `ghcr:owner/pkg: INACCESSIBLE — registry denied (… read:packages scope …)` | The package is private and the gh token can't read it (401/403) — **terminal (failure)** at once, fails gracefully without crashing the watch |
+| `ghcr:owner/pkg: INACCESSIBLE — package not found` | The package stayed 404 for the whole grace window (`GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS`, default 600s) — never appeared — **terminal (failure)** |
 | `release-watch: all targets reached a terminal state` | Final line; script exits (exit 1 if any target hit a failure terminal, else 0) |
 
 How to react:
@@ -138,13 +140,15 @@ How to react:
 - **`RELEASED` / `PUBLISHED`** — the release is out. Report the version. If you were running a deploy/version-bump follow-up (e.g. bumping the image tag in homelab-k8s), this is your go signal — but first confirm the tag carries your change (rapid merges can each cut their own version).
 - **`RUN failure …`** — the release workflow failed; the release didn't publish. Surface the run URL and investigate (`gh run view <id> --log-failed`).
 - **`RUN success — no new release` / `idle …`** — nothing published. Usually the merge carried no `semver:*` label (opt-in repos) or wasn't a release. If a release *was* expected, check the PR's labels and the release workflow's `detect` job.
-- **`INACCESSIBLE`** — the GHCR package is private and this token lacks `read:packages`. The watch continues for any other targets and exits non-zero. To read private packages, the `gh` token needs the `read:packages` scope (public packages read anonymously).
+- **`not published yet (waiting)`** — the package 404s but the watch keeps polling. On a first-ever publish the package legitimately doesn't exist until the release run pushes the image (minutes later), so this is expected early on, not a failure. It only becomes terminal if it stays 404 for the whole grace window.
+- **`INACCESSIBLE`** — either the GHCR package is private and this token lacks `read:packages` (a 401/403 scope denial — terminal at once), or it stayed 404 for the entire grace window and never appeared (terminal after the window). The watch continues for any other targets and exits non-zero. To read private packages, the `gh` token needs the `read:packages` scope (public packages read anonymously).
 
 If the user changes their mind mid-watch, call `TaskStop` to cancel early.
 
 ## Notes
 
 - Poll interval defaults to 30s (remote-API-safe). Override via `GIT_TOOLING_RELEASE_POLL_SECONDS` only if the user explicitly wants faster/slower polling (respect rate limits).
+- **First-publish grace window**: a brand-new GHCR package 404s until the release run pushes it. The watcher treats a 404 as `not published yet (waiting)` and keeps polling, so a first-ever publish is caught instead of dropped. A package that stays 404 for `GIT_TOOLING_RELEASE_GHCR_GRACE_SECONDS` (default 600s, measured from the target's first 404) then goes terminal `INACCESSIBLE — package not found`. Raise this for slow image builds; set it to `0` to fail on the first 404 (the old behavior). Note this applies only to 404; a `read:packages` scope denial (401/403) is still terminal immediately.
 - **GHCR detection** uses the GitHub REST packages API (`/users/<owner>/packages/container/<pkg>/versions`) when the token has `read:packages` — authoritative, newest-first, with full tag metadata. Nested package names are URL-encoded (`charts/hermes` → `charts%2Fhermes`). When that scope is absent, it falls back to the anonymous OCI registry (`ghcr.io/v2/<pkg>/tags/list`), which reads **public** packages with no special scope. Private packages with an unscoped token fail gracefully (`INACCESSIBLE`), never crash.
 - **No-`--tag` GHCR** watches for any *new* tag (set difference vs the start baseline) **or** the reference tag (`latest`, or your `--tag`) repointing to a new digest — so both "new immutable version tag" and "moving `latest` re-pushed to a new build" count as a publish.
 - **Repo release** anchors on the most recent run of the release workflow (file basename `release.yml`/`auto-release.yml`, or a workflow whose name contains "release") plus `releases/latest`. A change to `releases/latest` vs the baseline is the publish signal; the workflow run's conclusion is what makes a *failure* visible instead of silent.
