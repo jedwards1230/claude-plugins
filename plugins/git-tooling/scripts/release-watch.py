@@ -262,7 +262,10 @@ def registry_tags(repo: str, token: str):
                 "registry denied (token lacks read:packages scope for this "
                 "private package)", True, False)
     if status == 404:
-        return None, "package not found", True, True
+        # Only *conditionally* terminal: the consumer polls through a grace
+        # window (driven by not_found) before giving up, so permanent=False —
+        # don't rely on caller check-ordering to keep the grace logic alive.
+        return None, "package not found", False, True
     return None, f"registry HTTP {status}", False, False
 
 
