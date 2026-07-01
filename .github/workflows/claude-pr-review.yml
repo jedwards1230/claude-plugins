@@ -6,7 +6,7 @@ name: PR Review
 
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, synchronize, ready_for_review, reopened, closed]
 
 permissions:
   contents: read
@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   review:
+    if: github.event.action != 'closed'
     uses: jedwards1230/release-workflows/.github/workflows/claude-pr-review.yml@v1
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -35,3 +36,11 @@ jobs:
         - No secrets committed in plugin files.
         - For plugin files (manifest, hooks, skills, agents, commands), use plugin-dev's plugin-validator / skill-reviewer agents.
         Do NOT re-flag formatting that CI owns.
+
+  cancel-review:
+    if: github.event.action == 'closed'
+    permissions:
+      actions: write
+    uses: jedwards1230/release-workflows/.github/workflows/claude-pr-review-cancel.yml@v1
+    with:
+      review_workflow: ${{ github.workflow }}
