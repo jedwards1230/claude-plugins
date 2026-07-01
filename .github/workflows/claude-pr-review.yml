@@ -43,4 +43,4 @@ jobs:
       actions: write
     uses: jedwards1230/release-workflows/.github/workflows/claude-pr-review-cancel.yml@v1
     with:
-      review_workflow: "PR Review"
+      review_workflow: ${{ github.workflow }}
