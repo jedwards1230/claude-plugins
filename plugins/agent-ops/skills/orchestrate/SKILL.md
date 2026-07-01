@@ -50,6 +50,7 @@ description: >-
   </commentary>
 
   </example>
+argument-hint: "[--model opus|sonnet|haiku] <task, or several>"
 ---
 
 # Orchestrate
@@ -96,6 +97,22 @@ its type:
 - **Leaf types** with a fixed tool list (`Explore`, `Plan`, every `*-developer` /
   specialist agent) have **no** Agent tool — they can't delegate. They're great
   *workers* under an owner, but they can't *be* an owner.
+
+## Selecting the owner model
+
+The model pinned on the **owner** is the most consequential model choice — it
+runs the whole task's orchestration. Set it when spawning the owner. Honor an
+optional owner-model selector from the invocation arguments, in either form:
+
+- **flag:** `--model <name>` (e.g. `--model opus`)
+- **prose:** "use an opus agent", "orchestrate this with sonnet"
+
+Apply it as the `model` of the owner agent(s) spawned — **not** this skill's own
+`model:` frontmatter, which only sets the depth-0 session running the skill. For
+the many-tasks form, an optional per-task selector may set each owner's model
+independently; otherwise apply one selector to all owners. Absent a selector, the
+owner inherits the session model. This is separate from pinning cheaper models on
+the owner's *sub*-workers (see "Depth" below).
 
 ## Fork vs. fresh spawn
 
@@ -188,12 +205,13 @@ user never sees the subagents' raw output.
 | One task                   | One owner agent (depth 1) that orchestrates its own subagents.     |
 | Many tasks                 | One owner per task, spawned in parallel; each owns its subtree.    |
 | Owner type                 | Must be unrestricted (`general-purpose` / `claude` / `fork`).      |
+| Owner model                | Pick via `--model <name>` or prose ("use an opus agent"); sets the owner spawned, not the skill's own `model:`. |
 | Worker-only types          | `Explore`, `Plan`, `*-developer` (no Agent tool).                  |
 | Fork vs fresh              | Fresh packed brief by default; `fork` only for tight continuation. |
 | Specialist as owner        | Spawn unrestricted; tell it to read the agent `.md` and assume it. |
 | Max nesting                | Depth 5, fixed at spawn. Keep it 1–2; prefer breadth.              |
 | Context down               | Pack: task, pointers, prior findings, constraints, return shape.   |
 | Returns up                 | Digest, not transcript — synthesize at each level.                 |
-| Per-spawn model            | Pin `model: sonnet` (etc.) on cheaper explore/implement steps.     |
+| Sub-worker model           | Pin `model: sonnet` (etc.) on cheaper explore/implement steps.     |
 | Deterministic pipeline     | Use the Workflow tool instead.                                     |
 | Multi-session coordination | Use agent teams instead.                                           |
