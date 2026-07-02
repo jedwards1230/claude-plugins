@@ -233,18 +233,27 @@ sentinel precisely so a verbatim apply fails loudly instead). Cross-check each r
 context against what CI really emits on a recent commit of the default branch:
 
 ```bash
-# Names of check-runs + legacy statuses on the default branch's HEAD (a recent PR head works too)
-SHA=$(gh api "repos/$OWNER/$REPO/commits/$DEFAULT_BRANCH" --jq '.sha')
-gh api "repos/$OWNER/$REPO/commits/$SHA/check-runs" --jq '.check_runs[].name'
-gh api "repos/$OWNER/$REPO/commits/$SHA/status"     --jq '.statuses[].context'
+# Observed check-run + commit-status names on a recent commit. Prefer a recent PR's
+# head SHA (many workflows run on PRs, not on pushes to the default branch); fall back
+# to the default branch HEAD. Paginate both, and use the /statuses LIST endpoint
+# (not /status, which returns only the combined/latest view) so nothing is missed.
+SHA=$(gh api "repos/$OWNER/$REPO/pulls?state=all&per_page=1" --jq '.[0].head.sha // empty')
+[ -z "$SHA" ] && SHA=$(gh api "repos/$OWNER/$REPO/commits/$DEFAULT_BRANCH" --jq '.sha')
+gh api --paginate "repos/$OWNER/$REPO/commits/$SHA/check-runs" --jq '.check_runs[].name'
+gh api --paginate "repos/$OWNER/$REPO/commits/$SHA/statuses"   --jq '.[].context'
 ```
 
-For each required `context`, report whether a matching check-run/status name was observed.
-A required context with **no** matching check-run is a **critical** finding — name it
-explicitly ("`main` requires check `X`, which no recent check-run produces → all merges
-blocked"). If the repo has no CI at all (no workflows) yet the ruleset requires a check,
-that's the same critical gap. If HEAD has no check-runs to compare against (brand-new repo,
-no recent runs), mark the row `❓` rather than guessing.
+The **observed check-run/status names are the gating signal** — judge against them, not
+against whether `.github/workflows/` exists (required checks can come from non-Actions
+providers, and Actions may only run on PR heads). For each required `context`:
+
+- Matches an observed name → `✅`.
+- Does **not** match, **and** other checks *were* observed on the sampled commit (so CI
+  runs — just not that context) → **critical** `⚠️`: name it explicitly ("`main` requires
+  check `X`, which no recent check-run produces → all merges blocked").
+- No check-runs/statuses observed at all on the sampled commit → `❓` (can't tell — CI may
+  run only on PR heads, use a provider not visible here, or the repo may be new). Do **not**
+  infer "no CI → critical" from an empty sample; report it as unknown.
 
 **Do not decide which class (A/B/C) the repo *should* be** — that's an inventory
 concern owned by the caller, not this agent. Instead:
