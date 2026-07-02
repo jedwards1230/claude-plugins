@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "22.0.7"
+    "version": "23.0.0"
   },
   "plugins": [
     {
@@ -61,6 +61,11 @@
       "name": "agent-ops",
       "source": "./plugins/agent-ops",
       "description": "Task-ownership orchestration — delegate a task (or several) into a hierarchy where one owner agent runs each task end-to-end and orchestrates its own subagents (explore → implement → verify)"
+    },
+    {
+      "name": "repo-standards",
+      "source": "./plugins/repo-standards",
+      "description": "Preferred GitHub repository standards, audited/applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
     }
   ]
 }
