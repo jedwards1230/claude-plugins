@@ -222,6 +222,38 @@ From the full body, report:
   every class)
 - `bypass_actors` — note if any exist and for whom (e.g. `RepositoryRole` id `5`
   = built-in Admin, `always` bypass mode)
+- `required_status_checks` — note each required check's `context` (empty/absent is
+  fine; not every class gates on CI)
+
+**Required checks must resolve to a real check-run — validate, don't assume.** If the
+`main` ruleset has a `required_status_checks` rule, a context that no check-run on the
+repo actually produces will **silently block every merge** — this is the single sharpest
+footgun in the standard (the shipped overlay template uses a `REPLACE_WITH_YOUR_CI_JOB_NAME`
+sentinel precisely so a verbatim apply fails loudly instead). Cross-check each required
+context against what CI really emits on a recent commit of the default branch:
+
+```bash
+# Observed check-run + commit-status names on a recent commit. Prefer a recent PR's
+# head SHA (many workflows run on PRs, not on pushes to the default branch); fall back
+# to the default branch HEAD. Paginate both, and use the /statuses LIST endpoint
+# (not /status, which returns only the combined/latest view) so nothing is missed.
+SHA=$(gh api "repos/$OWNER/$REPO/pulls?state=all&per_page=1" --jq '.[0].head.sha // empty')
+[ -z "$SHA" ] && SHA=$(gh api "repos/$OWNER/$REPO/commits/$DEFAULT_BRANCH" --jq '.sha')
+gh api --paginate "repos/$OWNER/$REPO/commits/$SHA/check-runs" --jq '.check_runs[].name'
+gh api --paginate "repos/$OWNER/$REPO/commits/$SHA/statuses"   --jq '.[].context'
+```
+
+The **observed check-run/status names are the gating signal** — judge against them, not
+against whether `.github/workflows/` exists (required checks can come from non-Actions
+providers, and Actions may only run on PR heads). For each required `context`:
+
+- Matches an observed name → `✅`.
+- Does **not** match, **and** other checks *were* observed on the sampled commit (so CI
+  runs — just not that context) → **critical** `⚠️`: name it explicitly ("`main` requires
+  check `X`, which no recent check-run produces → all merges blocked").
+- No check-runs/statuses observed at all on the sampled commit → `❓` (can't tell — CI may
+  run only on PR heads, use a provider not visible here, or the repo may be new). Do **not**
+  infer "no CI → critical" from an empty sample; report it as unknown.
 
 **Do not decide which class (A/B/C) the repo *should* be** — that's an inventory
 concern owned by the caller, not this agent. Instead:
@@ -315,6 +347,7 @@ Manifests detected: <list, or "none">
 | Block deletion | true | ... | |
 | Block force-push | true | ... | |
 | Bypass actors | class-dependent | ... | ℹ️ |
+| Required checks resolve to real check-runs | yes (if any required) | ... | ✅/⚠️/⏭️/❓ |
 
 Inferred class shape: A / B / C (best guess from live rules — not authoritative)
 Other rulesets present: <name(s), or "none">
@@ -348,15 +381,18 @@ on which class the repo is meant to be).
    `repos/<name>`.
 2. Run the Dimension 1 `gh api` reads; also scan workflow files for unpinned refs.
 3. Run the Dimension 2 reads (Dependabot API + manifest glob + `dependabot.yml`).
-4. Run the Dimension 3 reads (`rulesets` list, then the `main` ruleset's full body).
+4. Run the Dimension 3 reads (`rulesets` list, then the `main` ruleset's full body);
+   if it requires any status checks, also read the default branch HEAD's check-runs +
+   statuses and cross-check each required `context` against them.
 5. Run the Dimension 4 reads (README/CONTRIBUTING/CLAUDE.md content + cross-doc
    grep for `CLAUDE.md` references).
 6. Fill in the report skeleton exactly as specified above — do not reorder
    sections, rename columns, or add prose paragraphs between tables. Consistency
    across parallel runs matters more than narrative polish.
 7. Derive the "Top Gaps" list from whatever rows are `⚠️`, ranked roughly by
-   blast radius (a missing branch ruleset or disabled security fixes outranks a
-   missing `## Contributing` link).
+   blast radius — a ruleset requiring a check that no check-run produces (merges
+   silently blocked) or a missing branch ruleset or disabled security fixes outranks
+   a missing `## Contributing` link.
 
 ## Edge cases
 
