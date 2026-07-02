@@ -1,0 +1,101 @@
+# .github/dependabot.yml — Dependabot version updates
+#
+# Opt-in, per-repo. Keep ONLY the `updates:` entries whose ecosystem this repo
+# actually has a manifest for; delete the rest. One entry per (ecosystem,
+# directory) pair — add a second `gomod`/`npm`/etc. block per extra subdir.
+#
+# Ecosystem ↔ manifest cheat-sheet (what to look for before keeping a block):
+#   gomod          go.mod
+#   npm            package.json          (also yarn/pnpm)
+#   cargo          Cargo.toml
+#   pip            requirements*.txt / pyproject.toml
+#   docker         Dockerfile
+#   github-actions .github/workflows/*.yml   (keep this on ~every repo with CI)
+#
+# Convention: group all bumps per ecosystem into ONE PR (`patterns: ["*"]`),
+# cap open PRs, and label + prefix commits so they classify cleanly.
+version: 2
+updates:
+  # --- CI actions: keep on any repo with .github/workflows/ ---
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # --- Go modules (delete if no go.mod; duplicate per extra module dir) ---
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(gomod)"
+    groups:
+      go:
+        patterns: ["*"]
+
+  # --- npm (delete if no package.json; duplicate per extra package dir) ---
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(npm)"
+    groups:
+      npm:
+        patterns: ["*"]
+
+  # --- Rust crates (delete if no Cargo.toml; duplicate per extra crate dir) ---
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(cargo)"
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  # --- Python (delete if no requirements*.txt / pyproject.toml) ---
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(pip)"
+    groups:
+      pip:
+        patterns: ["*"]
+
+  # --- Docker base images (delete if no Dockerfile) ---
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ["dependency", "chore"]
+    commit-message:
+      prefix: "deps(docker)"
+    groups:
+      docker:
+        patterns: ["*"]
