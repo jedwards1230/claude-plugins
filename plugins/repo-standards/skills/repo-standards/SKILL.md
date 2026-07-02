@@ -116,7 +116,9 @@ any repo where no check run reports that exact context — a footgun across unev
 a recent PR:
 
 ```bash
-DIR="$(dirname "$0")/templates"
+# DIR = this skill's templates/ dir (the class JSONs sit next to SKILL.md);
+# point it at that path — e.g. run from the skill dir with DIR=templates.
+DIR=templates
 jq '.rules += [input]' "$DIR/class-a-public.json" "$DIR/status-checks-overlay.json"
 ```
 

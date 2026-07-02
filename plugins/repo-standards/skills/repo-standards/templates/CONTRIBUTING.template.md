@@ -20,13 +20,13 @@ RULES (see SKILL.md "Documentation files — README / CONTRIBUTING / CLAUDE.md")
 - README links here with a short `## Contributing` section.
 -->
 
-# Contributing to <REPO>
+# Contributing to \<REPO\>
 
-<1–2 sentence description of what the repo is; all changes go through the workflow below.>
+\<1–2 sentence description of what the repo is; all changes go through the workflow below.\>
 
 ## Prerequisites
 
-<Toolchain + versions.>
+\<Toolchain + versions.\>
 <!-- [conditional: repo has a .devcontainer/] -->
 The repository ships a devcontainer (`.devcontainer/`) with the full toolchain preinstalled — opening the repo in it is the quickest way to get a working environment.
 
@@ -47,7 +47,7 @@ Keep documentation current as part of the change, not as a follow-up — update 
 <!-- [conditional: repo has .pre-commit-config.yaml] -->
 - Run `pre-commit run --all-files` (this repo uses pre-commit hooks).
 <!-- [conditional: a blocking Stop hook gates commits locally] -->
-- A local commit gate runs <checks, e.g. `go vet` + golangci-lint> and will block until they pass — fix any findings before committing.
+- A local commit gate runs \<checks, e.g. `go vet` + golangci-lint\> and will block until they pass — fix any findings before committing.
 
 ## Branching & commits
 
@@ -72,7 +72,7 @@ Keep documentation current as part of the change, not as a follow-up — update 
 Releases are opt-in. Before merging, add one of `semver:patch`, `semver:minor`, or `semver:major` to the PR to cut a release on merge; with no label, merging does not release. A release publishes a single immutable `vX.Y.Z` tag with auto-generated release notes.
 
 <!-- [variant B — no versioned release (continuous deploy / GitOps / ops repo)] -->
-This repo is not a versioned artifact — there is no release step. Merging to `main` <deploys automatically via X / is applied via GitOps / builds the image>.
+This repo is not a versioned artifact — there is no release step. Merging to `main` \<deploys automatically via X / is applied via GitOps / builds the image\>.
 
 <!-- [variant C — bespoke] -->
-<Describe the actual release mechanism in 1–2 sentences; link the release workflow file.>
+\<Describe the actual release mechanism in 1–2 sentences; link the release workflow file.\>
