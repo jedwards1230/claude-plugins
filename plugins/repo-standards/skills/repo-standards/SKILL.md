@@ -109,9 +109,12 @@ JSON bodies live in `templates/` next to this file — basic examples to adapt:
 | `class-c-private-scratch.json` | C |
 | `status-checks-overlay.json` | Optional CI gate |
 
-**Optional CI gate.** The overlay adds a required check whose context is named `CI` — change that
-name in `status-checks-overlay.json` to match your CI job. A required check blocks *all* merges on
-any repo where no check run reports that exact context — a footgun across uneven CI. Apply per repo
+**Optional CI gate.** The overlay ships a deliberately-invalid placeholder context
+(`REPLACE_WITH_YOUR_CI_JOB_NAME`) — replace it in `status-checks-overlay.json` with the **exact**
+name of a check run your CI produces (the *job* name, e.g. `Test & Lint` — not the workflow name).
+A required check blocks *all* merges on any repo where no check run reports that exact context — a
+footgun across uneven CI, and the reason the default is a loud sentinel rather than a plausible
+`CI`: a verbatim apply fails obviously instead of silently bricking `main`. Apply per repo
 (recommended for Class A repos that run CI), only after confirming the name matches a real check on
 a recent PR:
 
