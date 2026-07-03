@@ -28,7 +28,10 @@ Don't try to install it yourself; surface the command and let the user decide.
 2. Write/Edit plain `.html`/`.css`/`.js` files directly into that printed
    directory (an `index.html` is the entry point). No build step, no
    framework — the daemon serves the files as-is and injects a small
-   live-reload script.
+   live-reload script. `index.html` must be a **complete document**
+   (`<!doctype html>` + `<head>` + `<body>`) — scrim serves it verbatim and,
+   unlike the claude.ai Artifact tool, does not wrap bare fragments in a
+   skeleton.
 3. Every save triggers a full-page reload in any open browser tab via SSE —
    you don't re-run anything to see the next version.
 4. **Always surface the canvas URL to the user** after `add` (and again after
