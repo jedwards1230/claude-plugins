@@ -313,17 +313,32 @@ fi
 
 # ---------------------------------------------------------------------------
 # Resolve + dedupe targets
+#
+# Dedup compares full resolved slugs directly (a linear membership scan — no
+# home-rolled delimiter to collide with, and no bash-4 associative array, so
+# this still runs on the stock macOS bash 3.2). Target counts are small
+# (dozens of repos at most), so the O(n²) scan is irrelevant. FAILED collects
+# raw targets that didn't resolve so we can name them before bailing, instead
+# of a bare "no resolvable repos" with no clue which inputs were bad.
 # ---------------------------------------------------------------------------
 RESOLVED=()
-SEEN="|"
+FAILED=()
 for raw in "${RAW[@]}"; do
-  slug="$(resolve_target "$raw")" || continue
-  case "$SEEN" in
-    *"|$slug|"*) continue ;;
-  esac
-  SEEN="${SEEN}${slug}|"
+  if ! slug="$(resolve_target "$raw")"; then
+    FAILED+=("$raw")
+    continue
+  fi
+  dup=0
+  for seen in ${RESOLVED[@]+"${RESOLVED[@]}"}; do
+    [ "$seen" = "$slug" ] && { dup=1; break; }
+  done
+  [ "$dup" -eq 1 ] && continue
   RESOLVED+=("$slug")
 done
+
+if [ "${#FAILED[@]}" -gt 0 ]; then
+  echo "$SCRIPT_NAME: could not resolve ${#FAILED[@]} target(s): ${FAILED[*]}" >&2
+fi
 
 if [ "${#RESOLVED[@]}" -eq 0 ]; then
   echo "$SCRIPT_NAME: no resolvable repos to audit" >&2
@@ -353,6 +368,15 @@ fetch_graphql_chunk() {
   local decl="" aliases="" i owner repo
   local -a gh_args=()
   for i in "${!chunk[@]}"; do
+    # Belt-and-suspenders: slugs already came through resolve_target, but
+    # guard the owner/repo split anyway. A malformed entry is skipped (no
+    # alias emitted) rather than aborting the batch — its r${i} is then
+    # absent from the response, so the main loop renders it as an ERROR row,
+    # consistent with the script's graceful-degradation contract.
+    if [[ ! "${chunk[$i]}" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+      echo "$SCRIPT_NAME: skipping malformed slug '${chunk[$i]}' in GraphQL batch" >&2
+      continue
+    fi
     owner="${chunk[$i]%%/*}"
     repo="${chunk[$i]#*/}"
     decl="${decl}\$owner${i}: String!, \$name${i}: String!, "
@@ -611,7 +635,7 @@ enrich_rulesets_with_pr_params() {
 ALL_JSON=()
 TOTAL="${#RESOLVED[@]}"
 OFFSET=0
-GQL_ERR_FILE="$(mktemp)"
+GQL_ERR_FILE="$(mktemp)" || { echo "$SCRIPT_NAME: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$GQL_ERR_FILE"' EXIT
 
 GQL_FIELDS="$GQL_FIELDS_LIGHT"
@@ -638,23 +662,23 @@ while [ "$OFFSET" -lt "$TOTAL" ]; do
 
     if [ "$DEEP" -eq 1 ]; then
       obj="$(normalize_repo_json_deep "$node" "$slug")"
-      if [ "$(printf '%s' "$obj" | jq -r '.error')" != "true" ]; then
+      # jq -e sets exit status from the value of .error itself (true → 0,
+      # false → 1), so "not an error repo → enrich" reads directly off the
+      # boolean without stringifying and string-comparing it.
+      if ! printf '%s' "$obj" | jq -e '.error' >/dev/null 2>&1; then
         deep_rest="$(fetch_deep_rest "$slug")"
         obj="$(jq -c -n --argjson a "$obj" --argjson b "$deep_rest" '$a * $b')"
         rulesets_enriched="$(enrich_rulesets_with_pr_params "$slug" "$(printf '%s' "$obj" | jq -c '.rulesets')")"
         obj="$(printf '%s' "$obj" | jq -c --argjson rs "$rulesets_enriched" '.rulesets = $rs | .has_pages = .pages.enabled')"
       fi
     else
+      # Non-deep never fetches these three REST-only fields; they're always
+      # null here (both for good repos and error rows), so set them
+      # unconditionally.
       obj="$(normalize_repo_json "$node" "$slug")"
-      if [ "$(printf '%s' "$obj" | jq -r '.error')" = "true" ]; then
-        obj="$(printf '%s' "$obj" | jq -c '. + {
-          secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
-        }')"
-      else
-        obj="$(printf '%s' "$obj" | jq -c '. + {
-          secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
-        }')"
-      fi
+      obj="$(printf '%s' "$obj" | jq -c '. + {
+        secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
+      }')"
     fi
     ALL_JSON+=("$obj")
   done
