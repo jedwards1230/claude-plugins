@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # repo-standards-audit.sh — portable audit of repo-standards conformance fields.
 #
-# Reports, per repo: visibility, wiki/projects toggles, delete-branch-on-merge,
-# allow-update-branch, allowed merge methods, the main/default-branch ruleset(s),
-# and (with --deep) secret-scanning / push-protection / Dependabot security-updates
-# status. Works against ANY GitHub repo you can `gh api` — no monorepo, no
-# hardcoded owner/org, no repos.conf. Requires `gh` (authenticated) and `jq`.
+# Default mode reports, per repo: visibility, wiki/projects toggles,
+# delete-branch-on-merge, allow-update-branch, allowed merge methods, and the
+# main/default-branch ruleset(s). One batched GraphQL query per ~20-repo
+# chunk, no REST calls — cheap enough to run over a whole portfolio.
 #
-# See --help for usage, input modes, and the rate-limit/batching design.
+# --deep expands coverage to the full lever catalog: repo metadata/features,
+# PR & merge behavior, the complete Security & Analysis panel, the Actions
+# permissions surface, per-ruleset pull_request rule parameters, immutable
+# releases, Pages, environments, autolinks, interaction limits, and custom
+# properties. See --help for the field list and rate-limit/batching design.
+#
+# Works against ANY GitHub repo you can `gh api` — no monorepo, no
+# hardcoded owner/org, no repos.conf. Requires `gh` (authenticated) and `jq`.
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]:-$0}")"
@@ -35,10 +41,15 @@ TARGET
 OPTIONS
   --file <path>   Read additional targets from a file, one per line.
                    Blank lines and lines starting with '#' are ignored.
-  --deep          Also fetch secret-scanning / push-protection / Dependabot
-                   security-updates status (1 extra REST call per repo).
-                   Off by default; those columns show '-' without it.
-  --json          Emit a JSON array instead of the table.
+  --deep          Fetch the full lever catalog (~83 settings): repo
+                   metadata/features, PR & merge behavior, the complete
+                   Security & Analysis panel, Actions permissions,
+                   per-ruleset pull_request parameters, immutable releases,
+                   Pages, environments, autolinks, interaction limits, and
+                   custom properties. Off by default — see RATE LIMITS.
+  --json          Emit a JSON array instead of the table. In --deep mode
+                   this is a comprehensive nested object per repo (see
+                   COLUMNS below); without --deep it's the lighter shape.
   -h, --help      Show this help.
 
 STDIN
@@ -52,30 +63,79 @@ EXAMPLES
   repo-standards-audit.sh jedwards1230/scrim        # one repo by slug
   repo-standards-audit.sh org/repo-a org/repo-b ../local-clone
   repo-standards-audit.sh --file repos.txt --deep
-  repo-standards-audit.sh org/repo-a --json | jq .
+  repo-standards-audit.sh org/repo-a --deep --json | jq .
 
 RATE LIMITS
-  The bulk fields (visibility, wiki/projects, delete/update-branch, merge
-  methods, rulesets) come from ONE batched GraphQL query per ~20-repo chunk
-  (aliased repository() blocks) — GraphQL has its own 5000-point/hr budget,
-  separate from REST, and a chunked query costs roughly 1 request regardless
-  of how many repos are in it. `--deep` adds one REST call per repo (against
-  the 5000/hr REST budget) for the three fields the GraphQL API does not
-  expose (secret scanning, push protection, Dependabot security updates) —
-  keep it off for large batches unless you need those columns.
+  Default mode: the bulk fields (visibility, wiki/projects, delete/update
+  branch, merge methods, rulesets) come from ONE batched GraphQL query per
+  ~20-repo chunk (aliased repository() blocks) — GraphQL has its own
+  5000-point/hr budget, separate from REST, and a chunked query costs
+  roughly 1 request regardless of how many repos are in it. No REST calls
+  are made in default mode.
 
-COLUMNS
+  --deep mode: one (larger) batched GraphQL query per ~20-repo chunk
+  covers everything the GraphQL schema exposes (repo metadata/features,
+  PR/merge enums, ruleset names + rule types), same 1-request-per-chunk
+  cost. On top of that, EVERYTHING else is REST, against the repo's own
+  5000/hr budget: the repo object is fetched ONCE per repo and reused for
+  every field that lives on it (security_and_analysis, has_downloads,
+  pull_request_creation_policy, use_squash_pr_title_as_default), plus one
+  call per distinct sub-resource endpoint per repo (vulnerability-alerts,
+  automated-security-fixes, private-vulnerability-reporting,
+  actions/permissions, actions/permissions/workflow,
+  actions/permissions/access, pages, environments, autolinks,
+  interaction-limits, immutable-releases, properties/values) — 13 REST
+  calls per repo total. Per-ruleset pull_request parameter detail
+  (GET /rulesets/{id}) is fetched ONLY for rulesets that actually declare a
+  pull_request rule, adding roughly 1 more REST call per such ruleset
+  (usually 0 or 1 per repo). Every REST call degrades to 'n/a' (unavailable)
+  or 'off' (a real, known-absent state) on any error — 204/403/404/405/422
+  are all expected on some repos (private without GHAS, public repos where
+  an endpoint is org/private-only, features never enabled) and never abort
+  the run. Budget rule of thumb for --deep: 1 GraphQL request per ~20-repo
+  chunk + ~13 REST requests per repo + ~1 REST request per PR-bearing
+  ruleset. Keep --deep off for large batches unless you need those columns.
+
+COLUMNS (default table)
   VIS      visibility (public/private/internal)
   WIKI     has_wiki (on = wiki enabled)
   PROJ     has_projects (on = projects enabled)
   DELBR    delete_branch_on_merge
   UPDBR    allow_update_branch
-  SECSCAN  secret scanning status (--deep only)
-  PUSHPROT secret scanning push-protection status (--deep only)
-  DEPSEC   Dependabot security-updates status (--deep only)
   MERGE    allowed merge methods: S/M/R = squash/merge-commit/rebase,
            uppercase = allowed, lowercase = disabled (e.g. "SmR")
   RULESET  main/default-branch ruleset(s) as "name/enforcement"; "-" if none
+
+COLUMNS (--deep table, in addition to the above)
+  FLAGS     packed single-letter feature flags, uppercase = on/true,
+            lowercase = off/false: t=is_template a=archived
+            d=has_discussions p=has_pages f=allow_forking
+            s=web_commit_signoff_required
+  AUTOMRG   allow_auto_merge
+  SECSCAN   secret_scanning status
+  PUSHPROT  secret_scanning_push_protection status
+  NONPROV   secret_scanning_non_provider_patterns status
+  VALCHK    secret_scanning_validity_checks status
+  DEPSEC    dependabot_security_updates status
+  VULNALRT  vulnerability_alerts_enabled (Dependabot alerts on/off)
+  AUTOFIX   automated_security_fixes_enabled
+  PRIVVULN  private_vulnerability_reporting_enabled
+  ACTENB    Actions enabled for the repo
+  ALLOWACT  actions/permissions allowed_actions (all/local_only/selected)
+  SHAPIN    actions/permissions sha_pinning_required
+  WFPERM    actions/permissions/workflow default_workflow_permissions
+  APPRVPR   actions/permissions/workflow can_approve_pull_request_reviews
+  ACCESSLV  actions/permissions/access access_level
+  IMMUT     releases.immutable_releases_enabled
+  RULETYPE  rule types on the first ruleset, short codes (see legend printed
+            with the table); additional rulesets are summarized as a count
+  PRPARAMS  pull_request rule parameters on the first ruleset: RTR = required
+            review thread resolution, ARC = required approving review
+            count, MRG = allowed_merge_methods (S/M/R, same convention as
+            MERGE); "-" if the ruleset has no pull_request rule
+
+  Everything not shown in the table (topics, full environment/autolink
+  lists, per-ruleset bypass actors, etc.) is present in `--deep --json`.
 
 For the full body of a ruleset (rules + bypass actors, to compare against a
 class template), re-fetch it directly:
@@ -271,13 +331,24 @@ if [ "${#RESOLVED[@]}" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# GraphQL: batch the cheap, bulk-fetchable fields, ~20 repos per request.
+# GraphQL: batch the bulk-fetchable fields, ~20 repos per request.
+#
+# Two field sets: GQL_FIELDS_LIGHT (default mode, unchanged from the
+# original cheap query) and GQL_FIELDS_DEEP (superset — repo metadata,
+# feature flags, PR/merge enums, and per-ruleset rule types + a databaseId
+# so --deep can fetch per-ruleset pull_request parameters via REST). Both
+# cost ~1 GraphQL request per chunk regardless of field count.
 # ---------------------------------------------------------------------------
 CHUNK_SIZE=20
-GQL_FIELDS='nameWithOwner visibility hasWikiEnabled hasProjectsEnabled deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed rulesets(first: 10) { nodes { name enforcement } }'
 
-# fetch_graphql_chunk <slug> [<slug> ...] — one batched query for the whole chunk.
+GQL_FIELDS_LIGHT='nameWithOwner visibility hasWikiEnabled hasProjectsEnabled deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed rulesets(first: 10) { nodes { name enforcement } }'
+
+GQL_FIELDS_DEEP='nameWithOwner visibility defaultBranchRef { name } isTemplate isArchived isFork isMirror isEmpty isLocked isDisabled description homepageUrl repositoryTopics(first: 20) { nodes { topic { name } } } hasIssuesEnabled hasWikiEnabled hasProjectsEnabled hasDiscussionsEnabled forkingAllowed webCommitSignoffRequired licenseInfo { spdxId } isSecurityPolicyEnabled createdAt pushedAt deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed squashMergeCommitTitle squashMergeCommitMessage mergeCommitTitle mergeCommitMessage hasVulnerabilityAlertsEnabled rulesets(first: 20) { nodes { databaseId name target enforcement rules(first: 20) { nodes { type } } } }'
+
+# fetch_graphql_chunk <fields> <slug> [<slug> ...] — one batched query for the whole chunk.
 fetch_graphql_chunk() {
+  local fields="$1"
+  shift
   local -a chunk=("$@")
   local decl="" aliases="" i owner repo
   local -a gh_args=()
@@ -285,14 +356,14 @@ fetch_graphql_chunk() {
     owner="${chunk[$i]%%/*}"
     repo="${chunk[$i]#*/}"
     decl="${decl}\$owner${i}: String!, \$name${i}: String!, "
-    aliases="${aliases}r${i}: repository(owner: \$owner${i}, name: \$name${i}) { ${GQL_FIELDS} } "
+    aliases="${aliases}r${i}: repository(owner: \$owner${i}, name: \$name${i}) { ${fields} } "
     gh_args+=(-f "owner${i}=${owner}" -f "name${i}=${repo}")
   done
   decl="${decl%, }"
   gh api graphql -f "query=query(${decl}) { ${aliases} }" "${gh_args[@]}"
 }
 
-# Normalize one GraphQL repository object (or null) into our result schema.
+# Normalize one GraphQL repository object (or null) into the light result schema.
 normalize_repo_json() {
   local node="$1" slug="$2"
   if [ "$node" = "null" ]; then
@@ -314,25 +385,237 @@ normalize_repo_json() {
   }'
 }
 
-# Fetch the --deep-only fields (secret scanning, push protection, Dependabot
-# security updates) with a single REST call. Degrades to "n/a" on any
-# failure (no admin access, GHAS unavailable on a free private repo, etc).
-fetch_deep_fields() {
-  local slug="$1" owner repo
-  owner="${slug%%/*}"
-  repo="${slug#*/}"
-  gh api "repos/${owner}/${repo}" --jq '{
-    secret_scanning: (.security_and_analysis.secret_scanning.status // "n/a"),
-    secret_scanning_push_protection: (.security_and_analysis.secret_scanning_push_protection.status // "n/a"),
-    dependabot_security_updates: (.security_and_analysis.dependabot_security_updates.status // "n/a")
-  }' 2>/dev/null || printf '%s' '{"secret_scanning":"n/a","secret_scanning_push_protection":"n/a","dependabot_security_updates":"n/a"}'
+# Normalize one GraphQL repository object (or null) into the deep base schema
+# (pre-REST-enrichment). REST fields are merged on top in fetch_deep_rest.
+normalize_repo_json_deep() {
+  local node="$1" slug="$2"
+  if [ "$node" = "null" ]; then
+    jq -n --arg repo "$slug" '{repo: $repo, error: true}'
+    return 0
+  fi
+  printf '%s' "$node" | jq -c '{
+    repo: .nameWithOwner,
+    error: false,
+    visibility: (.visibility // "n/a" | ascii_downcase),
+    default_branch: (.defaultBranchRef.name // null),
+    is_template: .isTemplate,
+    archived: .isArchived,
+    is_fork: .isFork,
+    is_mirror: .isMirror,
+    is_empty: .isEmpty,
+    is_locked: .isLocked,
+    is_disabled: .isDisabled,
+    description: .description,
+    homepage: .homepageUrl,
+    topics: [.repositoryTopics.nodes[]?.topic.name],
+    has_issues: .hasIssuesEnabled,
+    has_wiki: .hasWikiEnabled,
+    has_projects: .hasProjectsEnabled,
+    has_discussions: .hasDiscussionsEnabled,
+    allow_forking: .forkingAllowed,
+    web_commit_signoff_required: .webCommitSignoffRequired,
+    license_spdx_id: (.licenseInfo.spdxId // null),
+    is_security_policy_enabled: .isSecurityPolicyEnabled,
+    created_at: .createdAt,
+    pushed_at: .pushedAt,
+    pull_requests: {
+      allow_squash_merge: .squashMergeAllowed,
+      allow_merge_commit: .mergeCommitAllowed,
+      allow_rebase_merge: .rebaseMergeAllowed,
+      allow_auto_merge: .autoMergeAllowed,
+      delete_branch_on_merge: .deleteBranchOnMerge,
+      allow_update_branch: .allowUpdateBranch,
+      squash_merge_commit_title: .squashMergeCommitTitle,
+      squash_merge_commit_message: .squashMergeCommitMessage,
+      merge_commit_title: .mergeCommitTitle,
+      merge_commit_message: .mergeCommitMessage
+    },
+    security_and_analysis: {
+      has_vulnerability_alerts_enabled_graphql: .hasVulnerabilityAlertsEnabled
+    },
+    rulesets: [.rulesets.nodes[] | {
+      id: .databaseId,
+      name: .name,
+      target: .target,
+      enforcement: .enforcement,
+      rule_types: [.rules.nodes[]?.type]
+    }]
+  }'
 }
 
+# ---------------------------------------------------------------------------
+# --deep REST enrichment
+#
+# Every call below degrades to a documented default (never aborts the run)
+# on any non-2xx response: "n/a" for genuinely unavailable/inapplicable
+# fields (private repo without GHAS, org-only feature on a user account,
+# private-repo-only 405s, etc.), or a concrete "off" state for fields where
+# absence IS the answer (Pages never configured, no vulnerability alerts).
+# ---------------------------------------------------------------------------
+
+# rest_json_or_null <path> — raw JSON body on success, the JSON literal
+# `null` on any failure (404/403/405/422/...). Distinguishes "no data" from
+# "legitimately empty" (e.g. interaction-limits returns `{}` on success).
+rest_json_or_null() {
+  local path="$1" out
+  if out="$(gh api "$path" 2>/dev/null)" && [ -n "$out" ]; then
+    printf '%s' "$out"
+  else
+    printf 'null'
+  fi
+}
+
+# rest_exists_bool <path> — "true" if the call succeeds (2xx, incl. 204 with
+# no body), "false" otherwise. Used for vulnerability-alerts, whose presence
+# (not its body) is the signal.
+rest_exists_bool() {
+  local path="$1"
+  if gh api "$path" >/dev/null 2>&1; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+# fetch_deep_rest <slug> — one merged JSON fragment covering every --deep
+# REST-sourced field. 13 REST calls: the repo object once, plus one call
+# per distinct sub-resource endpoint.
+fetch_deep_rest() {
+  local slug="$1"
+  local repo_json vuln_alerts autofix_json privvuln_json
+  local perms_json permswf_json permsaccess_json
+  local pages_json env_json autolinks_json interaction_json immutable_json props_json
+
+  repo_json="$(rest_json_or_null "repos/${slug}")"
+  vuln_alerts="$(rest_exists_bool "repos/${slug}/vulnerability-alerts")"
+  autofix_json="$(rest_json_or_null "repos/${slug}/automated-security-fixes")"
+  privvuln_json="$(rest_json_or_null "repos/${slug}/private-vulnerability-reporting")"
+  perms_json="$(rest_json_or_null "repos/${slug}/actions/permissions")"
+  permswf_json="$(rest_json_or_null "repos/${slug}/actions/permissions/workflow")"
+  permsaccess_json="$(rest_json_or_null "repos/${slug}/actions/permissions/access")"
+  pages_json="$(rest_json_or_null "repos/${slug}/pages")"
+  env_json="$(rest_json_or_null "repos/${slug}/environments")"
+  autolinks_json="$(rest_json_or_null "repos/${slug}/autolinks")"
+  interaction_json="$(rest_json_or_null "repos/${slug}/interaction-limits")"
+  immutable_json="$(rest_json_or_null "repos/${slug}/immutable-releases")"
+  props_json="$(rest_json_or_null "repos/${slug}/properties/values")"
+
+  jq -n \
+    --argjson repo "$repo_json" \
+    --argjson vuln_alerts "$vuln_alerts" \
+    --argjson autofix "$autofix_json" \
+    --argjson privvuln "$privvuln_json" \
+    --argjson perms "$perms_json" \
+    --argjson permswf "$permswf_json" \
+    --argjson permsaccess "$permsaccess_json" \
+    --argjson pages "$pages_json" \
+    --argjson env "$env_json" \
+    --argjson autolinks "$autolinks_json" \
+    --argjson interaction "$interaction_json" \
+    --argjson immutable "$immutable_json" \
+    --argjson props "$props_json" \
+    '
+    # `//` treats `false` (not just null) as falsy, so a field that is
+    # legitimately `false` would silently collapse to the fallback. `nz`
+    # substitutes the fallback ONLY on an actual null/missing field.
+    def nz(v; fallback): if v == null then fallback else v end;
+    ($repo // {}) as $r |
+    {
+      has_downloads: nz($r.has_downloads; "n/a"),
+      pull_request_creation_policy: nz($r.pull_request_creation_policy; "n/a"),
+      pull_requests: {
+        use_squash_pr_title_as_default: nz($r.use_squash_pr_title_as_default; "n/a")
+      },
+      security_and_analysis: {
+        advanced_security: nz($r.security_and_analysis.advanced_security.status; "n/a"),
+        secret_scanning: nz($r.security_and_analysis.secret_scanning.status; "n/a"),
+        secret_scanning_push_protection: nz($r.security_and_analysis.secret_scanning_push_protection.status; "n/a"),
+        secret_scanning_non_provider_patterns: nz($r.security_and_analysis.secret_scanning_non_provider_patterns.status; "n/a"),
+        secret_scanning_validity_checks: nz($r.security_and_analysis.secret_scanning_validity_checks.status; "n/a"),
+        dependabot_security_updates: nz($r.security_and_analysis.dependabot_security_updates.status; "n/a"),
+        vulnerability_alerts_enabled: $vuln_alerts,
+        automated_security_fixes_enabled: nz($autofix.enabled; "n/a"),
+        automated_security_fixes_paused: nz($autofix.paused; "n/a"),
+        private_vulnerability_reporting_enabled: (if $privvuln == null then "n/a" else nz($privvuln.enabled; "n/a") end)
+      },
+      actions: {
+        enabled: nz($perms.enabled; "n/a"),
+        allowed_actions: nz($perms.allowed_actions; "n/a"),
+        sha_pinning_required: nz($perms.sha_pinning_required; "n/a"),
+        default_workflow_permissions: nz($permswf.default_workflow_permissions; "n/a"),
+        can_approve_pull_request_reviews: nz($permswf.can_approve_pull_request_reviews; "n/a"),
+        access_level: nz($permsaccess.access_level; "n/a")
+      },
+      releases: {
+        immutable_releases_enabled: nz($immutable.enabled; false),
+        immutable_releases_enforced_by_owner: nz($immutable.enforced_by_owner; false)
+      },
+      pages: (
+        if $pages == null then
+          {enabled: false, build_type: null, source_branch: null, source_path: null, https_enforced: null, cname: null, public: null}
+        else
+          {
+            enabled: true,
+            build_type: nz($pages.build_type; null),
+            source_branch: nz($pages.source.branch; null),
+            source_path: nz($pages.source.path; null),
+            https_enforced: nz($pages.https_enforced; null),
+            cname: nz($pages.cname; null),
+            public: nz($pages.public; null)
+          }
+        end
+      ),
+      custom_properties: (if $props == null then "n/a" else $props end),
+      autolinks: ($autolinks // []),
+      environments: [
+        (($env.environments // [])[]) | {
+          name: .name,
+          protection_rules_count: ((.protection_rules // []) | length),
+          deployment_branch_policy: .deployment_branch_policy,
+          can_admins_bypass: .can_admins_bypass
+        }
+      ],
+      interaction_limits: (if $interaction == null then "n/a" else $interaction end)
+    }
+    '
+}
+
+# enrich_rulesets_with_pr_params <slug> <rulesets_json_array>
+# For each ruleset that declares a PULL_REQUEST rule, fetch its per-ruleset
+# REST detail and attach the pull_request rule's parameters. One REST call
+# per PR-bearing ruleset (usually 0 or 1 per repo) — never per-repo blanket.
+enrich_rulesets_with_pr_params() {
+  local slug="$1" rulesets_json="$2"
+  local count i out="[]"
+  count="$(printf '%s' "$rulesets_json" | jq 'length')"
+  i=0
+  while [ "$i" -lt "$count" ]; do
+    local rs id has_pr params
+    rs="$(printf '%s' "$rulesets_json" | jq -c ".[$i]")"
+    id="$(printf '%s' "$rs" | jq -r '.id // empty')"
+    has_pr="$(printf '%s' "$rs" | jq -r '(.rule_types // []) | index("PULL_REQUEST") != null')"
+    if [ "$has_pr" = "true" ] && [ -n "$id" ]; then
+      params="$(gh api "repos/${slug}/rulesets/${id}" 2>/dev/null | jq -c '([.rules[]? | select(.type=="pull_request") | .parameters][0]) // {}')" || params='{}'
+      [ -n "$params" ] || params='{}'
+      rs="$(printf '%s' "$rs" | jq -c --argjson p "$params" '. + {pull_request_parameters: $p}')"
+    fi
+    out="$(printf '%s' "$out" | jq -c --argjson r "$rs" '. + [$r]')"
+    i=$((i + 1))
+  done
+  printf '%s' "$out"
+}
+
+# ---------------------------------------------------------------------------
+# Main fetch loop
+# ---------------------------------------------------------------------------
 ALL_JSON=()
 TOTAL="${#RESOLVED[@]}"
 OFFSET=0
 GQL_ERR_FILE="$(mktemp)"
 trap 'rm -f "$GQL_ERR_FILE"' EXIT
+
+GQL_FIELDS="$GQL_FIELDS_LIGHT"
+[ "$DEEP" -eq 1 ] && GQL_FIELDS="$GQL_FIELDS_DEEP"
 
 while [ "$OFFSET" -lt "$TOTAL" ]; do
   CHUNK=("${RESOLVED[@]:OFFSET:CHUNK_SIZE}")
@@ -342,7 +625,7 @@ while [ "$OFFSET" -lt "$TOTAL" ]; do
   # though the JSON body still carries usable data for the rest. Capture
   # stdout regardless of exit code; only treat it as fatal if `.data` itself
   # is missing (auth failure, malformed query, etc.), not a per-repo miss.
-  RESPONSE="$(fetch_graphql_chunk "${CHUNK[@]}" 2>"$GQL_ERR_FILE")" || true
+  RESPONSE="$(fetch_graphql_chunk "$GQL_FIELDS" "${CHUNK[@]}" 2>"$GQL_ERR_FILE")" || true
   if ! printf '%s' "$RESPONSE" | jq -e 'has("data") and (.data != null)' >/dev/null 2>&1; then
     echo "$SCRIPT_NAME: GraphQL request failed for chunk starting at '${CHUNK[0]}':" >&2
     cat "$GQL_ERR_FILE" >&2
@@ -352,19 +635,26 @@ while [ "$OFFSET" -lt "$TOTAL" ]; do
   for i in "${!CHUNK[@]}"; do
     slug="${CHUNK[$i]}"
     node="$(printf '%s' "$RESPONSE" | jq -c ".data.r${i}")"
-    obj="$(normalize_repo_json "$node" "$slug")"
 
-    if [ "$(printf '%s' "$obj" | jq -r '.error')" = "true" ]; then
-      obj="$(printf '%s' "$obj" | jq -c '. + {
-        secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
-      }')"
-    elif [ "$DEEP" -eq 1 ]; then
-      deep_json="$(fetch_deep_fields "$slug")"
-      obj="$(jq -c -n --argjson a "$obj" --argjson b "$deep_json" '$a * $b')"
+    if [ "$DEEP" -eq 1 ]; then
+      obj="$(normalize_repo_json_deep "$node" "$slug")"
+      if [ "$(printf '%s' "$obj" | jq -r '.error')" != "true" ]; then
+        deep_rest="$(fetch_deep_rest "$slug")"
+        obj="$(jq -c -n --argjson a "$obj" --argjson b "$deep_rest" '$a * $b')"
+        rulesets_enriched="$(enrich_rulesets_with_pr_params "$slug" "$(printf '%s' "$obj" | jq -c '.rulesets')")"
+        obj="$(printf '%s' "$obj" | jq -c --argjson rs "$rulesets_enriched" '.rulesets = $rs | .has_pages = .pages.enabled')"
+      fi
     else
-      obj="$(printf '%s' "$obj" | jq -c '. + {
-        secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
-      }')"
+      obj="$(normalize_repo_json "$node" "$slug")"
+      if [ "$(printf '%s' "$obj" | jq -r '.error')" = "true" ]; then
+        obj="$(printf '%s' "$obj" | jq -c '. + {
+          secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
+        }')"
+      else
+        obj="$(printf '%s' "$obj" | jq -c '. + {
+          secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
+        }')"
+      fi
     fi
     ALL_JSON+=("$obj")
   done
@@ -380,11 +670,11 @@ if [ "$JSON_OUT" -eq 1 ]; then
   exit 0
 fi
 
-TABLE_FILTER='
+TABLE_FILTER_LIGHT='
 def b: if . == true then "on" elif . == false then "off" else "-" end;
 def d: if . == null then "-" else . end;
 if .error then
-  [.repo, "ERROR", "-", "-", "-", "-", "-", "-", "-", "-", "not found or no access"] | @tsv
+  [.repo, "ERROR", "-", "-", "-", "-", "-", "not found or no access"] | @tsv
 else
   [
     .repo,
@@ -393,9 +683,6 @@ else
     (.has_projects | b),
     (.delete_branch_on_merge | b),
     (.allow_update_branch | b),
-    (.secret_scanning | d),
-    (.secret_scanning_push_protection | d),
-    (.dependabot_security_updates | d),
     ((if .squash_merge_allowed then "S" else "s" end)
       + (if .merge_commit_allowed then "M" else "m" end)
       + (if .rebase_merge_allowed then "R" else "r" end)),
@@ -404,14 +691,92 @@ else
 end
 '
 
-{
-  printf 'REPO\tVIS\tWIKI\tPROJ\tDELBR\tUPDBR\tSECSCAN\tPUSHPROT\tDEPSEC\tMERGE\tRULESET\n'
-  for obj in "${ALL_JSON[@]}"; do
-    printf '%s' "$obj" | jq -r "$TABLE_FILTER"
-  done
-} | column -t -s "$(printf '\t')"
+# shellcheck disable=SC2016
+TABLE_FILTER_DEEP='
+def b: if . == true then "on" elif . == false then "off" elif . == "n/a" then "n/a" elif . == null then "-" else . end;
+def d: if . == null then "-" else . end;
+def flag(v; onch; offch): if v == true then onch elif v == false then offch else "?" end;
+def codes: {
+  "DELETION": "DEL", "NON_FAST_FORWARD": "NFF", "PULL_REQUEST": "PR",
+  "REQUIRED_STATUS_CHECKS": "RSC", "REQUIRED_SIGNATURES": "SIG",
+  "CREATION": "CRE", "UPDATE": "UPD", "REQUIRED_LINEAR_HISTORY": "LIN",
+  "COMMIT_MESSAGE_PATTERN": "CMP", "COPILOT_CODE_REVIEW": "CCR",
+  "MERGE_QUEUE": "MQ"
+};
+def rule_code: (codes[.] // .[0:3]);
+if .error then
+  [.repo, "ERROR"] + [range(23) | "-"] + ["not found or no access"] | @tsv
+else
+  (.rulesets[0]) as $rs |
+  [
+    .repo,
+    (.visibility // "-"),
+    (flag(.is_template; "T"; "t")
+      + flag(.archived; "A"; "a")
+      + flag(.has_discussions; "D"; "d")
+      + flag(.has_pages; "P"; "p")
+      + flag(.allow_forking; "F"; "f")
+      + flag(.web_commit_signoff_required; "S"; "s")),
+    (.has_wiki | b),
+    (.has_projects | b),
+    (.pull_requests.delete_branch_on_merge | b),
+    (.pull_requests.allow_update_branch | b),
+    (.pull_requests.allow_auto_merge | b),
+    ((if .pull_requests.allow_squash_merge then "S" else "s" end)
+      + (if .pull_requests.allow_merge_commit then "M" else "m" end)
+      + (if .pull_requests.allow_rebase_merge then "R" else "r" end)),
+    (.security_and_analysis.secret_scanning | b),
+    (.security_and_analysis.secret_scanning_push_protection | b),
+    (.security_and_analysis.secret_scanning_non_provider_patterns | b),
+    (.security_and_analysis.secret_scanning_validity_checks | b),
+    (.security_and_analysis.dependabot_security_updates | b),
+    (.security_and_analysis.vulnerability_alerts_enabled | b),
+    (.security_and_analysis.automated_security_fixes_enabled | b),
+    (.security_and_analysis.private_vulnerability_reporting_enabled | b),
+    (.actions.enabled | b),
+    (.actions.allowed_actions | d),
+    (.actions.sha_pinning_required | b),
+    (.actions.default_workflow_permissions | d),
+    (.actions.can_approve_pull_request_reviews | b),
+    (.actions.access_level | d),
+    (.releases.immutable_releases_enabled | b),
+    (if $rs == null then "-"
+     else
+       ([$rs.rule_types[]? | rule_code] | join(","))
+       + (if (.rulesets | length) > 1 then " (+\((.rulesets | length) - 1))" else "" end)
+     end),
+    (if ($rs.pull_request_parameters // null) == null then "-"
+     else
+       "RTR:" + (if $rs.pull_request_parameters.required_review_thread_resolution then "on" else "off" end)
+       + ",ARC:" + ($rs.pull_request_parameters.required_approving_review_count // 0 | tostring)
+       + ",MRG:" + (
+           (if ($rs.pull_request_parameters.allowed_merge_methods // [] | index("squash")) then "S" else "s" end)
+           + (if ($rs.pull_request_parameters.allowed_merge_methods // [] | index("merge")) then "M" else "m" end)
+           + (if ($rs.pull_request_parameters.allowed_merge_methods // [] | index("rebase")) then "R" else "r" end)
+         )
+     end)
+  ] | @tsv
+end
+'
 
-if [ "$DEEP" -eq 0 ]; then
+if [ "$DEEP" -eq 1 ]; then
+  {
+    printf 'REPO\tVIS\tFLAGS\tWIKI\tPROJ\tDELBR\tUPDBR\tAUTOMRG\tMERGE\tSECSCAN\tPUSHPROT\tNONPROV\tVALCHK\tDEPSEC\tVULNALRT\tAUTOFIX\tPRIVVULN\tACTENB\tALLOWACT\tSHAPIN\tWFPERM\tAPPRVPR\tACCESSLV\tIMMUT\tRULETYPE\tPRPARAMS\n'
+    for obj in "${ALL_JSON[@]}"; do
+      printf '%s' "$obj" | jq -r "$TABLE_FILTER_DEEP"
+    done
+  } | column -t -s "$(printf '\t')"
   echo
-  echo "SECSCAN/PUSHPROT/DEPSEC show '-' — re-run with --deep to fetch them (1 extra REST call/repo)."
+  echo "FLAGS legend: t=template a=archived d=discussions p=pages f=forking s=web-signoff (uppercase=on)"
+  echo "RULETYPE/PRPARAMS show the first ruleset only — use --deep --json for full multi-ruleset detail."
+  echo "'n/a' = not applicable/unavailable for this repo (e.g. GHAS on a private repo, org-only feature on a user account)."
+else
+  {
+    printf 'REPO\tVIS\tWIKI\tPROJ\tDELBR\tUPDBR\tMERGE\tRULESET\n'
+    for obj in "${ALL_JSON[@]}"; do
+      printf '%s' "$obj" | jq -r "$TABLE_FILTER_LIGHT"
+    done
+  } | column -t -s "$(printf '\t')"
+  echo
+  echo "Re-run with --deep for the full lever catalog (security, actions, releases, pages, environments, ...)."
 fi

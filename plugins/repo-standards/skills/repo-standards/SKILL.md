@@ -167,9 +167,23 @@ auditing a repo's docs.
 
 `scripts/repo-standards-audit.sh` is a portable audit helper — no monorepo assumptions, no
 hardcoded owner/org, works against any repo you point it at (a `gh`-authenticated slug or a
-local git clone). It batches the bulk-fetchable fields (visibility, wiki/projects, delete/update-
-branch, merge methods, rulesets) into one GraphQL query per ~20-repo chunk, so auditing a whole
-portfolio costs a handful of GraphQL requests rather than one REST call per field per repo.
+local git clone).
+
+**Default mode** is cheap and wide: it batches the bulk-fetchable fields (visibility,
+wiki/projects, delete/update-branch, merge methods, rulesets) into one GraphQL query per
+~20-repo chunk — no REST calls at all — so auditing a whole portfolio costs a handful of
+GraphQL requests.
+
+**`--deep` mode is comprehensive** — it covers the full ~83-lever settings catalog: repo
+metadata/features (template/archived/discussions/pages/forking/web-signoff), PR & merge
+behavior (auto-merge, squash/merge title+message enums), the complete Security & Analysis panel
+(secret scanning + push protection + non-provider patterns + validity checks, Dependabot
+security updates, vulnerability alerts, automated security fixes, private vulnerability
+reporting), the Actions permissions surface (enabled/allowed-actions/SHA-pinning, default
+workflow token permissions, fork-PR access level), per-ruleset `pull_request` rule parameters
+(required review thread resolution, approving review count, allowed merge methods), immutable
+releases, Pages, environments, autolinks, interaction limits, and custom properties (flagged
+`n/a` on this user account — org-only).
 
 ```bash
 DIR=scripts   # this skill's scripts/ dir (next to SKILL.md)
@@ -177,17 +191,24 @@ DIR=scripts   # this skill's scripts/ dir (next to SKILL.md)
 $DIR/repo-standards-audit.sh                              # current repo (from cwd)
 $DIR/repo-standards-audit.sh org/repo-a org/repo-b        # explicit slugs
 $DIR/repo-standards-audit.sh --file repos.txt             # one target per line
-$DIR/repo-standards-audit.sh org/repo-a --deep            # + secret scanning / push protection / Dependabot security updates (1 extra REST call/repo)
-$DIR/repo-standards-audit.sh org/repo-a --json | jq .     # machine-readable
+$DIR/repo-standards-audit.sh org/repo-a --deep            # full lever catalog (see above)
+$DIR/repo-standards-audit.sh org/repo-a --json | jq .     # machine-readable (light shape)
+$DIR/repo-standards-audit.sh org/repo-a --deep --json | jq .   # machine-readable (comprehensive nested shape)
 ```
 
-Secret scanning, push protection, and Dependabot security-updates status aren't exposed by the
-GraphQL API — those three columns show `-` unless `--deep` is passed. Full `--help` covers every
-flag and the rate-limit tradeoff.
+Every `--deep` field degrades to `n/a` (unavailable/inapplicable — private repo without GHAS,
+org-only feature on a user account, private-repo-only endpoint) or a concrete `off`/`false`
+state (a real, known-absent setting, e.g. Pages never configured) on any error — one repo's
+404/403/405/422 never aborts the run. Rate-limit budget: **1 GraphQL request per ~20-repo
+chunk + ~13 REST requests per repo + ~1 REST request per ruleset that declares a
+`pull_request` rule** (the repo object is fetched once per repo and reused for every field
+that lives on it; every other REST field is one call per distinct sub-resource endpoint). Full
+`--help` documents every column and the complete rate-limit design.
 
-The audit script's `RULESET` column only reports `name/enforcement` — re-fetch a single ruleset's
-full body to compare its `rules`/`bypass_actors` against a class template:
-`gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
+The `--deep` table's `RULETYPE`/`PRPARAMS` columns only summarize the *first* ruleset (extra
+rulesets are counted, e.g. `DEL,NFF,PR (+1)`) — use `--deep --json` for full multi-ruleset
+detail, or re-fetch a single ruleset's full body directly to compare its `rules`/`bypass_actors`
+against a class template: `gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
 
 ## Apply — create or update a repo's `main` ruleset
 
