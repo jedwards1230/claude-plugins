@@ -165,23 +165,29 @@ auditing a repo's docs.
 
 ## Audit — what's live vs the standard
 
-Point at any list of repos (your own inventory, `gh repo list`, etc.):
+`scripts/repo-standards-audit.sh` is a portable audit helper — no monorepo assumptions, no
+hardcoded owner/org, works against any repo you point it at (a `gh`-authenticated slug or a
+local git clone). It batches the bulk-fetchable fields (visibility, wiki/projects, delete/update-
+branch, merge methods, rulesets) into one GraphQL query per ~20-repo chunk, so auditing a whole
+portfolio costs a handful of GraphQL requests rather than one REST call per field per repo.
 
 ```bash
-OWNER=<your-org>
-for REPO in repo-a repo-b repo-c; do
-  printf '%s\n' "== $REPO =="
-  gh api "repos/$OWNER/$REPO" \
-    --jq '"settings: wiki=\(.has_wiki) projects=\(.has_projects) autodel=\(.delete_branch_on_merge) updbranch=\(.allow_update_branch)"'
-  gh api "repos/$OWNER/$REPO/actions/permissions" --jq '"actions: sha_pin=\(.sha_pinning_required)"'
-  gh api "repos/$OWNER/$REPO/automated-security-fixes" --jq '"dependabot: secfixes=\(.enabled)"' 2>/dev/null || echo "dependabot: secfixes=(off)"
-  gh api "repos/$OWNER/$REPO/rulesets" \
-    --jq 'if length==0 then "rulesets: (none)" else "rulesets: " + ([.[] | "[\(.id)] \(.name)/\(.enforcement)"] | join(", ")) end'
-done
+DIR=scripts   # this skill's scripts/ dir (next to SKILL.md)
+
+$DIR/repo-standards-audit.sh                              # current repo (from cwd)
+$DIR/repo-standards-audit.sh org/repo-a org/repo-b        # explicit slugs
+$DIR/repo-standards-audit.sh --file repos.txt             # one target per line
+$DIR/repo-standards-audit.sh org/repo-a --deep            # + secret scanning / push protection / Dependabot security updates (1 extra REST call/repo)
+$DIR/repo-standards-audit.sh org/repo-a --json | jq .     # machine-readable
 ```
 
-The `/rulesets` list omits `rules`/`bypass_actors` — re-fetch a single ruleset's full body to
-compare against a class template: `gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
+Secret scanning, push protection, and Dependabot security-updates status aren't exposed by the
+GraphQL API — those three columns show `-` unless `--deep` is passed. Full `--help` covers every
+flag and the rate-limit tradeoff.
+
+The audit script's `RULESET` column only reports `name/enforcement` — re-fetch a single ruleset's
+full body to compare its `rules`/`bypass_actors` against a class template:
+`gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
 
 ## Apply — create or update a repo's `main` ruleset
 
