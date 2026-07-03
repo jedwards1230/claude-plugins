@@ -165,23 +165,50 @@ auditing a repo's docs.
 
 ## Audit — what's live vs the standard
 
-Point at any list of repos (your own inventory, `gh repo list`, etc.):
+`scripts/repo-standards-audit.sh` is a portable audit helper — no monorepo assumptions, no
+hardcoded owner/org, works against any repo you point it at (a `gh`-authenticated slug or a
+local git clone).
+
+**Default mode** is cheap and wide: it batches the bulk-fetchable fields (visibility,
+wiki/projects, delete/update-branch, merge methods, rulesets) into one GraphQL query per
+~20-repo chunk — no REST calls at all — so auditing a whole portfolio costs a handful of
+GraphQL requests.
+
+**`--deep` mode is comprehensive** — it covers the full ~83-lever settings catalog: repo
+metadata/features (template/archived/discussions/pages/forking/web-signoff), PR & merge
+behavior (auto-merge, squash/merge title+message enums), the complete Security & Analysis panel
+(secret scanning + push protection + non-provider patterns + validity checks, Dependabot
+security updates, vulnerability alerts, automated security fixes, private vulnerability
+reporting), the Actions permissions surface (enabled/allowed-actions/SHA-pinning, default
+workflow token permissions, fork-PR access level), per-ruleset `pull_request` rule parameters
+(required review thread resolution, approving review count, allowed merge methods), immutable
+releases, Pages, environments, autolinks, interaction limits, and custom properties (flagged
+`n/a` on this user account — org-only).
 
 ```bash
-OWNER=<your-org>
-for REPO in repo-a repo-b repo-c; do
-  printf '%s\n' "== $REPO =="
-  gh api "repos/$OWNER/$REPO" \
-    --jq '"settings: wiki=\(.has_wiki) projects=\(.has_projects) autodel=\(.delete_branch_on_merge) updbranch=\(.allow_update_branch)"'
-  gh api "repos/$OWNER/$REPO/actions/permissions" --jq '"actions: sha_pin=\(.sha_pinning_required)"'
-  gh api "repos/$OWNER/$REPO/automated-security-fixes" --jq '"dependabot: secfixes=\(.enabled)"' 2>/dev/null || echo "dependabot: secfixes=(off)"
-  gh api "repos/$OWNER/$REPO/rulesets" \
-    --jq 'if length==0 then "rulesets: (none)" else "rulesets: " + ([.[] | "[\(.id)] \(.name)/\(.enforcement)"] | join(", ")) end'
-done
+DIR=scripts   # this skill's scripts/ dir (next to SKILL.md)
+
+$DIR/repo-standards-audit.sh                              # current repo (from cwd)
+$DIR/repo-standards-audit.sh org/repo-a org/repo-b        # explicit slugs
+$DIR/repo-standards-audit.sh --file repos.txt             # one target per line
+$DIR/repo-standards-audit.sh org/repo-a --deep            # full lever catalog (see above)
+$DIR/repo-standards-audit.sh org/repo-a --json | jq .     # machine-readable (light shape)
+$DIR/repo-standards-audit.sh org/repo-a --deep --json | jq .   # machine-readable (comprehensive nested shape)
 ```
 
-The `/rulesets` list omits `rules`/`bypass_actors` — re-fetch a single ruleset's full body to
-compare against a class template: `gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
+Every `--deep` field degrades to `n/a` (unavailable/inapplicable — private repo without GHAS,
+org-only feature on a user account, private-repo-only endpoint) or a concrete `off`/`false`
+state (a real, known-absent setting, e.g. Pages never configured) on any error — one repo's
+404/403/405/422 never aborts the run. Rate-limit budget: **1 GraphQL request per ~20-repo
+chunk + ~13 REST requests per repo + ~1 REST request per ruleset that declares a
+`pull_request` rule** (the repo object is fetched once per repo and reused for every field
+that lives on it; every other REST field is one call per distinct sub-resource endpoint). Full
+`--help` documents every column and the complete rate-limit design.
+
+The `--deep` table's `RULETYPE`/`PRPARAMS` columns only summarize the *first* ruleset (extra
+rulesets are counted, e.g. `DEL,NFF,PR (+1)`) — use `--deep --json` for full multi-ruleset
+detail, or re-fetch a single ruleset's full body directly to compare its `rules`/`bypass_actors`
+against a class template: `gh api "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
 
 ## Apply — create or update a repo's `main` ruleset
 

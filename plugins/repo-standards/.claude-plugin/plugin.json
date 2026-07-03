@@ -1,6 +1,6 @@
 {
   "name": "repo-standards",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Preferred GitHub repository standards, audited and applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits.",
   "author": {
     "name": "jedwards1230"
