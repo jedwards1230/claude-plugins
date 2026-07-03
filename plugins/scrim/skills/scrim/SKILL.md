@@ -15,8 +15,11 @@ project's dev server; use that project's own tooling for that).
 ## Availability
 
 Check before use: `command -v scrim`. If missing, point the user at
-installation — a release binary from `github.com/jedwards1230/scrim/releases`,
-or `go install github.com/jedwards1230/scrim@latest` if they have Go tooling.
+installation — once published, a release binary from
+`github.com/jedwards1230/scrim/releases`, or `go install
+github.com/jedwards1230/scrim@latest` if they have Go tooling. As of this
+writing the CLI repo has not been published yet; if neither install path
+resolves, say so plainly instead of implying the tool is available today.
 Don't try to install it yourself; surface the command and let the user decide.
 
 ## Workflow
