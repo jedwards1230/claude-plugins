@@ -9,6 +9,7 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
 - **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
 - **Force-push guard** (hook) — routes a `git push` through the permission prompt when it uses a *non-lease* force (`--force`/`-f`/`+refspec`) or targets the repo's default/protected branch. Stays silent for the normal feature-branch flow, including pre-approved `--force-with-lease` rebase hygiene on feature branches. Catches the case where a *subagent* is instructed to force-push (settings don't gate subagent Bash; this hook does).
+- **Worktree edit-path guard** (hook) — denies an `Edit`/`Write`/`MultiEdit`/`NotebookEdit` call when the session is working in a worktree (`<repo>/worktrees/<branch>/`) but the target path is the same repo's MAIN checkout — the "silently edited the wrong copy" mistake. The reverse direction (editing into a worktree from the main checkout) and sibling-worktree edits stay untouched.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 - **Release watching** (skill `release-watch`) — the sibling of `ci-watch` that begins where it ends (at `MERGED`). Invoke the `Monitor` tool with a bundled poller that follows a release through to publication: the GitHub release workflow run, the git tag + GitHub Release, **and** GHCR container/chart package publishes (a new image version — or a moving tag like `latest` repointed to a new digest — at `ghcr.io/<owner>/<pkg>`, incl. nested names like `charts/hermes`). Emits on success **and** failure terminals (a failed release workflow is surfaced, never silent). Public GHCR packages read anonymously; private ones need the `gh` token to carry `read:packages` (else that target fails gracefully without crashing the watch).
 
@@ -82,6 +83,26 @@ Bypass — set `GIT_TOOLING_ALLOW_FORCE_PUSH=1` for a deliberate force-push:
 
 ```bash
 GIT_TOOLING_ALLOW_FORCE_PUSH=1 git push --force origin main
+```
+
+### Worktree edit-path guard
+
+**`PreToolUse(Edit|Write|MultiEdit|NotebookEdit)`** runs `scripts/worktree-editpath-guard.sh`. It returns `permissionDecision: "deny"` when the session's `cwd` resolves into a linked git worktree (`<repo>/worktrees/<branch>/`) **and** the edit target is a path under that same repo's root but *outside* any `worktrees/` subtree — i.e. the main checkout. The denial message names the equivalent worktree-prefixed path.
+
+It stays silent for everything else:
+
+- editing *into* a worktree from a main-checkout session (a normal, deliberate pattern),
+- editing a file in a **sibling** worktree of the same repo,
+- new (not-yet-existing) file targets — still guarded the same way,
+- anything outside the repo entirely, and
+- nested repos (e.g. `repos/<name>/worktrees/<branch>/`) — scoped independently per repo.
+
+Bails out with pure string checks before touching git for the common cases (no `worktrees/` in `cwd`, or the target isn't under the same repo root), and only shells out to `git rev-parse --git-dir`/`--git-common-dir` to confirm a genuine *linked* worktree before denying — failing open (silent allow) on any ambiguity, so a directory that merely has `worktrees` as a path segment without real worktree state is never falsely blocked.
+
+Bypass — set `GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1` in the environment when editing the main checkout from a worktree session is genuinely intended (e.g. post-merge cleanup):
+
+```bash
+GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1 claude
 ```
 
 ### Push reminder hook
