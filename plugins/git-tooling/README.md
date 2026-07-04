@@ -10,6 +10,8 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 - **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
 - **Force-push guard** (hook) — routes a `git push` through the permission prompt when it uses a *non-lease* force (`--force`/`-f`/`+refspec`) or targets the repo's default/protected branch. Stays silent for the normal feature-branch flow, including pre-approved `--force-with-lease` rebase hygiene on feature branches. Catches the case where a *subagent* is instructed to force-push (settings don't gate subagent Bash; this hook does).
 - **Worktree edit-path guard** (hook) — denies an `Edit`/`Write`/`MultiEdit`/`NotebookEdit` call when the session is working in a worktree (`<repo>/worktrees/<branch>/`) but the target path is the same repo's MAIN checkout — the "silently edited the wrong copy" mistake. The reverse direction (editing into a worktree from the main checkout) and sibling-worktree edits stay untouched.
+- **`wt-done`** (bin) — finish a single merged branch: verifies it's actually merged, then checks out + pulls the default branch, removes the worktree, deletes the local branch, and prunes. Handles the two chronic failure modes of hand-rolling this: a squash-merged branch that `git branch -d` refuses (falls back to `-D`, but only because the merge was already verified), and a dirty worktree that `git worktree remove` refuses (`--force` required, with the discarded state printed first). Single-target only — never a bulk sweep.
+- **`gh-resolve-threads`** (bin) — list a PR's unresolved review threads, or resolve specific ones by id, without hand-writing the GraphQL each time. Paginates past the 100-thread-per-page GraphQL limit. No `--resolve-all` — resolution stays per-thread, on purpose.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 - **Release watching** (skill `release-watch`) — the sibling of `ci-watch` that begins where it ends (at `MERGED`). Invoke the `Monitor` tool with a bundled poller that follows a release through to publication: the GitHub release workflow run, the git tag + GitHub Release, **and** GHCR container/chart package publishes (a new image version — or a moving tag like `latest` repointed to a new digest — at `ghcr.io/<owner>/<pkg>`, incl. nested names like `charts/hermes`). Emits on success **and** failure terminals (a failed release workflow is surfaced, never silent). Public GHCR packages read anonymously; private ones need the `gh` token to carry `read:packages` (else that target fails gracefully without crashing the watch).
 
@@ -108,6 +110,39 @@ GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1 claude
 ### Push reminder hook
 
 Runs automatically after every `Bash(git push ...)`. If the pushed branch has an open PR, the hook reminds the agent to check whether the PR title/description still match what got pushed. Silent for any non-push Bash call. Parses the pushed refspec so reminders fire against the right PR even when you push a non-current branch.
+
+### `wt-done` — finish a merged branch
+
+`bin/wt-done` is auto-added to `PATH` in Claude Code sessions — call it as a bare command.
+
+```
+wt-done [--force] [<branch>|<worktree-path>]
+```
+
+With no target, and the current directory is inside a linked worktree, that worktree is used. Otherwise: exactly one target, a literal branch name or worktree path — this is intentionally **not** a bulk-remove tool (multiple args or anything glob-like is rejected outright; see the bulk worktree force-remove guard above for why bulk force-removal is dangerous).
+
+Steps, in order:
+
+1. Verifies the branch is actually merged — a merged PR's state via `gh pr view` when one exists, else a local `git merge-base --is-ancestor` fallback. **No bypass flag** here: if it can't verify the merge, it refuses and you finish manually.
+2. Moves to the main checkout (handles being invoked from inside the worktree it's about to remove), checks out the default branch if needed, and `git pull --prune --rebase --autostash`.
+3. Removes the worktree. A dirty worktree is refused with its `git status --short` printed; re-run with `--force` to discard that state (the tool prints exactly what it's about to discard before doing so).
+4. Deletes the local branch with `git branch -d`, falling back to `-D` **only** when `-d` refuses with "not fully merged" — which happens for a legitimately squash-merged branch, since git's own ancestry check doesn't recognize a squash merge, even though step 1 already verified it.
+5. `git worktree prune`.
+
+Works in the umbrella repo and in nested repos (`repos/<name>/worktrees/<branch>/`) alike, and degrades gracefully when `gh` is absent or unauthenticated (falls back to the git-only merge check).
+
+### `gh-resolve-threads` — PR review-thread triage
+
+`bin/gh-resolve-threads` is auto-added to `PATH` — call it as a bare command.
+
+```
+gh-resolve-threads <pr-number> [--repo owner/repo]
+gh-resolve-threads <pr-number> [--repo owner/repo] --resolve <id> [<id>...]
+```
+
+With no `--repo`, the repo is inferred from the current directory's `origin` remote. Default (no `--resolve`) lists **unresolved** review threads, one per line — `<thread-id> | <path>:<line> | <first ~100 chars of the first comment>` — followed by a count summary. `--resolve <id> [<id>...]` runs the `resolveReviewThread` mutation per id and reports each result. Paginates past GraphQL's 100-thread page limit via a cursor loop.
+
+There is deliberately no `--resolve-all` — this project's review policy is "only resolve threads actually addressed" (see `.claude/rules/code-review.md` in home-orchestration), so resolution stays per-id.
 
 ### CI watch skill
 

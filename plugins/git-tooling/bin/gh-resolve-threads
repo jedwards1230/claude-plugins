@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# gh-resolve-threads - PR review-thread triage/resolution, for the
+# git-tooling plugin.
+#
+# Session-history mining of git/gh usage found raw `gh api graphql` calls to
+# list/resolve PR review threads are the single most-repeated unscripted
+# pattern (828 raw calls) -- almost always the same hand-written query,
+# re-typed per session. This wraps it: list unresolved threads, or resolve
+# specific ones by id.
+#
+# Deliberately no --resolve-all: this project's review policy is "only
+# resolve threads actually addressed" (see .claude/rules/code-review.md in
+# home-orchestration) -- resolution stays per-id, on purpose.
+#
+# Usage:
+#   gh-resolve-threads <pr-number> [--repo owner/repo]
+#   gh-resolve-threads <pr-number> [--repo owner/repo] --resolve <id> [<id>...]
+#
+#   With no --repo, the repo is inferred from the current directory's
+#   `origin` remote. Default action lists UNRESOLVED review threads, one
+#   per line: <thread-id> | <path>:<line> | <first ~100 chars of the first
+#   comment>, followed by a count summary. --resolve runs the
+#   resolveReviewThread mutation for each given thread id and reports the
+#   result of each.
+#
+# Paginates past GraphQL's 100-node page limit via a cursor loop.
+
+set -euo pipefail
+
+error() { printf 'gh-resolve-threads: error: %s\n' "$1" >&2; exit 1; }
+
+print_usage() {
+  cat <<'USAGE'
+gh-resolve-threads - PR review-thread triage/resolution.
+
+Usage:
+  gh-resolve-threads <pr-number> [--repo owner/repo]
+  gh-resolve-threads <pr-number> [--repo owner/repo] --resolve <id> [<id>...]
+
+With no --repo, the repo is inferred from the current directory's `origin`
+remote.
+
+Default (no --resolve): lists UNRESOLVED review threads, one per line:
+  <thread-id> | <path>:<line> | <first ~100 chars of the first comment>
+followed by a count summary.
+
+--resolve <id> [<id>...]: runs the resolveReviewThread mutation for each
+given thread id and reports success/failure per id. There is deliberately
+no --resolve-all -- only resolve threads you've actually addressed.
+USAGE
+}
+
+command -v git >/dev/null 2>&1 || error "git is required"
+command -v gh >/dev/null 2>&1 || error "gh is required"
+command -v jq >/dev/null 2>&1 || error "jq is required"
+
+# ── Argument parsing ───────────────────────────────────────────────────────
+PR_NUMBER=""
+REPO=""
+RESOLVE_IDS=()
+
+args=("$@")
+n=${#args[@]}
+i=0
+while [[ "$i" -lt "$n" ]]; do
+  a="${args[$i]}"
+  case "$a" in
+    --repo)
+      i=$((i + 1))
+      REPO="${args[$i]:-}"
+      [[ -n "$REPO" ]] || error "--repo requires a value (owner/repo)"
+      ;;
+    --resolve)
+      i=$((i + 1))
+      while [[ "$i" -lt "$n" ]]; do
+        nxt="${args[$i]}"
+        case "$nxt" in
+          --*) break ;;
+          *) RESOLVE_IDS+=("$nxt"); i=$((i + 1)) ;;
+        esac
+      done
+      continue
+      ;;
+    -h|--help) print_usage; exit 0 ;;
+    --*) error "unknown flag: $a" ;;
+    *)
+      if [[ -z "$PR_NUMBER" ]]; then
+        PR_NUMBER="$a"
+      else
+        error "unexpected extra argument: $a"
+      fi
+      ;;
+  esac
+  i=$((i + 1))
+done
+
+if [[ -z "$PR_NUMBER" ]]; then
+  print_usage
+  exit 1
+fi
+case "$PR_NUMBER" in
+  ''|*[!0-9]*) error "PR number must be numeric, got: \"$PR_NUMBER\"" ;;
+esac
+
+if [[ -z "$REPO" ]]; then
+  origin_url="$(git remote get-url origin 2>/dev/null || true)"
+  REPO="$(printf '%s' "$origin_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s/\.git$//')"
+  [[ -n "$REPO" ]] || error "could not infer --repo from cwd (no origin remote, or not a GitHub URL); pass --repo owner/repo explicitly."
+fi
+
+owner="${REPO%%/*}"
+name="${REPO#*/}"
+if [[ "$REPO" != */* || -z "$owner" || -z "$name" ]]; then
+  error "malformed --repo (want owner/repo): \"$REPO\""
+fi
+
+# ── Fetch all review threads, paginating past the 100-node GraphQL limit ──
+# shellcheck disable=SC2016 # $owner/$name/$number/$cursor are GraphQL variables, not shell
+QUERY='
+query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          comments(first: 1) {
+            nodes { path line body }
+          }
+        }
+      }
+    }
+  }
+}'
+
+all_threads="[]"
+cursor=""
+page=0
+while :; do
+  page=$((page + 1))
+  # Two branches rather than a conditionally-empty args array: expanding an
+  # empty array under `set -u` is an "unbound variable" error on bash <4.4
+  # (macOS system bash is 3.2), which this plugin targets.
+  if [[ -n "$cursor" ]]; then
+    call_ok=true
+    resp="$(gh api graphql -f query="$QUERY" -F owner="$owner" -F name="$name" -F number="$PR_NUMBER" -F cursor="$cursor" 2>&1)" || call_ok=false
+  else
+    call_ok=true
+    resp="$(gh api graphql -f query="$QUERY" -F owner="$owner" -F name="$name" -F number="$PR_NUMBER" 2>&1)" || call_ok=false
+  fi
+  $call_ok || error "gh api graphql failed on page $page: $resp"
+
+  errors="$(printf '%s' "$resp" | jq -r '.errors // empty' 2>/dev/null || true)"
+  [[ -z "$errors" ]] || error "GraphQL error on page $page: $errors"
+
+  page_nodes="$(printf '%s' "$resp" | jq -c '.data.repository.pullRequest.reviewThreads.nodes // empty' 2>/dev/null || true)"
+  [[ -n "$page_nodes" ]] || error "unexpected GraphQL response on page $page (no reviewThreads.nodes): $resp"
+
+  all_threads="$(jq -c -n --argjson a "$all_threads" --argjson b "$page_nodes" '$a + $b')"
+
+  has_next="$(printf '%s' "$resp" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')"
+  end_cursor="$(printf '%s' "$resp" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')"
+  [[ "$has_next" == "true" ]] || break
+  cursor="$end_cursor"
+done
+
+# ── Resolve mode ────────────────────────────────────────────────────────
+if [[ "${#RESOLVE_IDS[@]}" -gt 0 ]]; then
+  any_fail=false
+  for tid in "${RESOLVE_IDS[@]}"; do
+    # shellcheck disable=SC2016 # $id is a GraphQL variable, not shell
+    if out="$(gh api graphql -f query='mutation($id: ID!) { resolveReviewThread(input: {threadId: $id}) { thread { id isResolved } } }' -F id="$tid" 2>&1)"; then
+      is_resolved="$(printf '%s' "$out" | jq -r '.data.resolveReviewThread.thread.isResolved // empty' 2>/dev/null || true)"
+      if [[ "$is_resolved" == "true" ]]; then
+        printf '%s: resolved\n' "$tid"
+      else
+        printf '%s: FAILED -- unexpected response: %s\n' "$tid" "$out" >&2
+        any_fail=true
+      fi
+    else
+      printf '%s: FAILED -- %s\n' "$tid" "$out" >&2
+      any_fail=true
+    fi
+  done
+  if $any_fail; then
+    exit 1
+  fi
+  exit 0
+fi
+
+# ── List mode (default) ────────────────────────────────────────────────────
+unresolved="$(printf '%s' "$all_threads" | jq -c '[.[] | select(.isResolved == false)]')"
+count_total="$(printf '%s' "$all_threads" | jq 'length')"
+count_unresolved="$(printf '%s' "$unresolved" | jq 'length')"
+
+printf '%s' "$unresolved" | jq -r '
+  .[] |
+  ((.comments.nodes[0].body // "") | gsub("\r\n|\r|\n"; " ") | .[0:100]) as $snippet |
+  "\(.id) | \(.comments.nodes[0].path // "?"):\(.comments.nodes[0].line // "?") | \($snippet)"
+'
+
+printf '\n%d unresolved of %d total review thread(s) on PR #%s (%s)\n' \
+  "$count_unresolved" "$count_total" "$PR_NUMBER" "$REPO"

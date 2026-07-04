@@ -220,10 +220,9 @@ Remove worktrees for branches that have been merged or deleted.
    - Flag STALE-DIRTY entries as requiring explicit confirmation
    - Allow the user to select which to remove
 4. For confirmed removals:
-   - Remove worktree: `git worktree remove worktrees/<name>` (use `--force` for dirty)
-   - Delete the local branch if merged: `git branch -d <branch-name>`
-   - If branch is not merged and user confirms: `git branch -D <branch-name>`
-5. Run `git worktree prune` to clean up stale administrative entries
+   - STALE / STALE-DIRTY (merged): run `wt-done <branch-name>` (add `--force` for STALE-DIRTY) — it re-verifies the merge, checks out + pulls the default branch, removes the worktree, deletes the branch (falling back to `-D` only for an already-verified squash-merge), and prunes, all in one step. One invocation per confirmed target — `wt-done` is intentionally single-target, never a bulk sweep.
+   - ORPHANED (not merged, remote deleted): `wt-done` will refuse here by design (it can't verify a merge that didn't happen) — fall back to the manual steps once the user confirms: `git worktree remove worktrees/<name>` (`--force` if dirty), then `git branch -D <branch-name>`
+5. If any removals were done manually (the ORPHANED case above), run `git worktree prune` to clean up stale administrative entries — `wt-done` already prunes after each of its own runs
 6. Report the summary table of actions taken
 
 **Safety rules:**

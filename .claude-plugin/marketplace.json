@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "23.0.3"
+    "version": "23.0.5"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling — worktree workflows, default-branch commit prompt, worktree edit-path guard, PR-aware push reminders, and on-demand CI + release status watching"
+      "description": "Git tooling — worktree workflows, default-branch commit prompt, worktree edit-path guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, and on-demand CI + release status watching"
     },
     {
       "name": "ansible-quality",

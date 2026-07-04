@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+# wt-done - finish a merged branch: single-target post-merge worktree +
+# branch cleanup, for the git-tooling plugin.
+#
+# Session-history mining of git/gh usage found the post-merge "finish" dance
+# (checkout default branch, pull, remove the worktree, delete the branch)
+# recurs constantly and hand-rolling it hits two chronic failure patterns:
+#   - squash-merged branches refuse `git branch -d` (49 observed
+#     fail-then-retry-with--D sequences; 372 -D vs 331 -d calls overall)
+#   - dirty worktrees refuse `git worktree remove` (41% of removals end up
+#     using --force, usually discovered by trial and error)
+#
+# This wraps the whole sequence with the safety checks a hand-rolled version
+# usually skips: verifies the branch is ACTUALLY merged before touching
+# anything (gh PR state when a PR exists, a local merge-base/branch --merged
+# fallback otherwise), and only falls back to `branch -D` because that merge
+# was already verified -- never as a blind "just force it" step.
+#
+# Deliberately a SINGLE-target tool -- never a bulk sweep. There's a standing
+# rule against bulk worktree removal in this project (see
+# scripts/worktree-remove-guard.sh, which exists specifically to catch a
+# *different* command doing that); wt-done reinforces it by construction
+# instead of relying on the guard to catch a misuse of this tool.
+#
+# Usage: wt-done [--force] [<branch>|<worktree-path>]
+#
+#   With no target, and the current directory is inside a linked worktree,
+#   that worktree is used. Otherwise a single literal branch name or
+#   worktree path is required -- never a glob, never more than one.
+#
+#   --force   allow removing a worktree with uncommitted changes (the
+#             uncommitted state is printed before being discarded)
+#
+# Steps: verify merged -> chdir to the main checkout -> checkout + pull the
+# default branch -> remove the worktree -> delete the local branch -> prune.
+# Exits non-zero on any refusal; refusing to proceed is always the safe
+# default (no bypass flag for the merge check -- if it's not verifiably
+# merged, finish it manually).
+
+set -euo pipefail
+
+step() { printf '==> %s\n' "$1"; }
+error() { printf 'wt-done: error: %s\n' "$1" >&2; exit 1; }
+
+print_usage() {
+  cat <<'USAGE'
+wt-done - finish a merged branch: post-merge worktree + branch cleanup.
+
+Usage:
+  wt-done [--force] [<branch>|<worktree-path>]
+
+With no target, and the current directory is inside a linked worktree, that
+worktree is used. Otherwise: exactly one target, a literal branch name or
+worktree path -- never a glob, never multiple targets. This is not a
+bulk-remove tool.
+
+Steps: verifies the branch is actually merged (gh PR state when a PR exists,
+else a local merge-base/branch --merged fallback), checks out + pulls the
+default branch in the main checkout, removes the worktree (--force required
+if it has uncommitted changes), deletes the local branch (falling back to
+-D only for an already-verified squash-merge that git's own -d won't
+recognize as merged), then prunes stale worktree admin entries.
+
+  --force   allow removing a worktree with uncommitted changes (its state
+            is printed before being discarded)
+USAGE
+}
+
+command -v git >/dev/null 2>&1 || error "git is required"
+command -v jq >/dev/null 2>&1 || error "jq is required (parses gh/PR JSON and the default-branch cache)"
+
+# ── Argument parsing ───────────────────────────────────────────────────────
+FORCE=false
+ARG=""
+nonflag_count=0
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=true ;;
+    -h|--help) print_usage; exit 0 ;;
+    --*) error "unknown flag: $a" ;;
+    *)
+      nonflag_count=$((nonflag_count + 1))
+      ARG="$a"
+      ;;
+  esac
+done
+
+if [[ "$nonflag_count" -gt 1 ]]; then
+  error "takes at most one target (a single branch name or worktree path) -- got $nonflag_count. This is intentionally NOT a bulk-remove tool; see scripts/worktree-remove-guard.sh for why bulk force-removal is dangerous."
+fi
+if [[ -n "$ARG" ]]; then
+  case "$ARG" in
+    *[\*\?\[]*) error "target looks like a glob (\"$ARG\") -- only a single literal branch name or worktree path is accepted, never a pattern." ;;
+  esac
+fi
+
+# ── Resolve repo context (works whether cwd is the main checkout or any of
+# its linked worktrees) ────────────────────────────────────────────────────
+orig_common_dir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+[[ -n "$orig_common_dir" ]] || error "not inside a git repository"
+main_root="$(dirname "$orig_common_dir")"
+
+porcelain="$(git -C "$main_root" worktree list --porcelain 2>/dev/null || true)"
+wt_paths=()
+wt_branches=()
+path="" branch=""
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*)
+      if [[ -n "$path" ]]; then wt_paths+=("$path"); wt_branches+=("$branch"); fi
+      path="${line#worktree }"; branch=""
+      ;;
+    "branch "*) branch="${line#branch refs/heads/}" ;;
+  esac
+done <<< "$porcelain"
+if [[ -n "$path" ]]; then wt_paths+=("$path"); wt_branches+=("$branch"); fi
+# Index 0 is always the main worktree (git lists it first) -- never a valid
+# target for this tool.
+
+# ── Resolve the target: explicit arg (path or branch), or cwd's worktree ──
+target_path=""
+target_branch=""
+
+if [[ -n "$ARG" ]]; then
+  candidate=""
+  if [[ -d "$ARG" ]]; then
+    candidate="$(cd "$ARG" && pwd -P)"
+  fi
+  if [[ -n "$candidate" ]]; then
+    for i in "${!wt_paths[@]}"; do
+      [[ "$i" -eq 0 ]] && continue
+      wp="$(cd "${wt_paths[$i]}" 2>/dev/null && pwd -P || true)"
+      if [[ -n "$wp" && "$wp" == "$candidate" ]]; then
+        target_path="${wt_paths[$i]}"; target_branch="${wt_branches[$i]}"
+        break
+      fi
+    done
+    if [[ -z "$target_path" ]]; then
+      main_canon="$(cd "$main_root" && pwd -P)"
+      if [[ "$candidate" == "$main_canon" ]]; then
+        error "\"$ARG\" is the main checkout, not a worktree -- nothing to finish."
+      fi
+      error "\"$ARG\" is not a registered git worktree of this repo."
+    fi
+  else
+    for i in "${!wt_branches[@]}"; do
+      [[ "$i" -eq 0 ]] && continue
+      if [[ "${wt_branches[$i]}" == "$ARG" ]]; then
+        target_path="${wt_paths[$i]}"; target_branch="$ARG"
+        break
+      fi
+    done
+    [[ -n "$target_path" ]] || error "no worktree has branch \"$ARG\" checked out."
+  fi
+else
+  cwd_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  cwd_gitdir="$(git rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+  if [[ -z "$cwd_gitdir" || "$cwd_gitdir" == "$cwd_common" ]]; then
+    error "no target given and the current directory is not inside a linked worktree."$'\n'"$(print_usage)"
+  fi
+  target_path="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  target_branch="$(git branch --show-current 2>/dev/null || true)"
+  [[ -n "$target_path" && -n "$target_branch" ]] || error "could not resolve the current worktree's path/branch (detached HEAD?)."
+fi
+
+# ── Resolve the default branch (cache first, matching the hook's cache
+# format, then a live lookup -- never guesses) ─────────────────────────────
+resolve_default_branch() {
+  local root="$1" def=""
+  local cache_dir="${CLAUDE_PLUGIN_DATA:-${CLAUDE_PLUGIN_ROOT:-$HOME/.cache/claude-git-tooling}/.cache}"
+  local cache_file="${cache_dir}/default-branches.json"
+  if [[ -f "$cache_file" && -r "$cache_file" ]]; then
+    def="$(jq -r --arg root "$root" '.[$root].default_branch // empty' "$cache_file" 2>/dev/null || true)"
+  fi
+  if [[ -z "$def" ]]; then
+    local ref
+    if ref="$(git -C "$root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"; then
+      def="${ref#refs/remotes/origin/}"
+    fi
+  fi
+  if [[ -z "$def" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    def="$(cd "$root" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  fi
+  printf '%s' "$def"
+}
+
+default_branch="$(resolve_default_branch "$main_root")"
+[[ -n "$default_branch" ]] || error "could not determine the repo's default branch (no origin/HEAD, gh unavailable/unauthenticated). Fix with: git remote set-head origin -a"
+
+step "target: branch '$target_branch' at $target_path"
+step "main checkout: $main_root (default branch: $default_branch)"
+
+# ── Verify the branch is ACTUALLY merged before touching anything ─────────
+repo_slug=""
+origin_url="$(git -C "$main_root" remote get-url origin 2>/dev/null || true)"
+if [[ -n "$origin_url" ]]; then
+  repo_slug="$(printf '%s' "$origin_url" | sed -E 's#^(git@github\.com:|https://github\.com/)##; s/\.git$//')"
+fi
+
+merged=false
+merge_method=""
+if [[ -n "$repo_slug" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  pr_json="$(gh pr view "$target_branch" --repo "$repo_slug" --json state,mergedAt 2>/dev/null || true)"
+  if [[ -n "$pr_json" ]]; then
+    pr_state="$(printf '%s' "$pr_json" | jq -r '.state // empty' 2>/dev/null)"
+    if [[ "$pr_state" == "MERGED" ]]; then
+      merged=true; merge_method="gh PR state"
+    elif [[ -n "$pr_state" ]]; then
+      error "branch \"$target_branch\" has a PR on $repo_slug but it is not merged (state: $pr_state). Refusing to finish an unmerged branch -- close/merge it first, or finish manually if this is intentional."
+    fi
+  fi
+fi
+
+if ! $merged; then
+  # No PR found (or gh unavailable) -- fall back to a local check. This
+  # won't detect a squash-merge, but a real fast-forward/rebase merge shows
+  # up as an ancestor of the default branch.
+  if git -C "$main_root" merge-base --is-ancestor "$target_branch" "$default_branch" 2>/dev/null; then
+    merged=true; merge_method="git merge-base --is-ancestor"
+  fi
+fi
+
+$merged || error "could not verify that \"$target_branch\" is merged into \"$default_branch\" (no merged PR found on $repo_slug${repo_slug:+, }and it is not a git-ancestor merge). Refusing -- finish it manually once you've confirmed it's merged."
+
+step "verified merged via: $merge_method"
+
+# ── From here on, operate from the main checkout ──────────────────────────
+cd "$main_root" || error "could not cd to main checkout: $main_root"
+
+current_branch="$(git branch --show-current 2>/dev/null || true)"
+if [[ "$current_branch" != "$default_branch" ]]; then
+  step "checking out $default_branch in the main checkout"
+  git checkout "$default_branch" || error "git checkout $default_branch failed"
+fi
+
+step "pulling latest $default_branch"
+git pull --prune --rebase --autostash || error "git pull failed"
+
+step "removing worktree $target_path"
+if rm_out="$(git worktree remove "$target_path" 2>&1)"; then
+  step "$rm_out"
+else
+  if printf '%s' "$rm_out" | grep -qi "contains modified or untracked files"; then
+    step "worktree has uncommitted changes:"
+    git -C "$target_path" status --short 2>&1 | sed 's/^/    /'
+    if ! $FORCE; then
+      error "refusing to remove a dirty worktree without --force (uncommitted state printed above). Re-run with --force if discarding it is intentional."
+    fi
+    step "removing with --force -- discarding the uncommitted state printed above"
+    git worktree remove --force "$target_path" || error "git worktree remove --force failed"
+  else
+    error "git worktree remove failed: $rm_out"
+  fi
+fi
+
+step "deleting local branch $target_branch"
+if del_out="$(git branch -d "$target_branch" 2>&1)"; then
+  step "$del_out"
+else
+  if printf '%s' "$del_out" | grep -qi "not fully merged"; then
+    step "branch -d refused (not fully merged per git's local view -- expected for a squash-merge); retrying with -D since merge was already verified via: $merge_method"
+    git branch -D "$target_branch" || error "git branch -D failed"
+  else
+    error "git branch -d failed: $del_out"
+  fi
+fi
+
+step "pruning stale worktree administrative entries"
+git worktree prune
+
+step "done -- '$target_branch' worktree removed and branch deleted"
