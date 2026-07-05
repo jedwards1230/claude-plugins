@@ -49,7 +49,9 @@ The high-frequency load/instantiation failures to actively hunt:
    `Keys.onPressed = fn`) — handlers are declared, not assigned. The parser
    accepts it; the binding never fires.
 4. **Binding loops** — a depends-on-b depends-on-a. qmllint catches some; many
-   only surface as a runtime warning and a stuck value.
+   only surface as a runtime warning and a stuck value. Classics: `width`/
+   `height` ↔ `implicitWidth`/`implicitHeight` cycles, and a binding
+   overwritten imperatively then re-bound.
 5. **Type/enum/version mismatches** against the imported module version —
    accepted by the parser, rejected by the engine.
 6. **A `Component`/`Loader` `sourceComponent` referencing an id outside its
@@ -106,23 +108,12 @@ The high-frequency load/instantiation failures to actively hunt:
 
 ## What Matters in Review
 
-Read the surrounding QML to learn the project's conventions before judging.
-Hunt the load-time class of bug first (see the trap above), then:
-
-- **Binding loops** — a property binding that transitively depends on itself;
-  bindings overwritten imperatively then re-bound; `width`/`height` ↔
-  `implicitWidth`/`implicitHeight` cycles.
-- **Imports** — every type/attached property covered (respecting the
-  same-module qmldir exception above); no reliance on an implicit import.
-- **Focus & keyboard nav** — `FocusScope` wrapping, `focus`/`activeFocus`,
-  `Keys` handling and tab/arrow order, focus not trapped or lost.
-- **Loader / Repeater lifecycle** — clean create/destroy, no leaked handlers or
-  dangling connections, `active`/`asynchronous` correctness.
-- **State & transitions** — wedge-prone states, overlapping `when`, animation
-  fighting a binding.
-- **Property/signal hygiene** — `required` props, `Connections` validity, typed
-  props over `var`.
-- **Performance** — heavy bindings, anchors/Layout thrash, oversized Repeaters.
+Read the surrounding QML to learn the project's conventions before judging;
+don't review the whole repo. Hunt the load-time class of bug first (see the
+trap above — binding loops and missing imports, respecting the same-module
+qmldir exception), then work the Idioms & Correctness axes as the checklist:
+focus & keyboard nav, Loader/Repeater lifecycle, state & transitions,
+property/signal hygiene, performance.
 
 ## Severity Rubric
 

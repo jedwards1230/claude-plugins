@@ -8,14 +8,6 @@ description: This skill should be used when writing or reviewing OpenTofu or
   shared by the tofu-developer and tofu-reviewer agents) and a recent OpenTofu
   release reference. Reach for it to reason about state-affecting diffs, secret
   leakage in outputs, or which tofu version introduced a feature.
-example_prompts:
-- review this OpenTofu config
-- will this change force resource replacement
-- does tofu 1.11 support write-only attributes
-- which tofu version added OCI registry support
-- how should I pin providers and required_version
-- can I drop the DynamoDB table for S3 state locking
-- what changed in tofu lockfile behavior recently
 permalink: tooling/claude-plugins/plugins/tofu-quality/skills/tofu/skill
 ---
 
@@ -23,9 +15,10 @@ permalink: tooling/claude-plugins/plugins/tofu-quality/skills/tofu/skill
 
 Knowledge base: tofu-quality/2026.07
 
-<!-- Maintenance: when a new OpenTofu minor ships, update the three release lines
-in the `description` above AND the sections below, and verify against the
-per-version branch changelog (raw.githubusercontent.com/opentofu/opentofu/vX.Y/CHANGELOG.md). -->
+<!-- Maintenance: when a new OpenTofu minor ships, update the three release
+blocks in the "Recent Releases" section below (drop the oldest, add the newest;
+bump the knowledge-base id when content meaningfully changes), verifying against
+the per-version branch changelog (raw.githubusercontent.com/opentofu/opentofu/vX.Y/CHANGELOG.md). -->
 
 Shared domain knowledge for authoring and reviewing OpenTofu/Terraform. The
 tofu-developer applies it while writing HCL and driving the fmt/validate gates
@@ -74,27 +67,20 @@ OpenTofu/Terraform best practices, lightly anchored to the lab's tooling
 
 ## What Matters in Review
 
-Review from the handed diff; read the surrounding module to understand intent.
-Lead with anything state-affecting or secret-leaking:
+Review from the handed diff; read the surrounding module to understand intent;
+don't review the whole repo. Lead with anything state-affecting or
+secret-leaking, then work the convention and hygiene sections above as the
+checklist (pinning, for_each-vs-count, plan-time side effects, correctness,
+hygiene). The review-only axes:
 
 - **State-affecting / destructive diffs** — argument changes that force resource
   replacement (ForceNew), renames that destroy-and-recreate rather than move,
   removal of resources that drops live infrastructure. Highest severity; note
   the safer path (`moved` blocks, `create_before_destroy`).
-- **Provider & module version pinning** — providers pinned with sensible
-  constraints (`~>`), not floating/unpinned; module `source`/`version` pinned;
-  `required_version` present; watch a widened constraint that could pull a
-  breaking major.
-- **for_each vs count drift** — `count` over a list where insertion/removal
-  re-indexes and churns downstream; `for_each` keys not known at plan time.
-- **Secret leakage** — credentials/keys hardcoded in HCL or `.tfvars`; outputs
-  exposing sensitive values without `sensitive = true`; secrets landing in state
-  or logs; `local-exec` echoing secrets.
-- **Plan-time side effects** — as above.
-- **Correctness** — unconstrained `variable` blocks, missing `depends_on`,
-  overly broad `ignore_changes`, interpolation/`templatefile` errors.
-- **Hygiene** — dead variables/outputs, missing tags/labels, inconsistent
-  naming.
+- **Version-pin widening** — a loosened provider/module constraint that could
+  pull a breaking major; `for_each` keys not known at plan time.
+- **Secrets beyond the literals** — sensitive values landing in state, logs, or
+  `local-exec` output, not just hardcoded in HCL/`.tfvars`.
 
 ## Safety Culture
 

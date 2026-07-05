@@ -9,14 +9,6 @@ description: This skill should be used when writing or reviewing Ansible
   ansible-lint release reference. Reach for it to reason about ansible-lint
   rules/profiles, whether a task is idempotent, no_log/vault secret handling, or
   which ansible-core release introduced a behavior.
-example_prompts:
-- review this Ansible role
-- why is ansible-lint flagging command-instead-of-module
-- how do I noqa a single ansible-lint rule
-- is this task idempotent
-- will this run safely in check mode
-- what changed in ansible-core templating recently
-- how should I structure secrets with ansible-vault
 permalink: tooling/claude-plugins/plugins/ansible-quality/skills/ansible/skill
 ---
 
@@ -25,8 +17,8 @@ permalink: tooling/claude-plugins/plugins/ansible-quality/skills/ansible/skill
 Knowledge base: ansible-quality/2026.07
 
 <!-- Maintenance: when a new ansible-core minor or ansible-lint major ships,
-update the recent-release line in the `description` above AND the sections
-below, and verify against the changelogs:
+update the "Recent Behavior to Confirm" section below (and bump the
+knowledge-base id when content meaningfully changes), verifying against:
   ansible-core: https://github.com/ansible/ansible/blob/devel/changelogs/CHANGELOG-v2.NN.rst
   ansible-lint: https://github.com/ansible/ansible-lint/releases -->
 
@@ -124,23 +116,12 @@ wrong at runtime, so the doctrine below carries the weight the tools can't.
 ## What Matters in Review
 
 Review from the handed diff; read the surrounding role to learn its conventions
-before judging. The load-bearing axes, roughly in priority order:
-
-- **Secret handling** — hardcoded credentials, missing `no_log`, secrets leaking
-  through `register`/`debug`.
-- **Idempotency** — `command`/`shell`/`raw` where a module exists; raw commands
-  without `creates`/`removes`/`changed_when`; loops that re-do work.
-- **FQCN** — modules by fully-qualified name; collections declared; no deprecated
-  names.
-- **Check-mode safety** — tasks that break or lie under `--check`.
-- **Handler wiring** — `notify` names matching a handler exactly; idempotent
-  handlers; correct `flush_handlers` ordering; a changed task that should notify
-  a restart actually does.
-- **Variables & templating** — undefined-variable risk, `default()`, quoting,
-  `| bool`/`| int`, 2.19 Data Tagging strictness.
-- **Privilege & safety** — scoped `become`, quoted `mode`, guarded destructive
-  tasks.
-- **Structure** — `name:` on every task, sane defaults-vs-vars precedence.
+before judging; don't review the whole repo. Work the sections above as the
+checklist, in priority order: secret handling first, then idempotency, FQCN,
+check-mode safety, handler wiring, variables & templating (incl. 2.19 Data
+Tagging), privilege & safety, structure. One review-only note: a changed task
+that *should* notify a restart but doesn't is a finding, not just a mismatched
+`notify` name.
 
 ## Safety Culture (authoring)
 
@@ -188,8 +169,8 @@ non-idempotent:
   unscoped `become` on a destructive path.
 - **Medium** — missing FQCN, undefined-variable risk, weak templating guards,
   structural/precedence issues.
-- **Low** — naming, tags, and pure formatting `ansible-lint --fix` / CI owns
-  (don't re-flag unless it masks a real issue).
+- **Low** — naming, tags, and pure formatting that `ansible-lint --fix` / CI
+  owns (don't re-flag unless it masks a real issue).
 
 ## Recent Behavior to Confirm (training-cutoff hedge)
 

@@ -100,20 +100,11 @@ won't.
 ## What Matters in Review
 
 Focus on the changed lines and what they touch; read the surrounding code to
-understand intent before judging. The load-bearing axes:
+understand intent before judging; don't review the whole repo. Work the
+Idioms & Correctness axes above as the checklist, in priority order:
+fallibility (daemon-killing panics), async & cancellation, and unsafe first;
+then ownership/borrowing, error design, and concurrency. One review-only axis:
 
-- **Ownership & borrowing** — needless clones, over-constrained lifetimes,
-  `Rc`/`RefCell` overuse, references to locals, self-referential structs.
-- **Fallibility** — `unwrap`/`expect`/`panic!`/indexing on realistically
-  fallible paths (prefer `?` with a typed error).
-- **Async & cancellation** — blocking calls inside async without
-  `spawn_blocking`; a guard (e.g. `std::sync::Mutex`) held across `.await`;
-  cancellation safety in `select!`; unbounded channels / task leaks.
-- **Error design** — `thiserror` enums, `?` propagation, `From` conversions;
-  `anyhow` at binaries vs typed errors at libraries; context not lost.
-- **unsafe** — invariants documented and upheld; UB risks; safe alternative.
-- **Concurrency** — `Send`/`Sync` correctness, data races behind `unsafe`, lock
-  contention and ordering.
 - **Cargo** — dependency version/feature changes that widen surface or pull
   blocking runtimes; feature-gate correctness (and the musl/no-C/no-TLS rule).
 
@@ -131,7 +122,7 @@ observations:
   feature.
 - **Medium** — avoidable clones on hot paths, non-idiomatic error modelling,
   over-constrained lifetimes, thin test coverage on a changed path.
-- **Low** — style and polish clippy-level nits that don't affect correctness.
+- **Low** — style-and-polish / clippy-level nits that don't affect correctness.
 
 ## Quality Gates & Tooling
 

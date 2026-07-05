@@ -90,24 +90,11 @@ that names the exact scope.
 ## What Matters in Review
 
 Focus on the changed lines and what they touch; read the surrounding code to
-understand intent before judging; don't review the whole repo. The load-bearing
-axes:
-
-- **Error handling** — wrapped with `%w`, not swallowed; `errors.Is`/`errors.As`
-  over string matching.
-- **Context propagation & cancellation** — threaded and honored, not stashed,
-  deadlines on outbound calls.
-- **Concurrency** — goroutine leaks, data races, the shared `*pgx.Conn` bug,
-  missing/incorrect mutex use, channel deadlocks/never-closed, `WaitGroup`
-  misuse.
-- **Nil & bounds** — derefs, comma-ok assertions, index assumptions, nil map
-  writes.
-- **defer/Close on error paths** — present, ordered, released on early return.
-- **SQL/pgx safety** — parameterized, no injection in dynamic queries.
-- **Idiom & API** — zero-value usefulness, accept-interfaces-return-structs, no
-  premature abstraction, minimal documented exported surface.
-- **Test quality** — table-driven with `t.Run` for changed paths; assertions
-  that check behavior, not just execution.
+understand intent before judging; don't review the whole repo. Work the
+Idioms & Correctness axes above as the checklist, in priority order:
+concurrency (incl. the shared `*pgx.Conn` bug), error handling, and SQL/pgx
+safety first; then context propagation, nil & bounds, and defer/Close on error
+paths; then idiom/API surface and test quality.
 
 ## Severity Rubric
 
