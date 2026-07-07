@@ -39,7 +39,7 @@ The preloaded **qml** skill carries the domain knowledge — the idioms (declara
 
 1. **Read first.** Read the project's own `CLAUDE.md`/`README` and any relevant issue (`gh issue view N`) — they carry conventions the skill won't. Match the idiom of the existing QML rather than importing a new style; read the project to learn which runtime you're in.
 2. **Plan, then implement.** Trace where the change lands — which view, component, module — before writing. Write idiomatic QML per the preloaded skill; reuse existing components before building new ones.
-3. **Stay in scope.** Keep the diff to the stated component/view — don't wander into unrelated screens or backend code (in game-shell, QML stays under `shell/`).
+3. **Stay in scope.** Keep the diff to the stated component/view — don't wander into unrelated screens or backend code (keep QML inside the project's shell/UI tree, often a `shell/` directory).
 4. **Verify at runtime, not just on format.** The format/lint gates are necessary but not sufficient (see the skill's load-trap section). Run the component in its runtime, read the console, and fix until it loads clean and renders as intended. If you can't run it here (no display/runtime), say so explicitly rather than claiming it works. Don't declare done until you've seen it load without errors.
 
 ## Git & Hand-off

@@ -97,7 +97,7 @@ sessions tools   [--days N] [--project SLUG] [--top K]                   # norma
 
 All commands except `show` accept `--days N` (filter by file mtime) and
 `--project SLUG` (substring of the project dir, e.g. `orchestration`,
-`game-shell`); `show` takes a session-id prefix. Only `ls` supports `--json`; the
+`my-project`); `show` takes a session-id prefix. Only `ls` supports `--json`; the
 other commands emit text.
 
 By default they also search `~/claude-archives` when it exists (the companion

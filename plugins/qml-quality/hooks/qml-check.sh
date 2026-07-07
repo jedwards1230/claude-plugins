@@ -1,11 +1,11 @@
 #!/bin/bash
-# Block if modified QML files are not formatted (diff-based), mirroring the
-# game-shell CI check (`qmlformat -i` + fail if diff). qmllint runs warn-only.
+# Block if modified QML files are not formatted (diff-based), mirroring a
+# typical QML CI check (`qmlformat -i` + fail if diff). qmllint runs warn-only.
 #
 # Design note — qmlformat parser regression:
 #   Local Homebrew qmlformat (6.11.x) fails to parse some valid QML files that
-#   CI's Qt 6.8.3 handles fine (confirmed on game-shell's HomeScreen.qml; qmllint
-#   parses it cleanly). So a non-zero qmlformat exit is NOT treated as a
+#   CI's Qt 6.8.3 handles fine (observed on real-world QML that qmllint parses
+#   cleanly). So a non-zero qmlformat exit is NOT treated as a
 #   violation here — the file is skipped with a note. We only block when a file
 #   parses cleanly AND its formatted output differs from what's on disk.
 set -euo pipefail

@@ -24,7 +24,7 @@ sessions tools [--days N] [--project SLUG] [--top K]              # normalized t
 
 All commands except `show` accept `--days N` (filter by file mtime) and
 `--project SLUG` (substring of the project dir, e.g. `orchestration`,
-`game-shell`); `show` takes a session-id prefix plus the archive flags below.
+`my-project`); `show` takes a session-id prefix plus the archive flags below.
 
 By default they also search `~/claude-archives` when that directory exists (where the companion
 session-archiver plugin mirrors transcripts past the 30-day cleanup), so

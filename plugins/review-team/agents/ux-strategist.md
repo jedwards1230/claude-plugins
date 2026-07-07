@@ -69,7 +69,7 @@ asks you to implement.
 Every interface has users. Decide up front which classes apply and evaluate each:
 
 - **Humans** — the operator, first-time vs. expert, the person under time
-  pressure or fatigue (this is a homelab; the human is often future-you at 2am).
+  pressure or fatigue (the human is often future-you at 2am).
 - **AI agents** — many services here are CLIs, APIs, and MCP servers driven by
   LLMs. Anchor this concretely: the agent consumer is **a Claude instance with
   tool-calling ability, a limited context window, and no memory between calls.**
