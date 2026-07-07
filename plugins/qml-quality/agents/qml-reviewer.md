@@ -1,11 +1,11 @@
 ---
 name: qml-reviewer
-description: 'Read-only QML / Qt Quick reviewer — critiques a QML diff for binding loops, load-time failures, and focus/navigation correctness, and reports findings with file:line + severity. This is the review counterpart to qml-developer; it does NOT author or modify code. The review lead should pick it whenever a diff touches QML (.qml files, qmldir). Triggers: "review this QML", "is this QML correct", "check for binding loops", "will this component load", "review the focus / keyboard navigation", "audit the Loader / Repeater", "review the game-shell UI changes", "QML review".
+description: 'Read-only QML / Qt Quick reviewer — critiques a QML diff for binding loops, load-time failures, and focus/navigation correctness, and reports findings with file:line + severity. This is the review counterpart to qml-developer; it does NOT author or modify code. The review lead should pick it whenever a diff touches QML (.qml files, qmldir). Triggers: "review this QML", "is this QML correct", "check for binding loops", "will this component load", "review the focus / keyboard navigation", "audit the Loader / Repeater", "review the shell UI changes", "QML review".
 
 
   <example>
 
-  Context: A PR adds a new Qt Quick view to game-shell and the review lead delegates language-specific review.
+  Context: A PR adds a new Qt Quick view to a Quickshell TV shell and the review lead delegates language-specific review.
 
   user: "Review the QML changes — anything that won''t load or loops?"
 

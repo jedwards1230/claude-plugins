@@ -1,6 +1,6 @@
 ---
 name: rust-reviewer
-description: 'Read-only Rust code reviewer — critiques a Rust diff for ownership, async, and error-handling correctness, and reports findings with file:line + severity. This is the review counterpart to rust-developer; it does NOT author or modify code. The review lead should pick it whenever a diff touches Rust (.rs files, Cargo.toml). Triggers: "review this Rust code", "is this Rust correct", "check the borrow / lifetime handling", "audit the unwraps", "review the async / tokio code", "look at the unsafe block", "review the gpu-arbiter daemon changes", "Rust review".
+description: 'Read-only Rust code reviewer — critiques a Rust diff for ownership, async, and error-handling correctness, and reports findings with file:line + severity. This is the review counterpart to rust-developer; it does NOT author or modify code. The review lead should pick it whenever a diff touches Rust (.rs files, Cargo.toml). Triggers: "review this Rust code", "is this Rust correct", "check the borrow / lifetime handling", "audit the unwraps", "review the async / tokio code", "look at the unsafe block", "review the daemon changes", "Rust review".
 
 
   <example>

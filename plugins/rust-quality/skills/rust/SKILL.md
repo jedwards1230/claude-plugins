@@ -1,35 +1,35 @@
 ---
 name: rust
-description: This skill should be used when writing or reviewing Rust in this
-  lab's two daemons — gpu-arbiter (privileged musl-static root daemon, axum
-  metrics, cn_proc netlink) and the game-shell input/AV daemon (evdev→uinput,
-  HDMI-CEC via cec-rs, axum dev endpoints) — covering ownership/borrowing,
-  async/tokio correctness, error design, unsafe, dependency and feature-gate
-  hygiene (musl/no-C/no-TLS, CEC ABI pins), and the rust-quality gates (cargo
-  fmt / clippy / test). Carries the review checklist and severity rubric the
-  rust-developer and rust-reviewer agents share.
+description: This skill should be used when writing or reviewing Rust in
+  long-running system daemons — archetypes like a privileged musl-static root
+  daemon (axum metrics, netlink/proc-connector, no-C/no-TLS) and an input/AV
+  device daemon (evdev→uinput, HDMI-CEC via cec-rs, axum dev endpoints) —
+  covering ownership/borrowing, async/tokio correctness, error design, unsafe,
+  dependency and feature-gate hygiene (musl/no-C/no-TLS, CEC ABI pins), and the
+  rust-quality gates (cargo fmt / clippy / test). Carries the review checklist
+  and severity rubric the rust-developer and rust-reviewer agents share.
 permalink: tooling/claude-plugins/plugins/rust-quality/skills/rust/skill
 ---
 
-# Rust (idioms, lab conventions, review)
+# Rust (idioms, daemon conventions, review)
 
 Knowledge base: rust-quality/2026.07
 
-Shared domain knowledge for authoring and reviewing Rust in this homelab. The
-rust-developer applies it while writing; the rust-reviewer applies it while
-critiquing. Same knowledge, two jobs.
+Shared domain knowledge for authoring and reviewing Rust in long-running
+daemons. The rust-developer applies it while writing; the rust-reviewer applies
+it while critiquing. Same knowledge, two jobs.
 
-## The two codebases you ship to
+## Two daemon archetypes
 
-This homelab has two real Rust daemons. Know their constraints cold before
-adding a line. For any task, read the relevant GitHub issue(s) (`gh issue view
-N`) and the repo's own `CLAUDE.md` first — they carry constraints these notes
-won't.
+These idioms are anchored to two recurring kinds of Rust daemon. Know their
+constraints cold before adding a line. For any task, read the relevant GitHub
+issue(s) (`gh issue view N`) and the repo's own `CLAUDE.md` first — they carry
+constraints these notes won't.
 
-1. **gpu-arbiter** (`jedwards1230/gpu-arbiter`) — privileged root daemon on the
-   deployment host. Detects games via the kernel `cn_proc` proc-connector
-   netlink, evicts Ollama/ASR from the GPU on game launch, restores them when
-   the GPU frees, exposes Prometheus metrics via **axum**.
+1. **Privileged musl-static root daemon** — a root daemon that watches the
+   kernel (e.g. game launches via the `cn_proc` proc-connector netlink),
+   arbitrates a shared resource such as a GPU, and exposes Prometheus metrics
+   via **axum**.
    - **Hard constraint: musl-static** (`x86_64-unknown-linux-musl`). The
      dependency tree is kept **pure-Rust/libc — NO C deps, NO TLS** to keep the
      musl cross-build clean. Before adding any crate, check it (and its
@@ -39,18 +39,16 @@ won't.
    - `cn_proc` `ENOBUFS` is recoverable — treat it non-fatal, don't panic the
      daemon on it.
 
-2. **game-shell input/AV daemon** (`jedwards1230/game-shell`, the `daemon/`
-   crate / module `game-shell-input`) — paired with a Quickshell/QML couch shell
-   on Hyprland. Owns evdev gamepad input → uinput key synthesis, HDMI-CEC
-   (libcec via `cec-rs`), axum HTTP dev-control endpoints, session-env
-   self-discovery, AV lifecycle.
+2. **Input/AV device daemon** — the `daemon/` crate paired with a Quickshell/QML
+   shell. Owns evdev gamepad input → uinput key synthesis, HDMI-CEC (libcec via
+   `cec-rs`), axum HTTP dev-control endpoints, session-env self-discovery, AV
+   lifecycle.
    - **Scope discipline is critical.** Most tasks here are "touch ONLY `daemon/`
      (Rust), do NOT edit anything under `shell/`" — QML is handled in parallel.
      Stay in your crate.
    - **CEC version sensitivity**: `cec-rs`/`libcec-sys` are libcec-ABI-sensitive.
-     The target box runs libcec 7 and needs `cec-rs 12.x`, behind a Cargo
-     feature gate. A naive pin reverts the feature — read the existing gate
-     before bumping.
+     A target box on libcec 7 needs `cec-rs 12.x`, behind a Cargo feature gate.
+     A naive pin reverts the feature — read the existing gate before bumping.
    - evdev button maps are physical-controller-specific (BTN_WEST/BTN_NORTH can
      be swapped). Don't assume a layout.
 
@@ -84,10 +82,11 @@ won't.
 - **Concurrency**: `Send`/`Sync` correctness across thread/task boundaries,
   `Arc<Mutex<_>>` contention, deadlock-prone lock ordering.
 
-## Lab Conventions (authoring discipline)
+## Project Conventions (authoring discipline)
 
 - **Dependency hygiene.** Add the smallest crate that does the job; check it
-  against the musl-static/no-C/no-TLS rule (gpu-arbiter especially); put
+  against the musl-static/no-C/no-TLS rule (the privileged root daemon
+  especially); put
   optional functionality behind a Cargo **feature gate** rather than making it
   unconditional. Read existing feature gates before touching pins (CEC).
 - **Keep the diff scoped** to the stated subsystem/crate. Don't wander across

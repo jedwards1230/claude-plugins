@@ -1,20 +1,20 @@
 ---
 name: qml
 description: This skill should be used when writing or reviewing QML / Qt Quick
-  in this lab's UIs (the game-shell Quickshell couch shell on Hyprland, and
-  general Qt Quick views) — idiomatic declarative bindings, FocusScope/keyboard
-  navigation for a TV/gamepad shell, the parse-passes-but-fails-to-load class of
-  bug, binding loops, Loader/Repeater lifecycle, same-module qmldir imports, and
-  the qml-quality gates (qmlformat / qmllint). Carries the review checklist and
+  UIs — a Quickshell TV/couch shell on Hyprland, or general Qt Quick views —
+  covering idiomatic declarative bindings, FocusScope/keyboard navigation for a
+  TV/gamepad shell, the parse-passes-but-fails-to-load class of bug, binding
+  loops, Loader/Repeater lifecycle, same-module qmldir imports, and the
+  qml-quality gates (qmlformat / qmllint). Carries the review checklist and
   severity rubric the qml-developer and qml-reviewer agents share.
 permalink: tooling/claude-plugins/plugins/qml-quality/skills/qml/skill
 ---
 
-# QML / Qt Quick (idioms, lab conventions, review)
+# QML / Qt Quick (idioms, project conventions, review)
 
 Knowledge base: qml-quality/2026.07
 
-Shared domain knowledge for authoring and reviewing QML in this homelab. The
+Shared domain knowledge for authoring and reviewing QML. The
 qml-developer applies it while writing; the qml-reviewer applies it while
 critiquing. Same knowledge, two jobs.
 
@@ -97,11 +97,12 @@ The high-frequency load/instantiation failures to actively hunt:
   `anchors` vs `Layout` thrash, and a large `Repeater` where a view with
   delegate recycling belongs.
 
-## Lab Conventions (authoring discipline)
+## Project Conventions (authoring discipline)
 
 - **Keep the diff scoped** to the stated component/view. Don't wander into
-  unrelated screens or backend code. In game-shell specifically, QML work stays
-  under `shell/`; the Rust `daemon/` is handled in parallel.
+  unrelated screens or backend code. Keep QML diffs inside the shell/UI tree the
+  project defines (often a `shell/` directory); a paired backend daemon is
+  handled in parallel.
 - **Plan first.** Understand the goal and component boundaries; trace where the
   change lands — which view, which component, which module — before writing.
 - **Don't introduce a second style** in a file that already has one.

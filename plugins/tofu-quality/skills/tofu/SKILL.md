@@ -23,10 +23,10 @@ the per-version branch changelog (raw.githubusercontent.com/opentofu/opentofu/vX
 Shared domain knowledge for authoring and reviewing OpenTofu/Terraform. The
 tofu-developer applies it while writing HCL and driving the fmt/validate gates
 to green; the tofu-reviewer applies it while critiquing a diff. Same knowledge,
-two jobs. This is the lab's explicit choice of IaC tool; there's no deep house
-corpus of past `.tf` authoring to imitate, so lean on general
-OpenTofu/Terraform best practices, lightly anchored to the lab's tooling
-(`lilbro-tf`, the `homelab-security` external-vantage VM templates).
+two jobs. Where a project has adopted OpenTofu/Terraform without a deep house
+corpus of past `.tf` authoring to imitate, lean on general OpenTofu/Terraform
+best practices, lightly anchored to the project's tooling (your IaC repo, an
+ephemeral assessment-VM template).
 
 ## Module-Structure Conventions
 

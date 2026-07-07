@@ -1,5 +1,5 @@
 {
   "name": "review-team",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Dynamic review team composition with 14 stack-agnostic specialist agents (including a workflow-first UX/interaction evaluator, an adversarial devils-advocate, a pre-publication safety auditor, and a Claude Code config reviewer) for collaborative, multi-angle review using Claude Code agent teams"
 }

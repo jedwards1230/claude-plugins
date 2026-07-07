@@ -1,33 +1,32 @@
 ---
 name: go
-description: This skill should be used when writing or reviewing Go in this
-  lab's codebases (earmark, lilbro-whisper, mcp-proxy, cardigan, deck,
-  wiki-server) — idiomatic Go, error wrapping, context propagation, pgx/Postgres
-  and concurrency correctness, htmx/template dashboards in internal/mcp/, MCP
-  servers, additive schema migrations, table-driven tests, and the go-quality
-  gates (go vet / go test / golangci-lint). Carries the review checklist and
-  severity rubric the go-developer and go-reviewer agents share.
+description: This skill should be used when writing or reviewing Go services —
+  MCP servers, htmx/template dashboards in internal/mcp/, and pgx/Postgres
+  backends — covering idiomatic Go, error wrapping, context propagation,
+  pgx/Postgres and concurrency correctness, additive schema migrations,
+  table-driven tests, and the go-quality gates (go vet / go test /
+  golangci-lint). Carries the review checklist and severity rubric the
+  go-developer and go-reviewer agents share.
 permalink: tooling/claude-plugins/plugins/go-quality/skills/go/skill
 ---
 
-# Go (idioms, lab conventions, review)
+# Go (idioms, service conventions, review)
 
 Knowledge base: go-quality/2026.07
 
-Shared domain knowledge for authoring and reviewing Go in this homelab. The
+Shared domain knowledge for authoring and reviewing Go services. The
 go-developer applies it while writing; the go-reviewer applies it while
 critiquing. Same knowledge, two jobs.
 
-## How This Lab Ships Go
+## How These Services Ship Go
 
-The homelab's Go codebases (earmark, lilbro-whisper, mcp-proxy, cardigan, deck,
-wiki-server) share strong conventions:
+The Go services this skill targets — MCP servers, htmx dashboards, and
+pgx/Postgres backends — share strong conventions:
 
 - **Server-rendered htmx dashboards live in `internal/mcp/`** (e.g.
   `dashboard.go`, `findings.go`) — Go templates rendering HTML, driven by htmx.
   There is no separate JS frontend.
-- **MCP servers** ("Audiobook Processor" and friends) — structured-output
-  tools, registries, eval/judge pipelines.
+- **MCP servers** — structured-output tools, registries, eval/judge pipelines.
 - **Postgres via pgx**, embeddings, additive schema migrations.
 - Provider/interface **seams** are introduced in one PR and consumed in later
   ones (e.g. a `MetadataProvider` in `internal/metaprovider`).
@@ -72,7 +71,7 @@ that names the exact scope.
 - **Table-driven tests** with subtests (`t.Run`) and meaningful assertions —
   not just "it ran". Exercise the changed code paths.
 
-## Lab Conventions (authoring discipline)
+## Project Conventions (authoring discipline)
 
 - **Pure refactors change zero behavior.** When introducing a seam or finishing
   an incomplete refactor, prove behavior identity — same inputs, same outputs.

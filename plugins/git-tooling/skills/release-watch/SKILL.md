@@ -137,7 +137,7 @@ Each notification line is `<target>: <signature>`:
 
 How to react:
 
-- **`RELEASED` / `PUBLISHED`** — the release is out. Report the version. If you were running a deploy/version-bump follow-up (e.g. bumping the image tag in homelab-k8s), this is your go signal — but first confirm the tag carries your change (rapid merges can each cut their own version).
+- **`RELEASED` / `PUBLISHED`** — the release is out. Report the version. If you were running a deploy/version-bump follow-up (e.g. bumping the image tag in your deployment repo), this is your go signal — but first confirm the tag carries your change (rapid merges can each cut their own version).
 - **`RUN failure …`** — the release workflow failed; the release didn't publish. Surface the run URL and investigate (`gh run view <id> --log-failed`).
 - **`RUN success — no new release` / `idle …`** — nothing published. Usually the merge carried no `semver:*` label (opt-in repos) or wasn't a release. If a release *was* expected, check the PR's labels and the release workflow's `detect` job.
 - **`not published yet (waiting)`** — the package 404s but the watch keeps polling. On a first-ever publish the package legitimately doesn't exist until the release run pushes the image (minutes later), so this is expected early on, not a failure. It only becomes terminal if it stays 404 for the whole grace window.

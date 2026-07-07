@@ -1,6 +1,6 @@
 {
   "name": "tofu-quality",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "OpenTofu quality gates — auto-format on edit, and on stop check formatting (tofu fmt) and validate config (tofu validate), mirroring CI. Includes a /tofu skill carrying recent-release summaries in context.",
   "author": {
     "name": "jedwards1230"

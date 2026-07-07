@@ -1,6 +1,6 @@
 {
   "name": "sessions",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Search and analyze past Claude Code session transcripts — sessions CLI for listing, grepping, rendering, and tool-usage stats over the ~/.claude JSONL history",
   "author": {
     "name": "jedwards1230"
