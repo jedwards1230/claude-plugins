@@ -66,10 +66,11 @@ receives only the final result and a concise summary — never the raw command o
 There is no single screenshot tool across platforms — discover the right one before
 capturing. In rough order of preference:
 
-- **A web page:** if browser-automation tools are available (this plugin bundles a
-  Playwright MCP server, exposed as `mcp__playwright__browser_*`), use them to
-  navigate, size the viewport, wait for content, and screenshot. This is the
-  preferred path for anything in a browser.
+- **A web page:** if a Playwright MCP server is configured in the project (its tools
+  appear as `mcp__playwright__browser_*`), use them to navigate, size the viewport, wait
+  for content, and screenshot. This is the preferred path for anything in a browser. This
+  plugin is agent-only and does **not** bundle the server — if those tools are absent, see
+  the missing-tools guidance below.
 - **A project-provided capture command:** many projects ship a screenshot script or
   an MCP tool for their own UI — prefer it when present; it knows how to reach the
   surface.
@@ -84,6 +85,29 @@ command rather than guessing** — a wrong guess wastes a whole loop. If the bro
 tools are present but the browser fails to launch (e.g. it hasn't been installed —
 run `npx playwright install <browser>` once), fall back to the native path or report
 the blocker; do not spin.
+
+## Web target but no Playwright tools — report the setup, don't spin
+
+If the task is to capture a **web page** but no `mcp__playwright__browser_*` tools are
+available in your tool set, **do not** attempt to hack around it (curl, headless guesses,
+repeated retries). Stop and tell the parent exactly what's missing and how to set it up:
+this plugin is agent-only and relies on a **project-configured** Playwright MCP server.
+Report that the project needs a `.mcp.json` at its root with a `playwright` server, give
+the snippet, and note the one-time browser install:
+
+    Add this to the project's `.mcp.json` (a template ships as `.mcp.json.example`):
+    {
+      "mcpServers": {
+        "playwright": {
+          "command": "npx",
+          "args": ["@playwright/mcp@latest", "--browser", "firefox", "--headless"]
+        }
+      }
+    }
+    Then run `npx playwright install firefox` once. Reload so the server is picked up.
+
+If the target is a **native** app/UI (not a browser), Playwright is irrelevant — use the
+platform tool above; only report the Playwright gap for genuine web targets.
 
 ## Self-verify EVERY capture — and retry up to 3×
 

@@ -1,7 +1,7 @@
 {
   "name": "screenshotter",
-  "version": "1.0.0",
-  "description": "A generic UI screenshotter agent — autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. Bundles a Playwright MCP server for web-page capture.",
+  "version": "1.1.0",
+  "description": "A generic, agent-only UI screenshotter — autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. For web capture it uses a project-configured Playwright MCP server (template + setup in the README).",
   "author": { "name": "jedwards1230" },
   "keywords": ["screenshot", "ui", "capture", "playwright", "visual-review", "agent"]
 }

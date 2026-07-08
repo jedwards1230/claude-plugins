@@ -48,34 +48,59 @@ The `screenshotter` agent activates on screenshot/UI-capture requests:
 
 The agent discovers how to capture based on the target and platform:
 
-- **Web pages** — via the bundled Playwright MCP server (see below). Preferred for anything
-  in a browser.
+- **Web pages** — via a Playwright MCP server **you configure in the project** (see
+  [Web capture setup](#web-capture-setup-playwright-mcp) below). Preferred for anything in
+  a browser.
 - **macOS** — `screencapture`.
 - **Linux** — `grim` (Wayland) or `scrot` / `spectacle` / ImageMagick `import` (X11).
 - **Windows** — PowerShell screen capture.
 - **App-specific** — any screenshot command or MCP tool the project provides.
 
-## Web capture (Playwright MCP)
+## Web capture setup (Playwright MCP)
 
-This plugin **bundles** a Playwright MCP server (`.mcp.json`), so web-page capture works
-as soon as the plugin is enabled — no extra MCP configuration required. It exposes the
-`mcp__playwright__browser_*` tools the agent uses to navigate, size the viewport, wait for
-content, and screenshot.
+This plugin is **agent-only** — it does **not** bundle an MCP server. To screenshot web
+pages, the agent uses a **Playwright MCP server configured in your project**, which exposes
+the `mcp__playwright__browser_*` tools it drives to navigate, size the viewport, wait for
+content, and screenshot. Configuring it in the project (rather than bundling it) keeps the
+tool names stable (`mcp__playwright__*`) and lets each repo pick its own browser/headed/
+version settings — and the same server is then available to everything else in the repo,
+not just this agent.
+
+**Only needed for web capture.** Native capture (desktop apps, TUIs) uses your platform's
+screenshot tool and needs none of this.
+
+**Setup:** add a `.mcp.json` at your project root. A ready-to-copy template ships with the
+plugin as [`.mcp.json.example`](.mcp.json.example):
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--browser", "firefox", "--headless"]
+    }
+  }
+}
+```
+
+Adjust to taste — drop `--headless` to watch the browser, swap `firefox` for `chromium`/
+`webkit`, or pin `@playwright/mcp@<version>`. If your repo already has a `playwright` server
+in `.mcp.json`, you're done — the agent uses it as-is.
 
 **Prerequisites for the web path:**
 
 - **Node.js** (the server runs via `npx @playwright/mcp@latest`).
-- A one-time browser install: `npx playwright install firefox` (the bundled server uses
-  headless Firefox by default). Without it, the first web capture fails with a
-  "browser not installed" error.
+- A one-time browser install: `npx playwright install firefox` (or whichever browser you
+  configured). Without it, the first web capture fails with a "browser not installed" error.
 
-Native (non-browser) capture needs neither — it uses your platform's screenshot tool.
+If a web capture is requested and no Playwright tools are present, the agent won't spin — it
+tells you exactly what to add (this `.mcp.json` + the browser install) and stops.
 
 ## Tools
 
 The agent **inherits your session's full tool set** — it declares no `tools:` allowlist.
 That's deliberate: capture and UI control vary wildly per project, so the agent needs to
-reach whatever your session exposes — the bundled Playwright browser tools, your
+reach whatever your session exposes — a project-configured Playwright MCP server, your
 platform's screenshot command, and **any project-specific MCP tools that drive your app's
 UI**. Your normal permission settings still gate everything it runs.
 
