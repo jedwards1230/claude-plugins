@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "23.0.8"
+    "version": "24.0.0"
   },
   "plugins": [
     {
@@ -66,6 +66,11 @@
       "name": "repo-standards",
       "source": "./plugins/repo-standards",
       "description": "Preferred GitHub repository standards, audited/applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
+    },
+    {
+      "name": "screenshotter",
+      "source": "./plugins/screenshotter",
+      "description": "A generic UI screenshotter agent — autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. Bundles a Playwright MCP server for web-page capture."
     }
   ]
 }
