@@ -233,7 +233,8 @@ different worktrees resolve relative paths differently.
 Spawned agents inherit CLAUDE.md and memory but don't reliably *apply* standing
 rules unprompted. Restate the ones that matter for this task, typically:
 
-- work in a worktree; rebase on latest main before opening the PR
+- work in a worktree; rebase on the latest default branch before opening the PR
+  (detect it — `git symbolic-ref refs/remotes/origin/HEAD`; don't assume `main`)
 - never merge; report PR URLs the moment they open
 - no GUI/browser launches or other intrusions on the user's machine
 - public-repo hygiene when the target repo is public

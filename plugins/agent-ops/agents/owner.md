@@ -46,7 +46,7 @@ The preloaded **orchestrate** skill carries the delegation knowledge — tree sh
 
 When your task changes code:
 
-- Work in a git worktree off the latest `origin/main`; rebase before opening the PR so the branch doesn't go stale.
+- Work in a git worktree off the latest remote default branch — detect it, don't assume `main` (`git symbolic-ref refs/remotes/origin/HEAD`, or `git remote show origin | sed -n '/HEAD branch/s/.*: //p'` if unset). Rebase on it before opening the PR so the branch doesn't go stale.
 - If the target is a nested/cloned repo, commit and push in that repo's OWN git context — never from a parent repo's root.
 - **Never merge a PR.** Report each PR URL the moment it opens — don't make anyone ask "are they open? where are the links?".
 - Never launch GUI apps, browsers, or anything else that intrudes on the user's machine; verify with headless checks instead.
