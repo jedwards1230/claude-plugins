@@ -23,11 +23,10 @@ Forms mix freely, e.g.:
 Env:
     GIT_TOOLING_CI_POLL_SECONDS   poll interval in seconds (default 30)
 
-Polling cadence adapts on its own: it doubles once every watched PR is READY
-(to ease off while waiting on a human to merge), and it backs off exponentially
-(capped at 5 min) when the GitHub API is returning errors, so a rate-limit or
-outage isn't hammered. Persistent unreadability is surfaced as a one-time WARN
-line rather than silently swallowed.
+Polling cadence backs off exponentially (capped at 5 min) when the GitHub API
+is returning errors, so a rate-limit or outage isn't hammered. Persistent
+unreadability is surfaced as a one-time WARN line rather than silently
+swallowed.
 
 Requires: python3 (3.8+), gh (authenticated).
 Portable across macOS and Linux — no shell-version dependencies.
@@ -377,14 +376,13 @@ class Signature:
     state doesn't carry draft info (terminal/transient).
     """
 
-    __slots__ = ("text", "terminal", "should_emit", "ready", "is_draft")
+    __slots__ = ("text", "terminal", "should_emit", "is_draft")
 
     def __init__(self, text="", terminal=False, should_emit=False,
-                 ready=False, is_draft=None):
+                 is_draft=None):
         self.text = text
         self.terminal = terminal
         self.should_emit = should_emit
-        self.ready = ready
         self.is_draft = is_draft
 
 
@@ -400,7 +398,7 @@ def build_signature(result: QueryResult, owner: str, name: str) -> Signature:
     if result.transient_error:
         return Signature(should_emit=False, terminal=False)
     if result.gone:
-        return Signature("GONE", terminal=True, should_emit=True, ready=True)
+        return Signature("GONE", terminal=True, should_emit=True)
     node = result.node
 
     state = node.get("state") or "UNKNOWN"
@@ -421,9 +419,9 @@ def build_signature(result: QueryResult, owner: str, name: str) -> Signature:
             # Missing branch name(s): prose-only guidance, no broken command.
             text = ("MERGED — pull the latest default branch and prune the "
                     "local feature branch")
-        return Signature(text, terminal=True, should_emit=True, ready=True)
+        return Signature(text, terminal=True, should_emit=True)
     if state == "CLOSED":
-        return Signature("CLOSED", terminal=True, should_emit=True, ready=True)
+        return Signature("CLOSED", terminal=True, should_emit=True)
 
     # Pull check contexts off the latest commit; default to empty when missing.
     commits = (node.get("commits") or {}).get("nodes") or []
@@ -537,7 +535,7 @@ def build_signature(result: QueryResult, owner: str, name: str) -> Signature:
         parts.append("READY")
 
     return Signature(",".join(parts), terminal=False, should_emit=True,
-                     ready=ready, is_draft=is_draft)
+                     is_draft=is_draft)
 
 
 def valid_repo(repo: str) -> bool:
@@ -607,19 +605,16 @@ def parse_poll_interval() -> int:
     return value
 
 
-def next_delay(poll: int, max_streak: int, all_ready: bool) -> int:
+def next_delay(poll: int, max_streak: int) -> int:
     """Pick the inter-poll sleep.
 
-    Error backoff takes precedence: once any PR has hit ERROR_BACKOFF_THRESHOLD
-    consecutive errors, sleep grows exponentially (capped) so a rate-limit or
-    outage isn't hammered. Otherwise, slow to 2x once everything is READY (just
-    waiting on a human to merge), or poll normally.
+    Once any PR has hit ERROR_BACKOFF_THRESHOLD consecutive errors, sleep
+    grows exponentially (capped) so a rate-limit or outage isn't hammered.
+    Otherwise, poll normally.
     """
     if max_streak >= ERROR_BACKOFF_THRESHOLD:
         factor = 2 ** (max_streak - ERROR_BACKOFF_THRESHOLD + 1)
         return min(poll * factor, ERROR_BACKOFF_MAX_SECONDS)
-    if all_ready:
-        return poll * 2
     return poll
 
 
@@ -676,7 +671,6 @@ def main(argv: list[str]) -> int:
          f"(poll every {poll}s)")
 
     previous: "dict[tuple[str, int], str]" = {}
-    ready_state: "dict[tuple[str, int], bool]" = {}
     prev_draft: "dict[tuple[str, int], bool]" = {}
     err_streak: "dict[tuple[str, int], int]" = {}
     warned: "set[tuple[str, int]]" = set()
@@ -701,7 +695,7 @@ def main(argv: list[str]) -> int:
             if not sig.should_emit:
                 # Transient error: count the streak and surface a one-time WARN
                 # so sustained unreadability isn't silently swallowed. Leave
-                # previous/ready_state/prev_draft unchanged.
+                # previous/prev_draft unchanged.
                 err_streak[key] = err_streak.get(key, 0) + 1
                 if err_streak[key] == ERROR_WARN_THRESHOLD and key not in warned:
                     emit(f"{label(repo, pr)}: WARN unreadable after "
@@ -712,7 +706,6 @@ def main(argv: list[str]) -> int:
             # Successful read (live or terminal): reset error tracking.
             err_streak[key] = 0
             warned.discard(key)
-            ready_state[key] = bool(sig.ready)
 
             # Detect a draft <-> ready-for-review flip so the transition reads
             # explicitly rather than as a bare DRAFT-token appearance/removal.
@@ -741,8 +734,7 @@ def main(argv: list[str]) -> int:
             return 0
 
         max_streak = max(err_streak.values(), default=0)
-        all_ready = bool(ready_state) and all(ready_state.values())
-        time.sleep(next_delay(poll, max_streak, all_ready))
+        time.sleep(next_delay(poll, max_streak))
 
 
 if __name__ == "__main__":
