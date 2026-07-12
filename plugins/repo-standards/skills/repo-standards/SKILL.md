@@ -45,7 +45,7 @@ additionally waives the docs split and version updates.
 | Auto-delete merged branches | `delete_branch_on_merge` | `PATCH /repos/{o}/{r}` | `true` |
 | Always suggest updating PR branches | `allow_update_branch` | `PATCH /repos/{o}/{r}` | `true` |
 | Default `GITHUB_TOKEN` read-only | `default_workflow_permissions` | `PUT .../actions/permissions/workflow` | `read` |
-| Require actions pinned to full SHA | `sha_pinning_required` | `PUT .../actions/permissions` | `true` (enable after full-pin) |
+| Require actions pinned to full SHA | `sha_pinning_required` | `PUT .../actions/permissions` | `true` (new repos: on by default; existing: after full-pin) |
 | Dependabot alerts on | (no body) | `PUT .../vulnerability-alerts` | enabled |
 | Dependabot security fixes on | (no body) | `PUT .../automated-security-fixes` | enabled |
 
@@ -67,17 +67,23 @@ gh api -X PUT "repos/$OWNER/$REPO/vulnerability-alerts"
 gh api -X PUT "repos/$OWNER/$REPO/automated-security-fixes"
 ```
 
-> **SHA-pinning is the standard, enabled in two phases — it blocks, not warns.** Every third-party
-> action should be pinned to a full commit SHA (with a `# vX.Y.Z` trailing comment): a moved or
-> compromised tag (`v7`, `main`) then can't silently alter workflow behavior. But
-> `sha_pinning_required` makes *any* tag/branch ref (e.g. `actions/checkout@v7`) fail immediately, so
-> enable it per repo **only after** every ref in `.github/workflows/` is already a 40-char SHA —
-> otherwise CI goes red on the next run.
+> **SHA-pinning is a Layer-1 default — it blocks, not warns.** Every third-party action should be
+> pinned to a full commit SHA (with a `# vX.Y.Z` trailing comment): a moved or compromised tag
+> (`v7`, `main`) then can't silently alter workflow behavior. `sha_pinning_required` makes *any*
+> tag/branch ref (e.g. `actions/checkout@v7`) fail immediately — so *when* you enable it depends on
+> whether the repo already has unpinned workflows:
 >
-> 1. **Pin everything first.** Resolve each `owner/action@tag` to its release commit SHA, keeping the
->    tag in a trailing comment. A pinning tool — `pinact`, `ratchet`, or `frizbee` — does this
->    accurately across a repo; hand-resolving each ref is error-prone.
-> 2. **Then enforce.** PUT replaces the policy, so resend the fields you keep:
+> - **New repos: enable it up front**, as part of the Layer-1 apply. There are no existing workflows
+>   to break, and any you scaffold later get pinned from day one. Just run the enforce command below
+>   alongside the rest of the baseline.
+> - **Existing repos: enable in two phases** — otherwise CI goes red on the next run the moment an
+>   unpinned ref is evaluated:
+>   1. **Pin everything first.** Resolve each `owner/action@tag` to its release commit SHA, keeping
+>      the tag in a trailing comment. A pinning tool — `pinact`, `ratchet`, or `frizbee` — does this
+>      accurately across a repo; hand-resolving each ref is error-prone.
+>   2. **Then enforce.**
+>
+> Either way, the enforce call is the same. PUT replaces the policy, so resend the fields you keep:
 >
 > ```bash
 > gh api -X PUT "repos/$OWNER/$REPO/actions/permissions" \
@@ -236,5 +242,5 @@ Delete: `gh api -X DELETE "repos/$OWNER/$REPO/rulesets/RULESET_ID"`.
   never blanket-delete, or a naive apply loop silently drops Copilot review.
 - **Visibility flip** → move the repo between classes and re-apply (a public repo shouldn't stay
   on B/C; a private one shouldn't carry A).
-- **New repo** → apply the Layer-1 baseline + the right class ruleset; record its class in your
-  own inventory, not here.
+- **New repo** → apply the Layer-1 baseline (SHA-pinning enabled up front — no existing workflows
+  to break) + the right class ruleset; record its class in your own inventory, not here.
