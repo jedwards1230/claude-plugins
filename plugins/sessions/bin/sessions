@@ -342,13 +342,20 @@ def _classify_error(text):
 
 
 def _reason_category(text):
-    """Extract the classifier's [Category] tag and short reason, if any."""
+    """Extract the classifier's [Category] tag and short reason, if any.
+
+    The [Category] prefix is stripped from the returned reason — it's printed
+    separately on the label line, so keeping it here would double-print it.
+    """
     m = _REASON_RE.search(text)
     reason = (m.group(1).strip() if m else "").replace("\n", " ")
     cm = _CATEGORY_RE.match(reason)
-    cat = cm.group(1) if cm else None
+    cat = None
+    if cm:
+        cat = cm.group(1)
+        reason = reason[cm.end():].lstrip()  # drop "[Category] " prefix
     if reason in ("", "No reason provided"):
-        cat, reason = None, "No reason provided"
+        reason = "No reason provided"
     return cat, reason[:160]
 
 
@@ -407,25 +414,27 @@ def cmd_permissions(a):
         if a.session and not sid.startswith(a.session):
             continue
         modes, events = _scan_permissions(path)
-        if not a.failures:
-            events = [e for e in events if e["cat"] != "exec-failure"]
         # AskUserQuestion "rejections" are the user dismissing a question popup,
         # not a permission denial — drop by default (--include-asks to keep).
         if not a.include_asks:
             events = [e for e in events
                       if not (e["cat"] == "user-rejected" and e["tool"] == "AskUserQuestion")]
-        if not events and not a.session:
-            continue
-        counts = Counter(e["cat"] for e in events)
-        agg.update(counts)
+        # Count everything (incl. exec-failures) toward the rollup so the summary
+        # line is always accurate; exec-failures are only *itemized* per session
+        # when --failures is set (they're tool errors, not blocks).
+        agg.update(Counter(e["cat"] for e in events))
         for e in events:
             if e["cat"] == "classifier-denied":
                 cat_tags[e["category"] or "(no category)"] += 1
             if e["cat"] != "exec-failure":
                 blocked_tools[e["tool"]] += 1
+        shown = events if a.failures else [e for e in events if e["cat"] != "exec-failure"]
+        if not shown and not a.session:
+            continue
         sessions.append({"project": short_slug(slug), "id": sid[:8],
-                         "modes": modes or ["unknown"], "counts": dict(counts),
-                         "events": events})
+                         "modes": modes or ["unknown"],
+                         "counts": dict(Counter(e["cat"] for e in shown)),
+                         "events": shown})
 
     if a.json:
         print(json.dumps({"sessions": sessions,
