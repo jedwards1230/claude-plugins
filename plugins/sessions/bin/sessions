@@ -303,6 +303,183 @@ def cmd_show(a):
                         print(f"    💭 {b.get('thinking', '')[:300]}")
 
 
+# --------------------------------------------------------------------------- #
+# permission outcomes (auto-mode classifier denials, human rejections, guards)
+# --------------------------------------------------------------------------- #
+# Sentinels that identify each is_error tool_result. Auto-approvals leave NO
+# record (silent), so denials are the only observable permission signal — and
+# a classifier-escalated-but-human-approved call is indistinguishable from a
+# silent auto-approve. Denials, however, are fully captured on both paths.
+CLASSIFIER_SENTINEL = "denied by the Claude Code auto mode classifier"
+USER_REJECT_SENTINELS = ("The user doesn't want to proceed with this tool use",
+                         "User rejected tool use")
+GUARD_OPEN = "<tool_use_error>"
+# pull "[Category] rest…" out of "Reason: [Category] rest…. If you have other"
+_REASON_RE = re.compile(r"Reason:\s*(.*?)(?:\.\s+If you have other tasks|\Z)", re.S)
+_CATEGORY_RE = re.compile(r"^\[([^\]]+)\]")
+
+
+def _tool_result_text(block):
+    """Decode a tool_result block's content (string OR list-of-text-blocks)."""
+    c = block.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(b.get("text", "") for b in c
+                         if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def _classify_error(text):
+    """Bucket an is_error tool_result into a permission/failure category."""
+    if CLASSIFIER_SENTINEL in text:
+        return "classifier-denied"
+    if any(s in text for s in USER_REJECT_SENTINELS):
+        return "user-rejected"
+    if text.lstrip().startswith(GUARD_OPEN):
+        return "tool-guard"
+    return "exec-failure"
+
+
+def _reason_category(text):
+    """Extract the classifier's [Category] tag and short reason, if any.
+
+    The [Category] prefix is stripped from the returned reason — it's printed
+    separately on the label line, so keeping it here would double-print it.
+    """
+    m = _REASON_RE.search(text)
+    reason = (m.group(1).strip() if m else "").replace("\n", " ")
+    cm = _CATEGORY_RE.match(reason)
+    cat = None
+    if cm:
+        cat = cm.group(1)
+        reason = reason[cm.end():].lstrip()  # drop "[Category] " prefix
+    if reason in ("", "No reason provided"):
+        reason = "No reason provided"
+    return cat, reason[:160]
+
+
+def _label(tool, inp):
+    """One-line 'Tool: subject' for a blocked tool call."""
+    if not isinstance(inp, dict):
+        return tool
+    if tool == "Bash":
+        line = (inp.get("command") or "").lstrip()
+        line = re.sub(r"^(cd [^&|;]+&&|[A-Z_][A-Z0-9_]*=\S+|sudo|timeout \S+)\s+",
+                      "", line.split("\n")[0]).lstrip()
+        return f"Bash: {line[:100]}" if line else "Bash"
+    subj = inp.get("file_path") or inp.get("path") or inp.get("pattern") or ""
+    return f"{tool}: {subj}"[:120] if subj else tool
+
+
+def _scan_permissions(path):
+    """One pass over a transcript → (modes, [event, …]).
+
+    event = {cat, tool, label, category, reason, ts}. tool_use always precedes
+    its result in the append-only log, so the id→call map is built inline.
+    """
+    modes, calls, events = [], {}, []
+    for _, rec in iter_records(path):
+        t = rec.get("type")
+        pm = rec.get("permissionMode")
+        if pm and (not modes or modes[-1] != pm):
+            modes.append(pm)
+        if t == "assistant":
+            for b in blocks(rec.get("message", {})):
+                if b.get("type") == "tool_use":
+                    calls[b.get("id")] = (b.get("name", "?"), b.get("input", {}))
+        elif t == "user":
+            for b in blocks(rec.get("message", {})):
+                if b.get("type") != "tool_result" or not b.get("is_error"):
+                    continue
+                text = _tool_result_text(b)
+                cat = _classify_error(text)
+                tool, inp = calls.get(b.get("tool_use_id"), ("?", {}))
+                rcat, reason = (_reason_category(text)
+                                if cat == "classifier-denied" else (None, ""))
+                events.append({"cat": cat, "tool": tool, "label": _label(tool, inp),
+                               "category": rcat, "reason": reason,
+                               "ts": short_ts(rec.get("timestamp"))})
+    return modes, events
+
+
+ORDER = ["classifier-denied", "user-rejected", "tool-guard", "exec-failure"]
+
+
+def cmd_permissions(a):
+    from collections import Counter
+    sessions, agg = [], Counter()
+    cat_tags, blocked_tools = Counter(), Counter()
+    for path, slug, sid, _ in session_files(a.days, a.project, archive_root(a)):
+        if a.session and not sid.startswith(a.session):
+            continue
+        modes, events = _scan_permissions(path)
+        # AskUserQuestion "rejections" are the user dismissing a question popup,
+        # not a permission denial — drop by default (--include-asks to keep).
+        if not a.include_asks:
+            events = [e for e in events
+                      if not (e["cat"] == "user-rejected" and e["tool"] == "AskUserQuestion")]
+        # Count everything (incl. exec-failures) toward the rollup so the summary
+        # line is always accurate; exec-failures are only *itemized* per session
+        # when --failures is set (they're tool errors, not blocks).
+        agg.update(Counter(e["cat"] for e in events))
+        for e in events:
+            if e["cat"] == "classifier-denied":
+                cat_tags[e["category"] or "(no category)"] += 1
+            if e["cat"] != "exec-failure":
+                blocked_tools[e["tool"]] += 1
+        shown = events if a.failures else [e for e in events if e["cat"] != "exec-failure"]
+        if not shown and not a.session:
+            continue
+        sessions.append({"project": short_slug(slug), "id": sid[:8],
+                         "modes": modes or ["unknown"],
+                         "counts": dict(Counter(e["cat"] for e in shown)),
+                         "events": shown})
+
+    if a.json:
+        print(json.dumps({"sessions": sessions,
+                          "rollup": {"by_category": dict(agg),
+                                     "classifier_reason_tags": dict(cat_tags),
+                                     "blocked_tools": dict(blocked_tools)}},
+                         indent=2))
+        return
+
+    for s in sessions:
+        print(f"\n=== {s['project']:<18.18}  {s['id']} ===  mode: {'→'.join(s['modes'])}")
+        for cat in ORDER:
+            evs = [e for e in s["events"] if e["cat"] == cat]
+            if not evs:
+                continue
+            print(f"  {cat:<18} {len(evs)}")
+            for e in evs[:12]:
+                tag = f"[{e['category'] or '—'}] " if cat == "classifier-denied" else ""
+                print(f"    {tag}{e['label']}")
+                if cat == "classifier-denied" and e["reason"] != "No reason provided":
+                    print(f"        ↳ {e['reason']}")
+            if len(evs) > 12:
+                print(f"    … +{len(evs) - 12} more")
+    # rollup
+    total = sum(v for k, v in agg.items() if k != "exec-failure")
+    print(f"\n=== rollup ({len(sessions)} session(s)) ===")
+    print(f"blocked total: {total}")
+    for cat in ORDER:
+        if cat == "exec-failure":
+            continue
+        if agg.get(cat):
+            print(f"  {cat:<18} {agg[cat]}")
+    if cat_tags:
+        print("top classifier reason categories:")
+        for tag, c in cat_tags.most_common(10):
+            print(f"  {c:>4}  {tag}")
+    if blocked_tools:
+        print("top blocked tools:")
+        for tool, c in blocked_tools.most_common(10):
+            print(f"  {c:>4}  {tool}")
+    if agg.get("exec-failure"):
+        print(f"exec-failures (ran, non-zero): {agg['exec-failure']}"
+              + ("" if a.failures else "   [--failures to itemize]"))
+
+
 def cmd_tools(a):
     from collections import Counter
     tools, cmds = Counter(), Counter()
@@ -375,6 +552,17 @@ def main():
     sp = sub.add_parser("tools", help="normalized tool + bash command frequency")
     common(sp); sp.add_argument("--top", type=int, default=25)
     sp.set_defaults(fn=cmd_tools)
+
+    sp = sub.add_parser("permissions", help="permission denials: auto-mode "
+                        "classifier vs human rejections vs tool guards, per session + rollup")
+    common(sp)
+    sp.add_argument("--session", help="limit to a session-id prefix")
+    sp.add_argument("--failures", action="store_true",
+                    help="also itemize exec-failures (tools that ran and errored, not blocked)")
+    sp.add_argument("--include-asks", action="store_true",
+                    help="keep AskUserQuestion dismissals (excluded by default — not real denials)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(fn=cmd_permissions)
 
     a = p.parse_args()
     try:
