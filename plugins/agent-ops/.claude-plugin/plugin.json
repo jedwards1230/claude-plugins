@@ -1,6 +1,6 @@
 {
   "name": "agent-ops",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Task-ownership orchestration — delegate a task (or several) into a hierarchy where one owner agent runs each task end-to-end and orchestrates its own subagents. Ships a premade `owner` agent carrying the owner discipline.",
   "author": {
     "name": "jedwards1230"
