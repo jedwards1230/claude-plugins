@@ -254,6 +254,68 @@ relaying a worker's "done" for work that never landed. So:
   Treat a failure notification as an immediate resume; don't leave a dead owner
   waiting on the user to notice.
 
+## Staging-branch flow: one review surface for a multi-PR build
+
+A topology choice **orthogonal** to one-owner-vs-N-owners: reach for it when the
+work is too big for one PR and you want the human to review and merge exactly
+**one** thing at the end. The agents build up a staging branch — each owning its
+own CI-to-green loop and merging into it as it's ready — while you keep that
+branch healthy and the human reviews once at promotion. (Milestones and PRDs are
+just one instantiation; the shape is structural, not tied to them.)
+
+- **Topology.** Cut a staging branch off the default branch. Feature branches
+  take the **hyphen** form `<staging>-<topic>` — never `<staging>/<topic>`: git
+  can't hold both a ref named `<staging>` and one nested under `<staging>/`
+  (directory/file conflict), so the slash form is impossible while the staging
+  branch exists. Every feature PR targets **base = the staging branch**, never
+  the default branch.
+- **One review surface.** A **draft** tracking PR (staging → default) opens on
+  the first commit; its body is a live checklist/changelog kept current as
+  feature PRs land. It stays draft until promotion — which is also the review
+  throttle: an un-suppressed growing staging diff triggered 13–16 full
+  auto-review passes per repo.
+- **Two-tier merge authority.**
+  - *Feature PRs into staging* — merged autonomously by you (the orchestrator)
+    under a **scoped standing merge grant** from the user, gated on: (a) CI
+    green, (b) all review-bot threads resolved, (c) the owner's explicit
+    **verified-ready** hand-off — not CI-green alone (CI-green merges have
+    shipped goroutine/fd leaks `go test -race` doesn't catch), and (d) your own
+    independent check (base branch, mergeable state, file scope, secret scan).
+  - *Staging → default* — **always merged by the human.** The grant is per-run
+    and never carries over; renew it explicitly.
+- **Agents own the CI loop.** Each owner arms ci-watch on its PR, fixes red CI,
+  answers and resolves review-bot threads, and flips its PR draft→ready itself.
+  You merge; you don't babysit the loop.
+- **Conflict handling is its own role.** After each merge into staging, check
+  the remaining open PRs for conflicts/staleness and spawn a **short-lived
+  rebase agent per conflicted PR** — a mechanical rebase doesn't go back to the
+  feature owner. Route only *semantic* conflicts to the still-idle owner (via
+  SendMessage) — it holds the context.
+- **Live-test loop.** Bugs found in manual/live testing route back as new tasks
+  to the **same idle owner** via SendMessage (repro + diagnosis direction +
+  failing-test-first), not fresh spawns — the owner still holds the context.
+- **Cross-repo dependents.** When repo B depends on repo A's staging work (app ⇢
+  SDK), B re-pins after each A merge — and you **verify the pin actually moved on
+  the remote branch**, never relaying a subagent's "done".
+- **Promotion.** Adversarial review sweep over the *full* staging diff → fix wave
+  → human merges the tracking PR → auto-delete retires the staging branch.
+
+### Staging-flow footguns (each hit for real)
+
+- `on: pull_request: branches: [main]` **silently skips stacked PRs** whose base
+  is the staging branch — CI must also trigger on the staging base.
+- Squash-merging the tracking PR **deletes the staging branch**, orphaning any
+  dependent repo's pseudo-version pin — dependents must re-pin to a real release
+  tag at promotion.
+- Never commit or merge from a live owner's worktree — a sub-worker's "done" ≠
+  the owner is done; torn snapshots pass local gates and fail CI.
+
+### Optional: a per-run tracking artifact
+
+The lead can instantiate a small checklist per run — staging branch name,
+tracking PR numbers, and the grant's scope + expiry — so the run's state and the
+bounds of the merge grant are written down rather than reconstructed from memory.
+
 ## When to reach for a different tool
 
 - **A small, fully-diagnosed change** (one file, decision already made) → just
@@ -274,6 +336,7 @@ relaying a worker's "done" for work that never landed. So:
 | One task                   | One owner agent (depth 1) that orchestrates its own subagents.     |
 | Many tasks                 | One owner per task, spawned in parallel; each owns its subtree.    |
 | Parallel owners            | Disjoint write scopes; shared contract at boundaries; one global check before fanout PRs. |
+| Too big for one PR         | Staging-branch flow: feature PRs (`<staging>-<topic>`) into a staging branch; you merge those under a scoped grant, the human merges staging→default once. |
 | Owner type                 | Prefer the plugin's `owner` agent; unrestricted types (`general-purpose` / `claude` / `fork`) also work. |
 | Owner model                | Pick via `--model <name>` or prose ("use an opus agent"); sets the owner spawned, not the skill's own `model:`. |
 | Worker-only types          | `Explore`, `Plan`, `*-developer` (no Agent tool).                  |

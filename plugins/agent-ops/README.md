@@ -26,6 +26,9 @@ subagents with the plain Agent tool (not the Workflow tool, not agent teams):
   brief.
 - **Returns on the way up**: a mandatory final digest (PR URLs included),
   verified independently — plus how to recover dead or idle agents.
+- **Staging-branch flow**: the multi-PR topology for work too big for one PR —
+  agents own their CI loop and merge into a staging branch; the human reviews and
+  merges exactly one tracking PR at the end.
 
 It is a **decision aid, not a session controller** — it makes the spawn good and
 gets out of the way. For deterministic large fan-outs use the Workflow tool; for
@@ -35,7 +38,7 @@ sustained multi-session collaboration use agent teams.
 
 | Skill | When to Use | What It Covers |
 |-------|------------|----------------|
-| `orchestrate` | About to fan out / nest subagents | Readiness gate, delegate-or-not, depth/breadth, brief files, context-packing, fork-vs-fresh, return contracts, recovery, patterns, gotchas |
+| `orchestrate` | About to fan out / nest subagents | Readiness gate, delegate-or-not, depth/breadth, brief files, context-packing, fork-vs-fresh, staging-branch flow, return contracts, recovery, patterns, gotchas |
 
 ## Agents
 
