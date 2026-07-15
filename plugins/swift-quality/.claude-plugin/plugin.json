@@ -1,0 +1,8 @@
+{
+  "name": "swift-quality",
+  "version": "0.1.0",
+  "description": "Swift quality gates — config-gated auto-format on edit, and SwiftLint + per-package swift test on stop for SwiftUI app + SPM package repos, mirroring CI",
+  "author": {
+    "name": "jedwards1230"
+  }
+}
