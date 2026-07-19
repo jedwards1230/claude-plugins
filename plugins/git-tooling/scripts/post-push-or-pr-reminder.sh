@@ -136,11 +136,23 @@ window_has_dry_run() {
     tok="${toks[$i]:-}"
     if [ "$tok" = "$binary" ] && [ "$prev_is_sep" -eq 1 ]; then
       # Skip binary-level flags, including the ones that consume a value.
+      #
+      # The SEPARATED forms must consume their value as well as the flag word.
+      # Skipping only the word left this scan pointing at the PATH, so it never
+      # matched the subcommand, never opened the flag window, and never saw the
+      # `--dry-run` inside it — `git --git-dir <path> push --dry-run` was
+      # announced as a real push. The attached forms (`--git-dir=<path>`) carry
+      # their value in one token and are handled by the generic `-*` arm below.
+      #
+      # This list must stay in step with the identical one in
+      # lib/git-context.sh's git_ctx_has_invocation. Two parsers disagreeing
+      # about which flags take a value is precisely how this class of bug gets
+      # in: the trigger sees a push here and the flag scan does not.
       j=$((i + 1))
       while [ "$j" -lt "$n" ]; do
         case "${toks[$j]:-}" in
-          -C|-c|-R|--repo) j=$((j + 2)) ;;
-          --git-dir=*|--work-tree=*|--namespace=*|-*) j=$((j + 1)) ;;
+          -C|-c|-R|--repo|--git-dir|--work-tree|--namespace) j=$((j + 2)) ;;
+          -*) j=$((j + 1)) ;;
           *) break ;;
         esac
       done

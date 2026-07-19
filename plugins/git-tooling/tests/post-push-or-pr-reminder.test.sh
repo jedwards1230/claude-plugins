@@ -430,6 +430,36 @@ check "force-push update is recognised" contains "#133"
 #
 # These cases pass today. They exist to pin that property in place: nothing else
 # in the suite fails if someone reintroduces a working-directory fallback.
+# --- value-taking flags in their SEPARATED form ---------------------------
+# `--git-dir <path>` carries its value in a second token. A scan that skips
+# only the flag word lands on the PATH, never matches the subcommand, never
+# opens the flag window, and so never sees the `--dry-run` inside it — the dry
+# run is then announced as a real push.
+#
+# The attached forms (`--git-dir=<path>`) were already handled, which is what
+# made the gap easy to miss. Each case below is paired with the same command
+# minus `--dry-run`, so a hook that simply gave up on this shape would fail the
+# FIRED half rather than passing both.
+echo "-- separated value-taking flags --"
+run "$WT_FIX" "git --git-dir $WT_FIX/.git push --dry-run" "" "$PUSH_FIX_ERR"
+check "separated --git-dir: dry run stays silent" empty
+run "$WT_FIX" "git --git-dir $WT_FIX/.git push" "" "$PUSH_FIX_ERR"
+check "separated --git-dir: real push still fires" contains "#133"
+run "$WT_FIX" "git --work-tree $WT_FIX push --dry-run" "" "$PUSH_FIX_ERR"
+check "separated --work-tree: dry run stays silent" empty
+run "$WT_FIX" "git --work-tree $WT_FIX push" "" "$PUSH_FIX_ERR"
+check "separated --work-tree: real push still fires" contains "#133"
+run "$WT_FIX" "git --namespace ns push --dry-run" "" "$PUSH_FIX_ERR"
+check "separated --namespace: dry run stays silent" empty
+# The attached forms must not regress while fixing the separated ones.
+run "$WT_FIX" "git --git-dir=$WT_FIX/.git push --dry-run" "" "$PUSH_FIX_ERR"
+check "attached --git-dir=: dry run stays silent" empty
+run "$WT_FIX" "git --git-dir=$WT_FIX/.git push" "" "$PUSH_FIX_ERR"
+check "attached --git-dir=: real push still fires" contains "#133"
+# Same asymmetry on the gh side: -R takes a value in both positions.
+run "$WT_M6" "gh pr -R o/r create --dry-run" "$CREATE_OUT" ""
+check "gh pr -R <slug> create: dry run stays silent" empty
+
 echo "-- command failure paths (must never announce a mutation) --"
 
 # The exact field-report shape: create fails, session cwd is a worktree whose
