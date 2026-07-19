@@ -25,10 +25,120 @@
 # Callers that cannot get a confident answer must fail CLOSED (prompt) rather
 # than assume the session cwd — that assumption is the bug.
 
+# git_ctx_normalize <command_str>
+#
+# Prints <command_str> with the shell separators `;`, `&&` and `||` separated
+# from their neighbours, so the naive word-splitting every caller in this plugin
+# does sees `cd /repo ; git push` for the input `cd /repo;git push`.
+#
+# Without this, that input tokenizes as `cd` `/repo;git` `push` — the word
+# `git` never appears as a token at all, so BOTH safety guards ran their
+# invocation check, found no `git`, and exited SILENTLY while the command
+# committed/pushed on the default branch. `cd /repo&&git push` failed the same
+# way. Normalizing is a real fix rather than a "we cannot tell, so ask": the
+# resulting context is exactly resolvable.
+#
+# A separator inside a quoted argument (`git commit -m "a;b"`) is split too.
+# That error direction is safe: it can only make a caller see more candidate
+# command words and prompt where it previously did not. A bare `|` is
+# deliberately NOT split — `cd /repo|git push` is not a real shape, and
+# splitting it would turn every `--pretty=format:%h|%s` into spurious prompts.
+git_ctx_normalize() {
+  printf '%s' "$1" | sed 's/&&/ \&\& /g; s/||/ || /g; s/;/ ; /g'
+}
+
+# git_ctx_has_opaque_construct <command_str>
+#
+# Returns 0 when the command hands part of itself to another shell to evaluate
+# (`bash -c ...`, `eval ...`), or changes directory through a mechanism this
+# library does not model (`env -C`, `--chdir`).
+#
+# These are the shapes where the naive tokenizer is CONFIDENTLY WRONG rather
+# than merely uncertain: to the outer shell the body of `bash -c '...'` is one
+# quoted argument, but word-splitting still exposes a `git push` inside it while
+# the `cd` that precedes it is invisible or misattributed. The caller then
+# resolves a directory, believes it, and stays silent — which is the fail-open
+# this library exists to prevent.
+#
+# A caller that has recognised a gated invocation must treat a 0 return as
+# UNRESOLVABLE and fail closed. Callers with nothing gated to protect can
+# ignore it.
+git_ctx_has_opaque_construct() {
+  local command_str="$1"
+  local glob_was_off i n tok prev_is_sep prefix_active
+
+  [ -n "$command_str" ] || return 1
+  command_str="$(git_ctx_normalize "$command_str")"
+
+  case "$-" in
+    *f*) glob_was_off=1 ;;
+    *)   glob_was_off=0 ;;
+  esac
+  set -f
+  # shellcheck disable=SC2086
+  set -- $command_str
+  local -a toks
+  toks=("$@")
+  [ "$glob_was_off" -eq 1 ] || set +f
+
+  n=${#toks[@]}
+  i=0
+  prev_is_sep=1
+  # Set while we are inside the argument list of a command prefix that can take
+  # a directory-changing flag (`env`, `sudo`). A bare `-C` means something
+  # entirely different to `git`, so the flag only counts in that window.
+  prefix_active=0
+  while [ "$i" -lt "$n" ]; do
+    tok="${toks[$i]:-}"
+
+    if [ "$prev_is_sep" -eq 1 ]; then
+      # `eval` re-parses its argument; nothing downstream is knowable.
+      [ "$tok" = "eval" ] && return 0
+      # A nested shell: `bash -c '<anything>'`. Look for the `-c` in its flags.
+      case "$tok" in
+        bash|sh|zsh|dash|ksh)
+          local k
+          k=$((i + 1))
+          while [ "$k" -lt "$n" ]; do
+            case "${toks[$k]:-}" in
+              # `-c`, or a short cluster containing it (`-lc`). The `[!-]`
+              # keeps a long option like `--color` from matching on its `c`.
+              -c|-[!-]*c*) return 0 ;;
+              -*) k=$((k + 1)) ;;
+              *) break ;;
+            esac
+          done
+          ;;
+      esac
+    fi
+
+    if [ "$prefix_active" -eq 1 ]; then
+      case "$tok" in
+        -C|--chdir|--chdir=*) return 0 ;;
+      esac
+    fi
+
+    case "$tok" in
+      "&&"|"||"|"|"|";"|";;"|"|&"|"("|")"|"{"|"}"|"!"|do|then|else|elif)
+        prev_is_sep=1; prefix_active=0 ;;
+      env|sudo)
+        prev_is_sep=1; prefix_active=1 ;;
+      git|gh)
+        prev_is_sep=0; prefix_active=0 ;;
+      [A-Za-z_]*=*)
+        [ "$prev_is_sep" -eq 1 ] || prev_is_sep=0 ;;
+      *)
+        [ "$prefix_active" -eq 1 ] || prev_is_sep=0 ;;
+    esac
+    i=$((i + 1))
+  done
+  return 1
+}
+
 # git_ctx_resolve_dir <payload_cwd> <command_str>
 #
-# Prints the directory the first git/gh invocation in <command_str> will run in,
-# honouring any `cd <path>` that precedes it. Prints nothing and returns 1 when
+# Prints the directory the FINAL command in <command_str> will run in,
+# honouring every `cd <path>` along the way. Prints nothing and returns 1 when
 # the directory cannot be established with confidence.
 #
 # Returns 1 (unresolvable) when:
@@ -37,8 +147,15 @@
 #     know its value ($var, globs, ~, command substitution, quotes), or
 #   * a resolved `cd` target does not exist.
 #
-# `cd` handling deliberately stops at the first git/gh command word: a `cd` that
-# comes AFTER the git invocation does not affect it.
+# CALLER CONTRACT: pass a command string TERMINATED AT the invocation you care
+# about — the guards build `<tokens before the git token> git` for exactly this
+# reason. An earlier version instead stopped at the FIRST git/gh command word,
+# which looked equivalent but was not: `git fetch && cd /repo-on-main && git
+# push` resolved at the `git fetch`, never reached the `cd`, and returned the
+# session directory. Both guards then inspected the wrong repo, found a feature
+# branch, and stayed silent while the push landed on the default branch. Since
+# a git/gh word can legitimately precede the invocation under test, it can no
+# longer be a stopping point; the caller marks the boundary instead.
 git_ctx_resolve_dir() {
   local payload_cwd="$1" command_str="$2"
   local current_dir tok next glob_was_off i n
@@ -49,6 +166,8 @@ git_ctx_resolve_dir() {
   current_dir="$payload_cwd"
 
   [ -n "$command_str" ] || { printf '%s' "$current_dir"; return 0; }
+
+  command_str="$(git_ctx_normalize "$command_str")"
 
   # Tokenize with globbing disabled. Save/restore -f rather than using a
   # subshell, which would trip the caller's `set -e` on a non-zero exit.
@@ -88,11 +207,6 @@ git_ctx_resolve_dir() {
 
     if [ "$prev_is_sep" -eq 1 ]; then
       case "$tok" in
-        git|gh)
-          # Reached the invocation — the directory context is settled.
-          printf '%s' "$current_dir"
-          return 0
-          ;;
         cd)
           next="${toks[$((i + 1))]:-}"
           # No argument means `cd` to $HOME; we will not guess at that.
@@ -136,7 +250,6 @@ git_ctx_resolve_dir() {
     i=$((i + 1))
   done
 
-  # No git/gh command word found; the trailing context is still the answer.
   printf '%s' "$current_dir"
   return 0
 }
@@ -157,6 +270,7 @@ git_ctx_has_invocation() {
   local -a toks
 
   [ -n "$command_str" ] || return 1
+  command_str="$(git_ctx_normalize "$command_str")"
 
   case "$-" in
     *f*) glob_was_off=1 ;;
@@ -174,12 +288,16 @@ git_ctx_has_invocation() {
   while [ "$i" -lt "$n" ]; do
     tok="${toks[$i]:-}"
     if [ "$tok" = "$binary" ] && [ "$prev_is_sep" -eq 1 ]; then
-      # Skip binary-level flags, including ones that consume a value.
+      # Skip binary-level flags, including ones that consume a value. The
+      # separated forms (`--git-dir <path>`) must consume their value too:
+      # skipping only the flag word left the scan pointing at the PATH instead
+      # of the subcommand, so `git --git-dir <path> push` did not register as a
+      # push at all.
       j=$((i + 1))
       while [ "$j" -lt "$n" ]; do
         case "${toks[$j]:-}" in
-          -C|-c) j=$((j + 2)) ;;
-          --git-dir=*|--work-tree=*|--namespace=*|-*) j=$((j + 1)) ;;
+          -C|-c|--git-dir|--work-tree|--namespace) j=$((j + 2)) ;;
+          -*) j=$((j + 1)) ;;
           *) break ;;
         esac
       done

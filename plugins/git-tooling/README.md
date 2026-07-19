@@ -87,6 +87,27 @@ Bypass — set `GIT_TOOLING_ALLOW_FORCE_PUSH=1` for a deliberate force-push:
 GIT_TOOLING_ALLOW_FORCE_PUSH=1 git push --force origin main
 ```
 
+### How both guards decide which repo they're looking at
+
+A `PreToolUse` payload's `cwd` is the **session's** directory. It is not where the
+command runs — the hook fires before the command does, so `cd other-repo && git
+push` executes somewhere the payload never mentions. Both guards therefore
+resolve the directory from the command string itself (`scripts/lib/git-context.sh`),
+honouring `cd`, `git -C`, and command prefixes like `sudo`/`env`/`xargs`.
+
+**They fail closed.** Once a real `git push` / `git commit` is recognised, a
+context the resolver cannot establish produces an `ask`, never silence. That
+covers an unevaluable `cd` target (`cd "$SOMEWHERE"`), a target that doesn't
+exist, `pushd`/subshell directory changes, `--git-dir`/`--work-tree` repointing
+git at another repo, and bodies handed to another shell (`bash -c '...'`,
+`eval "..."`, `env -C`). Silence is only ever an answer to "I know, and nothing
+is gated" — never to "I can't tell".
+
+The reason for the emphasis: every fail-open in these guards *is* silence, which
+is indistinguishable from a correct pass unless the exit code and stderr are
+checked too. `tests/guards.test.sh` asserts all three on every case for exactly
+that reason, and is mutation-tested against a do-nothing hook.
+
 ### Worktree edit-path guard
 
 **`PreToolUse(Edit|Write|MultiEdit|NotebookEdit)`** runs `scripts/worktree-editpath-guard.sh`. It returns `permissionDecision: "deny"` when the session's `cwd` resolves into a linked git worktree (`<repo>/worktrees/<branch>/`) **and** the edit target is a path under that same repo's root but *outside* any `worktrees/` subtree — i.e. the main checkout. The denial message names the equivalent worktree-prefixed path.

@@ -54,8 +54,17 @@ expect_dir "relative cd before git" \
   "$SANDBOX/repo/nested" "$SANDBOX/repo" "cd nested && git push"
 expect_dir "chained cds accumulate" \
   "$SANDBOX/repo/nested" "$SANDBOX/wt" "cd $SANDBOX/repo && cd nested && git push"
-expect_dir "cd AFTER git does not affect the git invocation" \
-  "$SANDBOX/wt" "$SANDBOX/wt" "git push && cd $SANDBOX/repo"
+# The resolver answers for the FINAL command in the string, so a caller asks
+# about a particular invocation by terminating the string AT it. It used to stop
+# at the first git/gh word instead, which silently returned the pre-cd directory
+# for the shape below and was the widest fail-open in both guards.
+expect_dir "a git word no longer stops the scan: a later cd is honoured" \
+  "$SANDBOX/repo" "$SANDBOX/wt" "git fetch && cd $SANDBOX/repo && git"
+expect_dir "gh before the cd is honoured too" \
+  "$SANDBOX/repo" "$SANDBOX/wt" "gh pr list && cd $SANDBOX/repo && git"
+expect_dir "chained git invocations resolve at the caller's terminator" \
+  "$SANDBOX/repo/nested" "$SANDBOX/wt" \
+  "git status && cd $SANDBOX/repo && git add -A && cd nested && git"
 expect_dir "cd as an argument is not a directory change" \
   "$SANDBOX/wt" "$SANDBOX/wt" "echo cd $SANDBOX/repo && git push"
 expect_dir "leading env assignment keeps command-word position" \
@@ -64,8 +73,23 @@ expect_dir "gh is a recognised invocation boundary" \
   "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo && gh pr create"
 expect_dir "semicolon separator (separator tokenized onto the path)" \
   "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo; git push"
-expect_unresolvable "separator with no space is not guessed at" \
-  "$SANDBOX/wt" "cd $SANDBOX/repo;git push"
+# This used to be documented as "unresolvable", which READ as handled but was
+# not: neither guard ever called the resolver on this shape. `cd /repo;git push`
+# tokenizes as `cd` `/repo;git` `push`, so the word `git` does not exist, both
+# guards found no invocation, and exited silently — the resolver's opinion was
+# never consulted. Separating `;` first makes the context exactly resolvable.
+expect_dir "separator with no surrounding space is normalized, not guessed at" \
+  "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo;git push"
+expect_dir "no-space separator with a trailing cd still accumulates" \
+  "$SANDBOX/repo/nested" "$SANDBOX/wt" "cd $SANDBOX/repo;cd nested;git push"
+expect_dir "no-space && is normalized too" \
+  "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo&&git push"
+expect_dir "no-space || is normalized too" \
+  "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo||git push"
+# A bare `|` is deliberately left alone, so a format string containing one does
+# not manufacture a separator (and a spurious prompt) out of an argument.
+expect_dir "a bare pipe character is not split" \
+  "$SANDBOX/repo" "$SANDBOX/repo" "git log --pretty=format:%h|%s"
 expect_dir "no git at all: trailing context returned" \
   "$SANDBOX/repo" "$SANDBOX/wt" "cd $SANDBOX/repo && ls"
 
@@ -99,6 +123,68 @@ expect_unresolvable "missing payload cwd is unresolvable" \
   "" "git push"
 expect_unresolvable "payload cwd that is not a directory is unresolvable" \
   "$SANDBOX/nope" "git push"
+
+echo
+echo "git-context has_opaque_construct tests"
+
+# expect_opaque <name> <command>  /  expect_clear <name> <command>
+expect_opaque() {
+  if git_ctx_has_opaque_construct "$2"; then
+    pass=$((pass + 1)); printf '  ok   %s\n' "$1"
+  else
+    fail=$((fail + 1)); printf '  FAIL %s (expected opaque, got clear)\n' "$1"
+  fi
+}
+expect_clear() {
+  if git_ctx_has_opaque_construct "$2"; then
+    fail=$((fail + 1)); printf '  FAIL %s (expected clear, got opaque)\n' "$1"
+  else
+    pass=$((pass + 1)); printf '  ok   %s\n' "$1"
+  fi
+}
+
+# These hand part of the command to another shell, or move the directory by a
+# mechanism the resolver does not model. The tokenizer can still see a git verb
+# inside them while resolving the WRONG directory for it — a confidently wrong
+# answer, which never trips a caller's fail-closed path.
+expect_opaque "bash -c is opaque"   "bash -c 'cd /somewhere && git push'"
+expect_opaque "sh -c is opaque"     "sh -c 'git push'"
+expect_opaque "eval is opaque"      'eval "cd /somewhere && git commit -m x"'
+expect_opaque "env -C is opaque"    "env -C /somewhere git push"
+expect_opaque "--chdir is opaque"   "env --chdir /somewhere git push"
+expect_clear  "a plain command is clear"        "git push"
+expect_clear  "cd + git is clear"               "cd /somewhere && git push"
+expect_clear  "git -C is NOT opaque (modelled)" "git -C /somewhere push"
+expect_clear  "sudo without -C is clear"        "sudo -u someone git push"
+# `bash` as an argument rather than a command word must not trip the check.
+expect_clear  "the word bash as an argument is clear" "echo bash -c hello"
+
+echo
+echo "git-context has_invocation tests"
+
+expect_invocation() { # <name> <expect: yes|no> <command> <binary> <sub1> [sub2]
+  local name="$1" want="$2" cmd="$3" bin="$4" s1="$5" s2="${6:-}" got=no
+  if git_ctx_has_invocation "$cmd" "$bin" "$s1" "$s2"; then got=yes; fi
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1)); printf '  ok   %s\n' "$name"
+  else
+    fail=$((fail + 1)); printf '  FAIL %s (want %s, got %s)\n' "$name" "$want" "$got"
+  fi
+}
+
+expect_invocation "plain git push"        yes "git push" git push
+expect_invocation "echo git push is data" no  "echo git push" git push
+# The separated flag forms consume a VALUE. Skipping only the flag word left the
+# scan pointing at the path instead of the subcommand, so a real push did not
+# register as one at all.
+expect_invocation "--git-dir= attached form"  yes "git --git-dir=/r/.git push" git push
+expect_invocation "--git-dir separated form"  yes "git --git-dir /r/.git push" git push
+expect_invocation "--work-tree separated form" yes "git --work-tree /r push" git push
+expect_invocation "-C separated form"         yes "git -C /r push" git push
+# A no-space separator must not hide the invocation.
+expect_invocation "no-space separator"        yes "cd /r;git push" git push
+expect_invocation "gh pr create two-word"     yes "gh pr create --fill" gh pr create
+expect_invocation "gh pr comment is not create" no "gh pr comment 1 --body 'gh pr create'" gh pr create
 
 echo
 echo "git-context apply_dash_c tests"

@@ -85,9 +85,26 @@ esac
 # Use `set -f` to disable glob expansion during word-splitting; save/restore
 # the calling shell's flag state instead of using a subshell (which trips
 # `set -e` on non-zero exit).
+#
+# Shell separators are spaced out from their neighbours first: `cd /repo;git
+# commit -m x` (and the `&&` form) otherwise tokenizes as `cd` `/repo;git`
+# `commit`, so the `git` token the scan below looks for never exists and the
+# guard exits silently on a commit that may land on the default branch.
+command_str="$(git_ctx_normalize "$command_str")"
+
+# Commands that hand part of themselves to another shell (`bash -c`, `eval`) or
+# move the directory in a way this guard does not model (`env -C`). A `git
+# commit` found inside one of those is real, but the directory resolved for it
+# is not — so it is treated as an unresolvable context, not a resolved one.
+opaque_ctx=0
+if git_ctx_has_opaque_construct "$command_str"; then
+  opaque_ctx=1
+fi
+
 is_git_commit=0
 inline_escape=0
 git_C_path=""
+git_dir_override=0
 git_tok_index=0
 case "$-" in
   *f*) glob_was_off=1 ;;
@@ -112,11 +129,21 @@ while [ "$i" -lt "$ntok" ]; do
     i=$((i + 1)); continue
   fi
 
-  # Step 1: consume leading `NAME=value` env-var assignments.
+  # Step 1: consume leading `NAME=value` env-var assignments and command
+  # prefixes (`sudo`, `env`, `xargs`, ...) with their own arguments.
+  #
+  # The prefix handling is what the push guard already did and this guard did
+  # not, so `cd <repo-on-default-branch> && sudo git commit -m x` stayed SILENT
+  # here while the byte-identical push shape prompted. A prefix's arguments can
+  # be bare words (`sudo -u name git commit`), so once a prefix is seen every
+  # token up to `git` is skipped, not just flag-shaped ones.
   seg_escape=0
+  seg_prefix=0
   j=$i
   while [ "$j" -lt "$ntok" ]; do
     case "${toks[$j]:-}" in
+      git) break ;;
+      "&&"|"||"|"|"|";"|";;"|"|&"|"("|")"|"{"|"}") break ;;
       [A-Za-z_]*=*)
         if [ "${toks[$j]%%=*}" = "GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT" ] &&
            [ "${toks[$j]#*=}" = "1" ]; then
@@ -124,7 +151,15 @@ while [ "$i" -lt "$ntok" ]; do
         fi
         j=$((j + 1))
         ;;
-      *) break ;;
+      xargs|sudo|command|time|nice|env)
+        seg_prefix=1
+        j=$((j + 1))
+        ;;
+      *)
+        # Only a command prefix's own arguments may sit between the segment
+        # start and `git`; anything else means this segment is another command.
+        if [ "$seg_prefix" -eq 1 ]; then j=$((j + 1)); else break; fi
+        ;;
     esac
   done
 
@@ -133,11 +168,20 @@ while [ "$i" -lt "$ntok" ]; do
     git_start=$j
     j=$((j + 1))
     seg_C_path=""
+    seg_dir_override=0
     # Step 3: optional git-level flags, including `-C path` which we capture.
+    #
+    # `--git-dir` / `--work-tree` repoint git at a different repo, so the
+    # directory resolved further down describes the wrong checkout. Skipping
+    # them as ordinary flags produced a confidently wrong answer that resolved
+    # cleanly, so the fail-closed path never fired.
     while [ "$j" -lt "$ntok" ]; do
       case "${toks[$j]:-}" in
         -C) j=$((j + 1)); seg_C_path="${toks[$j]:-}"; j=$((j + 1)) ;;
         -c) j=$((j + 2)) ;;
+        --git-dir|--work-tree) seg_dir_override=1; j=$((j + 2)) ;;
+        --git-dir=*|--work-tree=*) seg_dir_override=1; j=$((j + 1)) ;;
+        --namespace) j=$((j + 2)) ;;
         -*) j=$((j + 1)) ;;
         *)  break ;;
       esac
@@ -146,6 +190,7 @@ while [ "$i" -lt "$ntok" ]; do
     if [ "$j" -lt "$ntok" ] && [ "${toks[$j]:-}" = "commit" ]; then
       is_git_commit=1
       git_C_path="$seg_C_path"
+      git_dir_override="$seg_dir_override"
       git_tok_index="$git_start"
       inline_escape="$seg_escape"
       break
@@ -154,6 +199,17 @@ while [ "$i" -lt "$ntok" ]; do
   seg_start=0
   i=$((i + 1))
 done
+
+# A wrapped shell body (`eval "cd /repo && git commit -m x"`) is ONE quoted
+# argument to the outer shell, so word-splitting can weld the quote characters
+# onto its first and last words and the scan above never matches `commit`.
+# Retry with quotes stripped, purely to answer "is there a gated verb in here?".
+# A wrapped command with no commit in it (`bash -c 'ls -la'`) stays silent.
+if [ "$is_git_commit" -eq 0 ] && [ "$opaque_ctx" -eq 1 ]; then
+  if git_ctx_has_invocation "$(printf '%s' "$command_str" | sed "s/[\"']//g")" git commit; then
+    is_git_commit=1
+  fi
+fi
 
 [ "$is_git_commit" -eq 1 ] || exit 0
 
@@ -174,6 +230,13 @@ asking.
 
 Check the target branch yourself before approving. To skip this check for one command:
   GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 git commit ..."
+
+# A real `git commit` inside an unparseable command, or one repointed by
+# --git-dir/--work-tree, has a context we cannot establish — prompt rather than
+# resolve a directory that describes some other checkout.
+if [ "$opaque_ctx" -eq 1 ] || [ "$git_dir_override" -eq 1 ]; then
+  ask "$UNRESOLVED_REASON"
+fi
 
 cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty')"
 [ -z "$cwd" ] && cwd="${PWD:-}"
