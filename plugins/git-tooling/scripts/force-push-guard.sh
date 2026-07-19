@@ -59,6 +59,22 @@ case "$command_str" in
   *) exit 0 ;;
 esac
 
+# Space out shell separators first: `cd /repo;git push` (and the `&&` form)
+# otherwise tokenizes as `cd` `/repo;git` `push`, the word `git` never appears,
+# and the scan below finds no invocation to gate — a silent pass on a push that
+# may land on the default branch.
+command_str="$(git_ctx_normalize "$command_str")"
+
+# Constructs that hand part of the command to another shell (`bash -c`, `eval`)
+# or move the directory in a way this guard does not model (`env -C`). The
+# tokenizer can still see a `git push` inside them while resolving the WRONG
+# directory for it, so any push found in such a command is treated as having an
+# unknowable context rather than a confidently-resolved one.
+opaque_ctx=0
+if git_ctx_has_opaque_construct "$command_str"; then
+  opaque_ctx=1
+fi
+
 # Tokenize with globbing disabled. Save/restore the -f flag instead of using a
 # subshell (which would trip set -e on a non-zero exit).
 case "$-" in
@@ -191,12 +207,22 @@ while [ "$i" -lt "$n" ]; do
   esac
   if [ "$t" = "git" ] && [ "$prev_is_sep" -eq 1 ]; then
     # Skip git-level flags; capture -C path.
-    j=$((i+1)); gitC=""
+    #
+    # `--git-dir` / `--work-tree` REPOINT git at another repo entirely, so the
+    # cd-resolved directory below describes the wrong checkout. These used to be
+    # skipped as ordinary flags, which produced a confidently wrong answer — the
+    # repo root resolved fine, so the fail-closed path never fired and the guard
+    # stayed silent. Applying them properly means reimplementing git's own
+    # discovery rules; flagging the context unknowable is the honest answer.
+    j=$((i+1)); gitC=""; gitdir_override=0
     while [ "$j" -lt "$n" ]; do
       case "${toks[$j]:-}" in
         -C) j=$((j+1)); gitC="${toks[$j]:-}"; j=$((j+1)) ;;
         -c) j=$((j+2)) ;;                       # -c takes a key=val value
-        --git-dir=*|--work-tree=*|--namespace=*) j=$((j+1)) ;;
+        --git-dir|--work-tree) gitdir_override=1; j=$((j+2)) ;;
+        --git-dir=*|--work-tree=*) gitdir_override=1; j=$((j+1)) ;;
+        --namespace) j=$((j+2)) ;;
+        --namespace=*) j=$((j+1)) ;;
         -*) j=$((j+1)) ;;
         *) break ;;
       esac
@@ -237,6 +263,13 @@ while [ "$i" -lt "$n" ]; do
         k=$((k+1))
       done
 
+      # A real push was found. If the command as a whole is unparseable, or this
+      # invocation repoints git with --git-dir/--work-tree, the directory below
+      # is not the one the push actually targets — say so instead of trusting it.
+      if [ "$opaque_ctx" -eq 1 ] || [ "$gitdir_override" -eq 1 ]; then
+        unresolved_ctx=1
+      fi
+
       # The directory this `git` will really run in — NOT the payload cwd.
       base_dir="$(ctx_base_for "$i" || true)"
 
@@ -268,12 +301,30 @@ while [ "$i" -lt "$n" ]; do
     xargs|sudo|command|time|nice|env) prev_is_sep=1; cmd_prefix_active=1 ;;
     *";") prev_is_sep=1; cmd_prefix_active=0 ;;     # e.g. `done;`
     [A-Za-z_]*=*) prev_is_sep=1 ;;                  # env-assignment keeps cmd-word context
-    -*|*"{}"*)                                       # a prefix's flags / `{}` placeholder
+    # Inside a command prefix's arguments the real command word has not arrived
+    # yet, so command-word position must survive them ALL — not just the ones
+    # that look like flags. `sudo -u name git push` puts a bare `name` here, and
+    # treating it as an ordinary word meant the following `git` was not in
+    # command-word position and the push went ungated.
+    *)
       if [ "$cmd_prefix_active" -eq 1 ]; then prev_is_sep=1; else prev_is_sep=0; fi ;;
-    *) prev_is_sep=0; cmd_prefix_active=0 ;;
   esac
   i=$((i+1))
 done
+
+# A wrapped shell body (`bash -c 'cd /repo && git push'`) is ONE quoted argument
+# to the outer shell, so word-splitting welds the quote characters onto its
+# first and last words — the scan above compares `push'` against `push` and
+# finds no invocation at all. Retry the invocation test with quotes stripped,
+# purely to answer "is there a gated verb anywhere in here?". If there is, its
+# directory is unknowable and we ask; if there is not (`bash -c 'ls -la'`), the
+# command stays silent rather than becoming noise.
+if [ "$non_lease_force" -eq 0 ] && [ "$targets_protected" -eq 0 ] && \
+   [ "$unresolved_ctx" -eq 0 ] && [ "$opaque_ctx" -eq 1 ]; then
+  if git_ctx_has_invocation "$(printf '%s' "$command_str" | sed "s/[\"']//g")" git push; then
+    unresolved_ctx=1
+  fi
+fi
 
 # No gated condition and a confidently-resolved context → silent pass.
 if [ "$non_lease_force" -eq 0 ] && [ "$targets_protected" -eq 0 ] && [ "$unresolved_ctx" -eq 0 ]; then

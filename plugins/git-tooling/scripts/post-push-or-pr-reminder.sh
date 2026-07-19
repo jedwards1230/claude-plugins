@@ -58,16 +58,146 @@ else
   exit 0
 fi
 
-# A dry run prints ref-update lines byte-identical to a real push, so output
-# parsing cannot tell them apart. Nothing reached the remote — nothing to say.
-# `-n` is the short form, and may appear in a cluster (`-vn`).
-for _tok in $command_str; do
-  case "$_tok" in
-    --dry-run) exit 0 ;;
-    --*) ;;
-    -*n*) exit 0 ;;
+# github_slug_from_remote <remote>
+#
+# Normalizes a GitHub remote — either git's `To <remote>` line or a local
+# `git remote get-url` value — to `owner/repo`. Accepts both forms git prints:
+# `git@github.com:owner/repo.git` (colon) and `https://github.com/owner/repo`
+# (slash), with an optional `.git` suffix. Prints nothing and returns 1 for
+# anything that is not a GitHub remote, so callers can treat "unparseable" and
+# "not GitHub" identically.
+#
+# Shared by the two sites that need a slug — the pushed-to remote and the local
+# checkout's `origin` — because those two are only comparable if they are
+# normalized the same way.
+github_slug_from_remote() {
+  local remote="$1" path owner repo
+  case "$remote" in
+    *github.com[:/]*) ;;
+    *) return 1 ;;
   esac
-done
+  path="${remote##*github.com}"
+  path="${path#:}"
+  path="${path#/}"
+  path="${path%.git}"
+  owner="${path%%/*}"
+  # `owner == path` means there was no `/` at all — not an owner/repo pair.
+  [ -n "$owner" ] && [ "$owner" != "$path" ] || return 1
+  repo="${path#*/}"
+  repo="${repo%%/*}"
+  [ -n "$repo" ] || return 1
+  printf '%s/%s' "$owner" "$repo"
+}
+
+# window_has_dry_run <binary> <sub1> [sub2]
+#
+# Returns 0 when the `<binary> [flags] <sub1> [sub2]` invocation carries a
+# dry-run flag IN ITS OWN ARGUMENT WINDOW — the tokens between the subcommand
+# and the shell separator that ends that command. Same window force-push-guard
+# parses for force-ness.
+#
+# Scoping matters: an earlier version scanned every token in the command
+# string, so `git push 2>&1 | head -n 20` was read as a dry run and the
+# reminder was silently dropped for a push that really did reach the remote.
+# The `-n` there is head's. A flag only means "dry run" if it belongs to the
+# push.
+window_has_dry_run() {
+  local binary="$1" sub1="$2" sub2="${3:-}"
+  local glob_was_off i j n prev_is_sep tok matched
+  local -a toks
+
+  # Tokenize with globbing disabled — an unquoted `*` in the command string
+  # would otherwise expand against the cwd. Save/restore -f rather than using a
+  # subshell, which would trip `set -e` on a non-zero exit.
+  case "$-" in
+    *f*) glob_was_off=1 ;;
+    *)   glob_was_off=0 ;;
+  esac
+  set -f
+  # shellcheck disable=SC2086
+  set -- $command_str
+  toks=("$@")
+  [ "$glob_was_off" -eq 1 ] || set +f
+
+  n=${#toks[@]}
+  i=0
+  # Command-word position, so a literal `git` that is an ARGUMENT (`echo git
+  # push -n`) is not mistaken for an invocation.
+  prev_is_sep=1
+  while [ "$i" -lt "$n" ]; do
+    tok="${toks[$i]:-}"
+    if [ "$tok" = "$binary" ] && [ "$prev_is_sep" -eq 1 ]; then
+      # Skip binary-level flags, including the ones that consume a value.
+      j=$((i + 1))
+      while [ "$j" -lt "$n" ]; do
+        case "${toks[$j]:-}" in
+          -C|-c|-R|--repo) j=$((j + 2)) ;;
+          --git-dir=*|--work-tree=*|--namespace=*|-*) j=$((j + 1)) ;;
+          *) break ;;
+        esac
+      done
+      matched=0
+      if [ "${toks[$j]:-}" = "$sub1" ]; then
+        j=$((j + 1))
+        if [ -z "$sub2" ]; then
+          matched=1
+        else
+          # Flags may sit between the two subcommand words (`gh pr -R x create`).
+          while [ "$j" -lt "$n" ]; do
+            case "${toks[$j]:-}" in
+              -R|--repo) j=$((j + 2)) ;;
+              -*) j=$((j + 1)) ;;
+              *) break ;;
+            esac
+          done
+          if [ "${toks[$j]:-}" = "$sub2" ]; then
+            matched=1
+            j=$((j + 1))
+          fi
+        fi
+      fi
+      if [ "$matched" -eq 1 ]; then
+        while [ "$j" -lt "$n" ]; do
+          case "${toks[$j]:-}" in
+            # A separator ends this command's window; anything past it is a
+            # different command's flags.
+            "&&"|"||"|"|"|";"|"|&"|";;") break ;;
+            *";") break ;;
+            --dry-run) return 0 ;;
+            --*) ;;
+            # `-n` is the short form, and may appear in a cluster (`-vn`).
+            -*n*) return 0 ;;
+          esac
+          j=$((j + 1))
+        done
+        return 1
+      fi
+    fi
+    case "$tok" in
+      "&&"|"||"|"|"|";"|";;"|"|&"|"("|")"|"{"|"}"|"!"|do|then|else|elif)
+        prev_is_sep=1 ;;
+      *";")
+        prev_is_sep=1 ;;
+      xargs|sudo|command|time|nice|env)
+        prev_is_sep=1 ;;
+      [A-Za-z_]*=*)
+        [ "$prev_is_sep" -eq 1 ] || prev_is_sep=0 ;;
+      *)
+        prev_is_sep=0 ;;
+    esac
+    i=$((i + 1))
+  done
+  return 1
+}
+
+# A dry run prints ref-update lines byte-identical to a real push (and
+# `gh pr create --dry-run` prints a PR-shaped preview), so output parsing
+# cannot tell them apart. Nothing reached the remote — nothing to say.
+if [ "$trigger" = "pr_create" ]; then
+  if window_has_dry_run gh pr create; then exit 0; fi
+else
+  if window_has_dry_run git push; then exit 0; fi
+fi
 
 # The command's own stdout/stderr is the only trustworthy source of identity.
 # The exact shape varies by Claude Code version, so accept the documented
@@ -171,20 +301,7 @@ else
   # Exactly one pushed branch, or we cannot say which PR is meant.
   [ "$ref_count" = "1" ] || exit 0
   branch="$pushed_refs"
-  case "$remote_line" in
-    *github.com[:/]*)
-      slug_path="${remote_line##*github.com}"
-      slug_path="${slug_path#:}"
-      slug_path="${slug_path#/}"
-      slug_path="${slug_path%.git}"
-      owner_part="${slug_path%%/*}"
-      rest="${slug_path#*/}"
-      repo_part="${rest%%/*}"
-      if [ -n "$owner_part" ] && [ -n "$repo_part" ] && [ "$owner_part" != "$slug_path" ]; then
-        repo_slug="${owner_part}/${repo_part}"
-      fi
-      ;;
-  esac
+  repo_slug="$(github_slug_from_remote "$remote_line" || true)"
 
   if [ -n "$repo_slug" ]; then
     pr_json="$(gh pr list --head "$branch" --state open -R "$repo_slug" --json number,title,url,headRefName --limit 1 2>/dev/null || echo '[]')"
@@ -240,11 +357,30 @@ fi
 [ -n "$pr_url" ] && lead_line="${lead_line}
 ${pr_url}"
 
-# Commit context is best-effort. Include it only when the checkout we are
-# standing in genuinely contains the branch we are talking about — otherwise we
-# would be listing some other branch's commits under this PR's name.
+# Commit context is best-effort. Two things must both hold before we print it:
+#
+#   1. the checkout we are standing in is the SAME REPO the push output named,
+#      and
+#   2. that checkout genuinely contains the branch we are talking about.
+#
+# (2) alone is not enough. The directory here is whatever the command happened
+# to run in; it is not evidence of repo identity. Branch names like `main`,
+# `dev`, or a shared convention repeat across repos, so a same-named branch in
+# a DIFFERENT checkout satisfied (2) and got ITS commits listed under this
+# repo's PR number — reproduced end to end. Comparing the local `origin` slug
+# against the slug parsed from the push output is what ties the listing to the
+# right repo.
+#
+# When either slug is unknown (no `origin`, a non-GitHub remote, an
+# unattributable push) we omit the listing. It is cosmetic, so dropping it
+# costs nothing; printing the wrong repo's commits is actively misleading.
 commits_block=""
-if [ -n "$branch" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+local_origin_slug=""
+if [ -n "$repo_slug" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+  local_origin_slug="$(github_slug_from_remote \
+    "$(git remote get-url origin 2>/dev/null || true)" || true)"
+fi
+if [ -n "$branch" ] && [ -n "$local_origin_slug" ] && [ "$local_origin_slug" = "$repo_slug" ]; then
   if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null 2>&1; then
     default_base="$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
     [ -z "$default_base" ] && default_base="main"
@@ -258,12 +394,19 @@ ${recent_commits}
   fi
 fi
 
-# Stated as observations, not instructions. Hook context that reads as an
-# out-of-band command can trip prompt-injection defenses, and — more to the
-# point — a pre-filled mutating command line (`gh pr edit <n> --body ...`) is
-# one bad inference away from overwriting a PR body that nobody asked to
-# change. Report what was observed and let the agent decide what to do about
-# it; the facts below are enough to act on.
+# Stated as observations, not instructions, and READ-ONLY throughout. The
+# property that holds is not "emits no runnable command" — `gh pr checks <n>`
+# below is deliberately runnable, because it answers a question the agent
+# otherwise has to guess at. The property is that every command this hook can
+# emit, on either trigger path, only READS: no mutating verb (`gh pr edit` /
+# `merge` / `close` / `ready`) appears anywhere in the output.
+#
+# That is the line worth holding. A pre-filled mutating command line
+# (`gh pr edit <n> --body ...`) is one bad inference away from overwriting a PR
+# body nobody asked to change, and hook context that reads as an out-of-band
+# instruction can trip prompt-injection defenses besides. Report what was
+# observed and let the agent decide what to do about it; the facts below are
+# enough to act on.
 reminder="${lead_line}
 ${commits_block}
 The PR's title and body were written before this push and may no longer describe the whole branch — an earlier push can already have made them stale.
