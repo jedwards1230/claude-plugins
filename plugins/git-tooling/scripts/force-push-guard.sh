@@ -29,8 +29,18 @@
 #
 # Stays silent (exit 0, no output) for anything that is not a gated push, so it
 # is safe to attach to all Bash calls.
+#
+# FAIL-CLOSED CONTRACT: for a command that IS a gated candidate (a real
+# `git push`), an unresolvable repo/branch context must produce an "ask", never
+# silence. The payload `cwd` is the SESSION's directory and does not reflect a
+# `cd` inside the command, so the directory is resolved from the command string
+# via lib/git-context.sh; when that cannot be answered confidently we prompt.
 
 set -euo pipefail
+
+# shellcheck source=lib/git-context.sh
+# shellcheck disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/lib/git-context.sh"
 
 payload="$(cat || true)"
 [ -z "$payload" ] && exit 0
@@ -63,45 +73,64 @@ toks=("$@")
 
 n=${#toks[@]}
 
-# Resolve the repo root / current / default branch for a given `git -C` path
-# (relative to the payload cwd). Single-slot memo in plain vars — bash 3.2 (the
-# macOS system bash) has no associative arrays. Commands almost always have one
-# git context, so a one-entry memo keyed by the raw -C string is enough; a
+# Resolve the repo root / current / default branch for a `cd`-aware base
+# directory plus a `git -C` value. Single-slot memo in plain vars — bash 3.2
+# (the macOS system bash) has no associative arrays. Commands almost always
+# have one git context, so a one-entry memo keyed by "<base>|<-C>" is enough; a
 # different key just recomputes. Default-branch resolution is read-from-cache
 # then a local origin/HEAD lookup — no network/gh in the push hot path.
+#
+# _memo_ok is the fail-closed signal: 1 only when a real repo root was found for
+# the resolved directory. 0 means "I do not know which repo this push targets".
 _memo_done=0
 _memo_key=""
 _memo_cur=""
 _memo_def=""
+_memo_ok=0
 
 payload_cwd="$(printf '%s' "$payload" | jq -r '.cwd // empty')"
 [ -z "$payload_cwd" ] && payload_cwd="${PWD:-}"
 
+# Directory the git invocation at token index $1 will actually run in. Rebuilt
+# from the tokens that precede it so a `cd` earlier in the chain is honoured.
+# Prints nothing (and returns 1) when the context is not confidently knowable.
+ctx_base_for() {
+  local upto="$1" prefix="" m=0
+  while [ "$m" -lt "$upto" ]; do
+    prefix="${prefix}${toks[$m]:-} "
+    m=$((m + 1))
+  done
+  git_ctx_resolve_dir "$payload_cwd" "${prefix}git"
+}
+
 resolve_repo() {
-  # $1 = git -C value (may be empty). Populates _memo_cur / _memo_def.
-  local gitC="$1" target_dir repo_root cur def entry cached_branch cache_dir cache_file ref
-  if [ "$_memo_done" = "1" ] && [ "$_memo_key" = "$gitC" ]; then
+  # $1 = cd-resolved base dir (may be empty => unresolvable), $2 = git -C value.
+  # Populates _memo_cur / _memo_def / _memo_ok.
+  local base="$1" gitC="$2" key target_dir repo_root cur def entry cached_branch cache_dir cache_file ref
+  key="${base}|${gitC}"
+  if [ "$_memo_done" = "1" ] && [ "$_memo_key" = "$key" ]; then
     return 0
   fi
   _memo_done=1
-  _memo_key="$gitC"
+  _memo_key="$key"
   _memo_cur=""
   _memo_def=""
+  _memo_ok=0
   command -v git >/dev/null 2>&1 || return 0
-  [ -z "$payload_cwd" ] || [ ! -d "$payload_cwd" ] && return 0
+  [ -n "$base" ] || return 0
+  [ -d "$base" ] || return 0
 
-  target_dir="$payload_cwd"
-  if [ -n "$gitC" ]; then
-    case "$gitC" in
-      /*) target_dir="$gitC" ;;
-      *)  target_dir="${payload_cwd%/}/$gitC" ;;
-    esac
-  fi
-  [ -d "$target_dir" ] || return 0
+  # `git -C` wins over the cd context, but is resolved AGAINST it: the shell
+  # puts git somewhere first, then git applies -C from there.
+  target_dir="$(git_ctx_apply_dash_c "$base" "$gitC" || true)"
+  [ -n "$target_dir" ] || return 0
 
   repo_root="$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -z "$repo_root" ] && return 0
+  _memo_ok=1
 
+  # A detached HEAD leaves _memo_cur empty — that is a KNOWN answer ("not on a
+  # branch", so not on the default branch), not an unresolved one.
   cur="$(git -C "$repo_root" symbolic-ref --short HEAD 2>/dev/null || true)"
   _memo_cur="$cur"
 
@@ -125,14 +154,15 @@ resolve_repo() {
 }
 
 is_protected() {
-  # $1 = branch name, $2 = git -C value. Protected if it equals the resolved
-  # default branch, or is a literal main/master (cheap fallback on cache miss).
-  local branch="$1" gitC="$2"
+  # $1 = branch name, $2 = base dir, $3 = git -C value. Protected if it equals
+  # the resolved default branch, or is a literal main/master (cheap fallback on
+  # cache miss).
+  local branch="$1" base="$2" gitC="$3"
   [ -z "$branch" ] && return 1
   case "$branch" in
     main|master) return 0 ;;
   esac
-  resolve_repo "$gitC"
+  resolve_repo "$base" "$gitC"
   [ -n "$_memo_def" ] && [ "$branch" = "$_memo_def" ] && return 0
   return 1
 }
@@ -140,6 +170,9 @@ is_protected() {
 non_lease_force=0
 inline_escape=0
 targets_protected=0
+# Set when a real `git push` was found but its repo/branch context could not be
+# established. Gated candidate + unknown context => ask (never silence).
+unresolved_ctx=0
 
 # Track whether the current token is in command-word position, so a literal
 # `git` that is an ARGUMENT (e.g. `echo git push --force`) is not mistaken for
@@ -181,8 +214,8 @@ while [ "$i" -lt "$n" ]; do
         case "$tk" in
           --force) non_lease_force=1 ;;
           --force-with-lease|--force-with-lease=*|--force-if-includes|--force-if-includes=*) : ;;
-          --*) : ;;                             # other long flag (incl. --follow-tags) — ignore
           -o|--push-option) k=$((k+1)) ;;       # consumes a value
+          --*) : ;;                             # other long flag (incl. --follow-tags) — ignore
           -*)
             case "$tk" in
               *f*) non_lease_force=1 ;;          # short cluster containing f => force
@@ -204,13 +237,18 @@ while [ "$i" -lt "$n" ]; do
         k=$((k+1))
       done
 
+      # The directory this `git` will really run in — NOT the payload cwd.
+      base_dir="$(ctx_base_for "$i" || true)"
+
       # Effective target: explicit refspec dst, or HEAD's current branch.
       eff_target="$explicit_target"
       if [ -z "$eff_target" ] || [ "$eff_target" = "HEAD" ]; then
-        resolve_repo "$gitC"
+        resolve_repo "$base_dir" "$gitC"
         eff_target="$_memo_cur"
+        # No repo root => we cannot say which branch this push lands on.
+        [ "$_memo_ok" -eq 1 ] || unresolved_ctx=1
       fi
-      if is_protected "$eff_target" "$gitC"; then
+      if is_protected "$eff_target" "$base_dir" "$gitC"; then
         targets_protected=1
       fi
       # Stopped at a terminator (or end) — next token starts a new command.
@@ -237,8 +275,8 @@ while [ "$i" -lt "$n" ]; do
   i=$((i+1))
 done
 
-# No gated condition → silent pass.
-if [ "$non_lease_force" -eq 0 ] && [ "$targets_protected" -eq 0 ]; then
+# No gated condition and a confidently-resolved context → silent pass.
+if [ "$non_lease_force" -eq 0 ] && [ "$targets_protected" -eq 0 ] && [ "$unresolved_ctx" -eq 0 ]; then
   exit 0
 fi
 
@@ -252,6 +290,11 @@ if [ "$non_lease_force" -eq 1 ]; then
   detail="A non-lease \`--force\` overwrites the remote unconditionally — it can clobber commits a teammate (or another session) pushed since you last fetched. \`--force-with-lease\` refuses if the remote moved; prefer it.
 
 Per the project push policy, any non-lease force-push is gated regardless of branch."
+elif [ "$targets_protected" -eq 0 ]; then
+  headline="Could not determine which repo/branch this \`git push\` targets."
+  detail="The command changes directory (or points \`git -C\` somewhere) in a way this guard cannot resolve, so it cannot tell whether the push lands on the default branch. Rather than let a possible direct-to-main push through unchecked, it is asking.
+
+Check the target branch yourself before approving."
 else
   headline="About to push to a **protected / default branch**."
   detail="Direct pushes (and force-pushes) to the default branch are gated per the project push policy — this repo follows a worktree → branch → PR flow. Push a feature branch and open a PR instead."

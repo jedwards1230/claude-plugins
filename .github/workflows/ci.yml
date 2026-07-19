@@ -61,15 +61,46 @@ jobs:
 
           exit $status
 
+  shell-tests:
+    name: Shell Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Runs every plugins/**/*.test.sh. Each suite must be hermetic (no
+      # network, no real repos) and exit non-zero on failure.
+      - name: Run shell test suites
+        run: |
+          {
+            echo "## Shell Tests"
+            echo ""
+            echo "| Suite | Result |"
+            echo "|-------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          status=0
+          while IFS= read -r -d '' t; do
+            echo "::group::$t"
+            if bash "$t"; then
+              echo "| \`$t\` | :white_check_mark: Passed |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$t\` | :x: Failed |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error file=$t::Shell test suite failed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done < <(find plugins -name '*.test.sh' -print0)
+          exit $status
+
   ci:
     name: CI
     if: always()
-    needs: [validate]
+    needs: [validate, shell-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
-          results=("${{ needs.validate.result }}")
+          results=("${{ needs.validate.result }}" "${{ needs.shell-tests.result }}")
           for r in "${results[@]}"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
               echo "CI failed"

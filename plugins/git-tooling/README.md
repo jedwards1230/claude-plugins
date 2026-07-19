@@ -109,7 +109,17 @@ GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1 claude
 
 ### Push reminder hook
 
-Runs automatically after every `Bash(git push ...)`. If the pushed branch has an open PR, the hook reminds the agent to check whether the PR title/description still match what got pushed. Silent for any non-push Bash call. Parses the pushed refspec so reminders fire against the right PR even when you push a non-current branch.
+Runs automatically after every `Bash(git push ...)` and `Bash(gh pr create ...)`. If the pushed branch has an open PR — or a PR was just created — the hook reminds the agent to check whether the PR title/description still match what got pushed. Silent for any other Bash call.
+
+**It never emits a command for you to run.** The hook reports what it observed — branch pushed, which PR appears to be open for it, that the PR body predates this push, that CI is unwatched — and leaves the decision to you. This is deliberate: PR identity is inferred, and inference can be wrong, so the design goal is that being wrong is *harmless*. An earlier version printed a ready-to-run `gh pr edit <n> --title … --body …`; when it named the wrong PR, following that command would have overwritten an unrelated PR's description.
+
+Identification is layered so it fails silent rather than wrong:
+
+- **The trigger is parsed, not substring-matched.** `git push` / `gh pr create` must appear as an actual command word. `rg 'git push' docs/` and `gh pr comment N --body 'use gh pr create next time'` are read-only commands that mention the phrase, and both used to fire.
+- **Identity comes from the command's own output, never the working directory.** The pushed branch is read from git's ref-update block, anchored to exactly one `To <remote>` line; a created PR's number and repo come from a PR URL occupying a whole line. A session's working directory is not necessarily where the command ran — with `cd other-worktree && git push`, or a session sitting in a worktree checked out to a different branch, resolving from `HEAD` names an unrelated PR.
+- **Anything ambiguous is silence.** No output, a `--dry-run` / `-n` push, "Everything up-to-date", a *rejected* push, a branch deletion, a multi-ref or multi-remote push, or a `gh pr create` that printed no PR URL all produce nothing.
+
+Referenced commands carry `-R owner/repo` so they cannot be run against the right number in the wrong repo.
 
 ### `wt-done` — finish a merged branch
 
