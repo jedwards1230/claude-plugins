@@ -148,6 +148,32 @@ echo "git-tooling guard regression tests"
 echo "  scripts under test: $GUARD_DIR"
 echo
 
+# ------------------------------------------------------------- canary ------
+# HONEST LIMIT OF THIS SUITE: an assertion expecting `silent` is satisfied by a
+# hook that does nothing, because "correctly stayed silent" and "did not run"
+# produce identical observations for that input. 25 of the assertions below
+# expect silence, so a do-nothing hook scores 25 passes here. That is inherent
+# to asserting an absence, not a defect in those assertions — but it does mean
+# a neutered guard would produce a partially-green run rather than an obviously
+# broken one.
+#
+# So: prove the scripts under test are ALIVE before trusting any silence. A
+# push on the default branch must ask. If that fails, every `silent` result in
+# this file is meaningless and the suite aborts rather than reporting a
+# reassuring 25 passes.
+run_hook "$PUSH_HOOK" "$MAIN" "git push"
+if [ "$DEC" != "ask" ] || [ "$DEC_RC" -ne 0 ] || [ -n "$DEC_STDERR" ]; then
+  echo "  FATAL canary: the guards under test are not responding."
+  printf '    a plain push on the default branch returned: %s (rc=%s)%s\n' \
+    "${DEC:-<silent>}" "$DEC_RC" \
+    "${DEC_STDERR:+ stderr: $(printf '%s' "$DEC_STDERR" | head -1)}"
+  echo "    Every 'silent' assertion below would pass vacuously. Aborting."
+  exit 1
+fi
+echo "  ok   canary: guards are responding (gated push asks)"
+pass=$((pass + 1))
+echo
+
 # === THE HEADLINE FAIL-OPEN =================================================
 # Session cwd is a worktree on feat/x; the command cd's into the main repo,
 # which is on the default branch. The old guards read HEAD in the payload cwd,

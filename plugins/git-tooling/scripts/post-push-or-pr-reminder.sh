@@ -103,8 +103,16 @@ github_slug_from_remote() {
 # push.
 window_has_dry_run() {
   local binary="$1" sub1="$2" sub2="${3:-}"
-  local glob_was_off i j n prev_is_sep tok matched
+  local glob_was_off i j n prev_is_sep tok matched normalized
   local -a toks
+
+  # Space out separators via the SHARED normalizer, exactly as the lib's own
+  # parsers do. Without it, `git push --dry-run&&echo hi` tokenizes the flag as
+  # `--dry-run&&echo` — which matches the "some other long flag" arm and is
+  # ignored, so a dry run is reported as a real push. The trigger detection
+  # upstream normalizes, so this scan must too or the two disagree about where
+  # one command ends and the next begins.
+  normalized="$(git_ctx_normalize "$command_str")"
 
   # Tokenize with globbing disabled — an unquoted `*` in the command string
   # would otherwise expand against the cwd. Save/restore -f rather than using a
@@ -115,7 +123,7 @@ window_has_dry_run() {
   esac
   set -f
   # shellcheck disable=SC2086
-  set -- $command_str
+  set -- $normalized
   toks=("$@")
   [ "$glob_was_off" -eq 1 ] || set +f
 

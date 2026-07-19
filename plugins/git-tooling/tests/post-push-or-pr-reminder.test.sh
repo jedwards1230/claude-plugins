@@ -339,6 +339,24 @@ check "a chained command's -n does not suppress a real push" contains "#133"
 run "$WT_FIX" "git push; other-tool --dry-run" "" "$PUSH_FIX_ERR"
 check "a --dry-run belonging to a later command does not suppress" contains "#133"
 
+# Separators written WITHOUT surrounding spaces. The shared lib normalizes
+# these before parsing, so this scan must too — otherwise `--dry-run&&echo`
+# tokenizes as one word, matches the generic long-flag arm, and a dry run gets
+# announced as a real push. Silence is the correct answer for all of these.
+run "$WT_FIX" "git push --dry-run&&echo hi" "" "$PUSH_FIX_ERR"
+check "unspaced && after --dry-run still suppresses" empty
+
+run "$WT_FIX" "git push --dry-run;echo hi" "" "$PUSH_FIX_ERR"
+check "unspaced ; after --dry-run still suppresses" empty
+
+run "$WT_FIX" "git push -n&&echo hi" "" "$PUSH_FIX_ERR"
+check "unspaced && after -n still suppresses" empty
+
+# The mirror case: an unspaced separator must not let a LATER command's -n
+# leak into the push's window either.
+run "$WT_FIX" "git push&&head -n 20" "" "$PUSH_FIX_ERR"
+check "unspaced && before a later -n does not suppress" contains "#133"
+
 run "$WT_FIX" "echo 'remember to git push'" "remember to git push" ""
 check "echo mentioning git push does not fire" empty
 
@@ -372,6 +390,21 @@ check "different repo with a same-named branch still names the right PR" contain
 check "different repo's commits are not listed under this PR" lacks "only-in-other-repo"
 check "different repo omits the commit listing entirely" lacks "Recent commits on this branch"
 
+# `git_ctx_resolve_dir` resolves the FINAL command's directory, so a trailing
+# `cd` moves the commit listing's checkout AFTER the push. That is fine — the
+# origin-slug gate is what decides, not the directory — but it must be pinned:
+# a trailing `cd` into an unrelated repo is the misattribution case arriving by
+# a different route.
+run "$WT_FIX" "git push && cd $OTHER_REPO" "" "$PUSH_FIX_ERR"
+check "trailing cd into another repo still names the right PR" contains "#133"
+check "trailing cd into another repo lists no commits" lacks "Recent commits on this branch"
+check "trailing cd into another repo leaks no foreign commits" lacks "only-in-other-repo"
+
+# A trailing `cd` within the SAME repo is a different worktree of the same
+# refs, so the listing stays correct and must not be dropped.
+run "$WT_FIX" "git push && cd $SANDBOX/repo" "" "$PUSH_FIX_ERR"
+check "trailing cd within the same repo still lists its commits" contains "only-in-o-r"
+
 run "$WT_M6" "cd $WT_FIX && gh pr create --fill" "$CREATE_OUT" ""
 for verb in "gh pr edit" "gh pr merge" "gh pr close" "gh pr ready"; do
   check "pr_create path never emits a mutating command ($verb)" lacks "$verb"
@@ -380,6 +413,63 @@ done
 run "$WT_FIX" "git push --force-with-lease" "" "To github.com:o/r.git
  + 1111111...2222222 fix/topic -> fix/topic (forced update)"
 check "force-push update is recognised" contains "#133"
+
+# --- COMMAND FAILURE PATHS ------------------------------------------------
+# The worst output this hook can produce is announcing a mutation that did NOT
+# happen. A FAILED command is a distinct path from a succeeding one that merely
+# printed odd output, and it is the path a field report caught in v1.11.1: a
+# `gh pr create` failed with "No commits between ...", and the hook still
+# announced "Just opened PR #136 from branch fix/surface-kill-reply" — a PR it
+# had not created, on a branch the session was not on.
+#
+# The mechanism was that v1.11.1's pr_create path read the branch from
+# `git symbolic-ref HEAD` in whatever directory it landed in, so a failed create
+# was indistinguishable from a successful one. The identity now comes from the
+# command's own output, and a failed command prints no PR URL and no `To` line,
+# so both triggers fall through to silence.
+#
+# These cases pass today. They exist to pin that property in place: nothing else
+# in the suite fails if someone reintroduces a working-directory fallback.
+echo "-- command failure paths (must never announce a mutation) --"
+
+# The exact field-report shape: create fails, session cwd is a worktree whose
+# branch has an unrelated open PR. Silence — and above all not that other PR.
+GH_CREATE_FAIL="pull request create failed: GraphQL: No commits between m6 and diag/history-visibility"
+run "$WT_M6" "gh pr create --fill" "" "$GH_CREATE_FAIL"
+check "failed gh pr create stays silent" empty
+run "$WT_M6" "cd $WT_FIX && gh pr create --fill" "" "$GH_CREATE_FAIL"
+check "failed gh pr create from another worktree stays silent" empty
+
+# A rejected non-fast-forward push. It prints a `To` line AND a `->` ref line,
+# so it is the failure most likely to read as success; the `!` marker is the
+# only thing distinguishing it.
+REJECT_ERR="To github.com:o/r.git
+ ! [rejected]        fix/topic -> fix/topic (non-fast-forward)
+error: failed to push some refs to 'github.com:o/r.git'
+hint: Updates were rejected because the tip of your current branch is behind"
+run "$WT_FIX" "git push" "" "$REJECT_ERR"
+check "rejected non-fast-forward push stays silent" empty
+run "$WT_FIX" "git push --force-with-lease" "" "To github.com:o/r.git
+ ! [rejected]        fix/topic -> fix/topic (stale info)
+error: failed to push some refs"
+check "rejected --force-with-lease push stays silent" empty
+
+# A push that fails AFTER a successful git/gh earlier in the same compound.
+# The earlier command's output is in the same buffer, so the parser must not
+# harvest an identity from it and attribute it to the push that failed. This is
+# also the shape that defeated the directory resolver, so it is worth pinning
+# on this hook too.
+run "$WT_FIX" "git fetch origin && git push" "From github.com:o/r
+ * branch            main -> FETCH_HEAD" "$REJECT_ERR"
+check "push failing after a successful fetch stays silent" empty
+run "$WT_M6" "gh pr list && cd $WT_FIX && git push" \
+  "#133  fix: topic  fix/topic" "$REJECT_ERR"
+check "push failing after a successful gh pr list stays silent" empty
+# The inverse, so the above is not passing merely because the hook gave up on
+# any compound command: the same compound with a SUCCESSFUL push still fires.
+run "$WT_M6" "gh pr list && cd $WT_FIX && git push" \
+  "#133  fix: topic  fix/topic" "$PUSH_FIX_ERR"
+check "the same compound with a successful push still fires" contains "#133"
 
 echo
 echo "passed: $pass  failed: $fail"
