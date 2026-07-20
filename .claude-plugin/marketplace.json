@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "25.0.2"
+    "version": "25.0.3"
   },
   "plugins": [
     {
@@ -15,42 +15,42 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling \u2014 worktree workflows, default-branch commit prompt, worktree edit-path guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, and on-demand CI + release status watching"
+      "description": "Git tooling — worktree workflows, default-branch commit prompt, worktree edit-path guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, and on-demand CI + release status watching"
     },
     {
       "name": "ansible-quality",
       "source": "./plugins/ansible-quality",
-      "description": "Ansible quality gates \u2014 diff-scoped ansible-lint + ansible-playbook --syntax-check on modified playbooks/roles, plus a warn-only vault-plaintext check, mirroring CI. Warn-skips on a broken lint env instead of false-blocking. Includes an /ansible skill carrying recent ansible-core/ansible-lint reference in context."
+      "description": "Ansible quality gates — diff-scoped ansible-lint + ansible-playbook --syntax-check on modified playbooks/roles, plus a warn-only vault-plaintext check, mirroring CI. Warn-skips on a broken lint env instead of false-blocking. Includes an /ansible skill carrying recent ansible-core/ansible-lint reference in context."
     },
     {
       "name": "go-quality",
       "source": "./plugins/go-quality",
-      "description": "Go quality gates \u2014 auto-format, vet, test, and lint on every turn"
+      "description": "Go quality gates — auto-format, vet, test, and lint on every turn"
     },
     {
       "name": "qml-quality",
       "source": "./plugins/qml-quality",
-      "description": "QML quality gates \u2014 auto-format and format-check QML files with qmlformat, mirroring CI"
+      "description": "QML quality gates — auto-format and format-check QML files with qmlformat, mirroring CI"
     },
     {
       "name": "rust-quality",
       "source": "./plugins/rust-quality",
-      "description": "Rust quality gates \u2014 auto-format, clippy, test, and audit on every turn"
+      "description": "Rust quality gates — auto-format, clippy, test, and audit on every turn"
     },
     {
       "name": "swift-quality",
       "source": "./plugins/swift-quality",
-      "description": "Swift quality gates \u2014 config-gated auto-format on edit, and SwiftLint + per-package swift test on stop for SwiftUI app + SPM package repos, mirroring CI"
+      "description": "Swift quality gates — config-gated auto-format on edit, and SwiftLint + per-package swift test on stop for SwiftUI app + SPM package repos, mirroring CI"
     },
     {
       "name": "tofu-quality",
       "source": "./plugins/tofu-quality",
-      "description": "OpenTofu quality gates \u2014 auto-format on edit, and format-check + validate modified config on stop, mirroring CI. Includes a /tofu skill carrying recent-release summaries in context."
+      "description": "OpenTofu quality gates — auto-format on edit, and format-check + validate modified config on stop, mirroring CI. Includes a /tofu skill carrying recent-release summaries in context."
     },
     {
       "name": "session-archiver",
       "source": "./plugins/session-archiver",
-      "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end \u2014 per-machine configurable, nothing hardcoded"
+      "description": "Archive Claude Code session transcripts to local and remote targets (S3, rsync/NAS, or any command) on session end — per-machine configurable, nothing hardcoded"
     },
     {
       "name": "review-team",
@@ -60,22 +60,22 @@
     {
       "name": "sessions",
       "source": "./plugins/sessions",
-      "description": "Search and analyze past Claude Code session transcripts \u2014 sessions CLI for listing, grepping, rendering, and tool-usage stats over the ~/.claude JSONL history"
+      "description": "Search and analyze past Claude Code session transcripts — sessions CLI for listing, grepping, rendering, and tool-usage stats over the ~/.claude JSONL history"
     },
     {
       "name": "agent-ops",
       "source": "./plugins/agent-ops",
-      "description": "Task-ownership orchestration \u2014 delegate a task (or several) into a hierarchy where one owner agent runs each task end-to-end and orchestrates its own subagents (explore \u2192 implement \u2192 verify)"
+      "description": "Task-ownership orchestration — delegate a task (or several) into a hierarchy where one owner agent runs each task end-to-end and orchestrates its own subagents (explore → implement → verify)"
     },
     {
       "name": "repo-standards",
       "source": "./plugins/repo-standards",
-      "description": "Preferred GitHub repository standards, audited/applied with `gh` \u2014 a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
+      "description": "Preferred GitHub repository standards, audited/applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
     },
     {
       "name": "screenshotter",
       "source": "./plugins/screenshotter",
-      "description": "A generic, agent-only UI screenshotter \u2014 autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. For web capture it uses a project-configured Playwright MCP server (template + setup in the README)."
+      "description": "A generic, agent-only UI screenshotter — autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. For web capture it uses a project-configured Playwright MCP server (template + setup in the README)."
     }
   ]
 }
