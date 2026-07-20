@@ -169,6 +169,21 @@ trap), the `CONTRIBUTING.md` baseline + its conditional-block table (paired with
 `templates/CONTRIBUTING.template.md`), and the step-by-step apply procedure. Read it before adding or
 auditing a repo's docs.
 
+## Knowledge base — CLAUDE.md as a map + docs/
+
+Below the three root docs sits the knowledge-base standard: `CLAUDE.md` is a **map, not a manual**
+(~100-line budget; `@CONTRIBUTING.md` always eager-imported plus at most one more high-leverage
+import; everything else routed lazily; every `docs/` file reachable from the map), standard-tier
+repos carry a minimum `docs/` (`PRD.md` **or** `CONTRACT.md` as the in-repo requirements source of
+truth, plus `TESTING.md`), CLAUDE.md carries a numbered **invariants** section ("violations are
+bugs"), infra repos add an **authority-boundary** table (gated-pipeline / drift-report / GitOps
+archetypes), and component depth lives in **hub-and-spoke** package docs updated in the same PR.
+Lightweight-tier repos are exempt.
+
+**`references/knowledge-base.md`** is the full standard (paired with
+`templates/CLAUDE.template.md`). Read it before writing or auditing a `CLAUDE.md` or a repo's
+`docs/` layout.
+
 ## Audit — what's live vs the standard
 
 `scripts/repo-standards-audit.sh` is a portable audit helper — no monorepo assumptions, no

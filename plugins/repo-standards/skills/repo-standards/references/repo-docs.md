@@ -1,7 +1,9 @@
 # Repo docs — README / CONTRIBUTING / CLAUDE.md
 
 Beyond settings and rulesets, a repo's three top-level docs each own a distinct job. Keep them
-non-overlapping:
+non-overlapping. (This file owns the *split* between the three root docs; `knowledge-base.md` owns
+what sits underneath — CLAUDE.md as a map, the `docs/` minimum, invariants, authority boundaries,
+and hub-and-spoke package docs.)
 
 | File | Audience / job | Owns |
 |------|----------------|------|

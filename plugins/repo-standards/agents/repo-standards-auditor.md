@@ -2,7 +2,8 @@
 name: repo-standards-auditor
 description: 'Read-only audit of a single GitHub repo against the repo-standards
   skill baseline (Layer-1 settings, Dependabot, branch rulesets, README/CONTRIBUTING/CLAUDE.md
-  doc split). Reports conformance only — never edits files, changes repo settings,
+  doc split, knowledge base — CLAUDE.md-as-map + docs/ minimum + staleness, and verification
+  affordances). Reports conformance only — never edits files, changes repo settings,
   or opens PRs. Triggers: "audit repo standards", "check repo conformance", "how
   does <repo> score against our standards", "audit these repos against repo-standards",
   "fan out a standards audit across repos", "which repos are missing Dependabot
@@ -139,12 +140,15 @@ lightweight tier and adjust scoring below:
   not `⚠️`, regardless of whether `dependabot.yml` exists.
 - Dimension 4 (docs split) reports `⏭️ N/A (lightweight tier)` for the whole section
   instead of per-row `⚠️` findings — the docs split is waived for lightweight repos.
+- Dimensions 5 and 6 (knowledge base, verification affordances) likewise report
+  `⏭️ N/A (lightweight tier)` for the whole section — both standards apply to
+  standard-tier repos only.
 - The expected Layer-2 ruleset shape is **Class C** (block deletion + non-fast-forward,
   no PR required) — a no-PR ruleset on a lightweight repo is conformant, not a gap.
 
 ## Audit dimensions
 
-Audit exactly these four dimensions, mirroring the `repo-standards` skill. Do not
+Audit exactly these six dimensions, mirroring the `repo-standards` skill. Do not
 invent additional checks or opinions beyond what the skill documents.
 
 ### 1. Layer-1 settings baseline
@@ -297,6 +301,63 @@ If no local clone is available and the contents API also can't be reached for
 these files, mark this whole dimension `❓ unknown` rather than partially
 guessing from whatever fetched.
 
+### 5. Knowledge base (CLAUDE.md as a map + docs/ minimum)
+
+Standard defined in `references/knowledge-base.md`. Skip for lightweight tier
+(`⏭️ N/A (lightweight tier)` for the whole section). Requires a local clone for the
+staleness check; the other rows degrade to the contents API.
+
+- **Map size**: count CLAUDE.md's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 (the
+  map is absorbing manual content — name the largest absorbable section in the notes,
+  e.g. a package-detail table or env-var reference that belongs in a routed doc).
+- **Eager imports**: count `@`-import lines in CLAUDE.md. Standard is
+  `@CONTRIBUTING.md` plus **at most one** more. Three or more → `⚠️`.
+- **Routing completeness**: list `docs/**/*.md`, then grep CLAUDE.md for a
+  reference to each (by path or by an explicit directory-level route like
+  "design history in `docs/design/`"). Every unrouted file → `⚠️`, listed by name.
+- **Requirements source of truth**: exactly one of `docs/PRD.md` / `docs/CONTRACT.md`
+  exists (`ℹ️` if both — note which one claims authority). If CLAUDE.md routes to a
+  requirements doc in a *different repo* (a relative path escaping the repo root, or
+  an umbrella-repo URL playing the SoT role) → `⚠️` (the SoT must live in-repo). A
+  genuinely thin repo with no requirements doc → `ℹ️` with a one-line justification,
+  not `⚠️` (the standard's small-repo escape hatch).
+- **TESTING.md**: `docs/TESTING.md` exists, or CONTRIBUTING's testing section fully
+  covers verification for a small repo (`ℹ️` in that case, noting the escape hatch).
+- **Staleness** (local clone with history only — `❓` otherwise; run
+  `git fetch --unshallow` first if the clone is shallow): for each
+  architecture/design-describing doc (`docs/ARCHITECTURE*`, `docs/DESIGN*`,
+  `docs/design/**`, `docs/CONTRACT.md`, `docs/PRD.md`):
+
+  ```bash
+  DOC_DATE=$(git log -1 --format=%cI -- "$DOC")
+  git rev-list --count --since="$DOC_DATE" HEAD -- ':!docs' ':!*.md'
+  ```
+
+  More than ~30 non-doc commits since the doc's last touch → `⚠️`, naming the doc and
+  the count. This is a heuristic, not proof of drift — report it as "N commits behind,
+  review for drift", never as "stale" outright.
+
+### 6. Verification affordances
+
+Standard: an agent must be able to *prove* a change works without a human relay.
+Skip for lightweight tier. Requires file reads (clone or contents API).
+
+- **Bootable/demo path**: CLAUDE.md or `docs/TESTING.md` documents a way to run the
+  thing locally without external dependencies (a `demo`/`mock`/fixture mode, a
+  compose file, a check-mode) → `✅`. Nothing documented → `⚠️`. Genuinely
+  impossible (e.g. a bot that only exists against a live third-party system) →
+  `⏭️` with the reason.
+- **CONTRIBUTING ↔ CI parity**: compare CONTRIBUTING's build/test/lint commands
+  against what `.github/workflows/*` actually runs. A gate documented as required
+  but absent from CI (test/lint on the honor system), or a CI gate CONTRIBUTING
+  never mentions → `⚠️`, naming the command.
+- **Enforcement claims are real**: grep README/CONTRIBUTING/CLAUDE.md/`docs/**` for
+  claimed mechanisms — "a pre-commit hook blocks…", "CI enforces/fails/validates…",
+  "blocked by…" — and verify each names something that exists
+  (`.pre-commit-config.yaml` entry, a workflow step, a linter config). A claim whose
+  only enforcement is an AI PR-review workflow → `⚠️` ("documented boundary enforced
+  only by skippable AI review"). A claim with no mechanism at all → **critical** `⚠️`.
+
 ## Report format
 
 Produce exactly this skeleton, filled in — keep it terse and scannable since
@@ -363,6 +424,23 @@ Notes/mismatches: <e.g. public repo on a no-PR ruleset — flag only if obvious>
 | CLAUDE.md duplicates build/test/lint | no | ... | |
 | Any doc points at CLAUDE.md | no | ... | |
 
+## 5. Knowledge Base
+| Dimension | Standard | Observed | Status |
+|---|---|---|---|
+| CLAUDE.md line count | ≤ ~100 | ... | ✅/ℹ️/⚠️ |
+| Eager @imports | CONTRIBUTING + ≤1 | ... | |
+| docs/ files unrouted from CLAUDE.md | none | <list or none> | |
+| Requirements SoT (PRD or CONTRACT) in-repo | exactly one | ... | |
+| docs/TESTING.md | yes (or CONTRIBUTING covers) | ... | |
+| Design docs behind code churn | none > ~30 commits | <doc: N commits, or none> | |
+
+## 6. Verification Affordances
+| Dimension | Standard | Observed | Status |
+|---|---|---|---|
+| Bootable/demo path documented | yes | ... | |
+| CONTRIBUTING ↔ CI gate parity | match | ... | |
+| Enforcement claims backed by real mechanism | all | <unbacked claims, or all backed> | |
+
 ## Top Gaps
 1. <highest-value fix — what and why>
 2. ...
@@ -386,10 +464,13 @@ on which class the repo is meant to be).
    statuses and cross-check each required `context` against them.
 5. Run the Dimension 4 reads (README/CONTRIBUTING/CLAUDE.md content + cross-doc
    grep for `CLAUDE.md` references).
-6. Fill in the report skeleton exactly as specified above — do not reorder
+6. Run the Dimension 5 reads (line/import counts, docs/ routing grep, SoT check,
+   staleness) and Dimension 6 reads (demo-path grep, CONTRIBUTING↔CI diff,
+   enforcement-claim verification).
+7. Fill in the report skeleton exactly as specified above — do not reorder
    sections, rename columns, or add prose paragraphs between tables. Consistency
    across parallel runs matters more than narrative polish.
-7. Derive the "Top Gaps" list from whatever rows are `⚠️`, ranked roughly by
+8. Derive the "Top Gaps" list from whatever rows are `⚠️`, ranked roughly by
    blast radius — a ruleset requiring a check that no check-run produces (merges
    silently blocked) or a missing branch ruleset or disabled security fixes outranks
    a missing `## Contributing` link.
