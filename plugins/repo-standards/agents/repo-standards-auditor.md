@@ -303,60 +303,55 @@ guessing from whatever fetched.
 
 ### 5. Knowledge base (CLAUDE.md as a map + docs/ minimum)
 
-Standard defined in `references/knowledge-base.md`. Skip for lightweight tier
-(`⏭️ N/A (lightweight tier)` for the whole section). Requires a local clone for the
-staleness check; the other rows degrade to the contents API.
+The standard's definitions live in `references/knowledge-base.md`, which ships with
+this skill — **Read it before scoring** rather than re-deriving the rules here, and
+audit only what it defines. This section owns just the scoring procedure. Skip for
+lightweight tier (`⏭️ N/A (lightweight tier)` for the whole section). The staleness
+row needs a local clone with history; the others degrade to the contents API.
 
-- **Map size**: count CLAUDE.md's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 (the
-  map is absorbing manual content — name the largest absorbable section in the notes,
-  e.g. a package-detail table or env-var reference that belongs in a routed doc).
-- **Eager imports**: count `@`-import lines in CLAUDE.md. Standard is
-  `@CONTRIBUTING.md` plus **at most one** more. Three or more → `⚠️`.
-- **Routing completeness**: list `docs/**/*.md`, then grep CLAUDE.md for a
-  reference to each (by path or by an explicit directory-level route like
-  "design history in `docs/design/`"). Every unrouted file → `⚠️`, listed by name.
-- **Requirements source of truth**: exactly one of `docs/PRD.md` / `docs/CONTRACT.md`
-  exists (`ℹ️` if both — note which one claims authority). If CLAUDE.md routes to a
-  requirements doc in a *different repo* (a relative path escaping the repo root, or
-  an umbrella-repo URL playing the SoT role) → `⚠️` (the SoT must live in-repo). A
-  genuinely thin repo with no requirements doc → `ℹ️` with a one-line justification,
-  not `⚠️` (the standard's small-repo escape hatch).
-- **TESTING.md**: `docs/TESTING.md` exists, or CONTRIBUTING's testing section fully
-  covers verification for a small repo (`ℹ️` in that case, noting the escape hatch).
-- **Staleness** (local clone with history only — `❓` otherwise; run
-  `git fetch --unshallow` first if the clone is shallow): for each
-  architecture/design-describing doc (`docs/ARCHITECTURE*`, `docs/DESIGN*`,
-  `docs/design/**`, `docs/CONTRACT.md`, `docs/PRD.md`):
+- **Map size**: count CLAUDE.md's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 —
+  when over, name the largest absorbable section in the notes.
+- **Eager imports**: count `@`-import lines. Three or more → `⚠️`.
+- **Routing completeness**: list `docs/**/*.md`, grep CLAUDE.md for a reference to
+  each (by path, or an explicit directory-level route). Unrouted files → `⚠️`,
+  listed by name.
+- **Requirements SoT**: score against the reference's PRD-or-CONTRACT and
+  in-repo rules — `⚠️` if the routed SoT lives outside the repo; `ℹ️` if both docs
+  exist (note which claims authority) or if the small-repo escape hatch plausibly
+  applies (one-line justification).
+- **TESTING.md**: present, or escape hatch → `ℹ️`, noting it.
+- **Staleness** (`❓` without local history; `git fetch --unshallow` first if the
+  clone is shallow): for each architecture/design-describing doc
+  (`docs/ARCHITECTURE*`, `docs/DESIGN*`, `docs/design/**`, `docs/CONTRACT.md`,
+  `docs/PRD.md`):
 
   ```bash
   DOC_DATE=$(git log -1 --format=%cI -- "$DOC")
   git rev-list --count --since="$DOC_DATE" HEAD -- ':!docs' ':!*.md'
   ```
 
-  More than ~30 non-doc commits since the doc's last touch → `⚠️`, naming the doc and
-  the count. This is a heuristic, not proof of drift — report it as "N commits behind,
-  review for drift", never as "stale" outright.
+  More than ~30 non-doc commits since the doc's last touch → `⚠️`, naming the doc
+  and the count, phrased as "N commits behind, review for drift" — it's a
+  heuristic, never report it as "stale" outright.
 
 ### 6. Verification affordances
 
-Standard: an agent must be able to *prove* a change works without a human relay.
-Skip for lightweight tier. Requires file reads (clone or contents API).
+Definitions again in `references/knowledge-base.md` (the enforcing-mechanism rules).
+Skip for lightweight tier. Requires file reads (clone or contents API). Scoring:
 
-- **Bootable/demo path**: CLAUDE.md or `docs/TESTING.md` documents a way to run the
-  thing locally without external dependencies (a `demo`/`mock`/fixture mode, a
-  compose file, a check-mode) → `✅`. Nothing documented → `⚠️`. Genuinely
-  impossible (e.g. a bot that only exists against a live third-party system) →
-  `⏭️` with the reason.
-- **CONTRIBUTING ↔ CI parity**: compare CONTRIBUTING's build/test/lint commands
-  against what `.github/workflows/*` actually runs. A gate documented as required
-  but absent from CI (test/lint on the honor system), or a CI gate CONTRIBUTING
-  never mentions → `⚠️`, naming the command.
-- **Enforcement claims are real**: grep README/CONTRIBUTING/CLAUDE.md/`docs/**` for
-  claimed mechanisms — "a pre-commit hook blocks…", "CI enforces/fails/validates…",
-  "blocked by…" — and verify each names something that exists
-  (`.pre-commit-config.yaml` entry, a workflow step, a linter config). A claim whose
-  only enforcement is an AI PR-review workflow → `⚠️` ("documented boundary enforced
-  only by skippable AI review"). A claim with no mechanism at all → **critical** `⚠️`.
+- **Bootable/demo path**: CLAUDE.md or `docs/TESTING.md` documents a
+  no-external-deps local run path (demo/mock/fixture mode, compose file,
+  check-mode) → `✅`; nothing documented → `⚠️`; genuinely impossible (only exists
+  against a live third-party system) → `⏭️` with the reason.
+- **CONTRIBUTING ↔ CI parity**: diff CONTRIBUTING's build/test/lint commands
+  against what `.github/workflows/*` actually runs. A documented-required gate
+  absent from CI, or a CI gate CONTRIBUTING omits → `⚠️`, naming the command.
+- **Enforcement claims are real**: grep README/CONTRIBUTING/CLAUDE.md/`docs/**`
+  for claimed mechanisms ("a pre-commit hook blocks…", "CI
+  enforces/fails/validates…", "blocked by…"); verify each names something that
+  exists (a `.pre-commit-config.yaml` entry, a workflow step, a linter config).
+  Enforced only by an AI PR-review workflow → `⚠️` ("documented boundary enforced
+  only by skippable AI review"); no mechanism at all → **critical** `⚠️`.
 
 ## Report format
 
