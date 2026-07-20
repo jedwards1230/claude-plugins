@@ -83,16 +83,30 @@ Three enforcement archetypes cover the common cases — name which one each pipe
 1. **Gated pipeline** (e.g. Terraform/OpenTofu): writes flow through CI — PR plan is free, apply
    runs only in a protected environment behind a required reviewer, with plan and apply using
    separately-scoped credentials. The agent's write authority ends at "open a PR."
-2. **Scheduled drift report** (e.g. Ansible): CI never writes to hosts — it runs check-mode on a
-   schedule and publishes the diff. Humans run the applying playbooks. The agent reads the standing
-   drift report instead of probing live systems.
+2. **Scheduled drift report** (e.g. Ansible): CI's *standing* behavior never writes to hosts — it
+   runs check-mode on a schedule and publishes the diff; humans run the applying playbooks, and the
+   agent reads the standing drift report instead of probing live systems. If a dispatch-only apply
+   lane exists, it is not an exception to declare away — it is its own row in the table (who may
+   dispatch it, behind what gate), because "anyone with repo write access via the Actions UI" is a
+   very different boundary than "human at a terminal with the vault key."
 3. **GitOps reconciler** (e.g. Argo CD): merging to the default branch *is* the write; the
    reconciler applies it. Declare per-path sync policy (auto-sync vs manual-sync) so the agent
    knows when a merge is the whole job and when a human must still trigger sync.
 
 Every declared boundary must name a **real enforcing mechanism** (a workflow file, an environment
 gate, a credential scope) — a boundary enforced only by prose, or only by an AI PR reviewer that
-can be skipped, is a documented wish, not a boundary; the audit flags those.
+can be skipped, is a documented wish, not a boundary; the audit flags those. Two mechanisms that
+deserve explicit attention:
+
+- **"Merged once CI is green" is only true if the `main` ruleset lists `required_status_checks`**
+  (the skill's status-checks overlay). A PR-required ruleset with zero required checks and zero
+  required approvals gates on nothing but thread resolution — and if `bypass_actors` grants an
+  admin `always` bypass, say so in the table rather than letting CONTRIBUTING imply a gate that
+  is not there.
+- **A repo-local `.claude/settings.json` permission allowlist is a real mechanism** for the
+  agent-direct column: allow the plan/read/lint verbs, omit the apply/sync/push verbs, and every
+  write becomes an explicit human approval instead of a silent capability. Cheap, versioned with
+  the repo, and it enforces exactly what the table claims.
 
 ## Hub and spoke: component detail
 
