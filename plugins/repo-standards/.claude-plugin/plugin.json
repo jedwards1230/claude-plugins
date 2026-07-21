@@ -1,7 +1,7 @@
 {
   "name": "repo-standards",
-  "version": "1.4.0",
-  "description": "Preferred GitHub repository standards, audited and applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, the README/CONTRIBUTING/CLAUDE.md doc split, and a knowledge-base standard (CLAUDE.md as a ~100-line map with hybrid eager-imports + lazy routing, an in-repo PRD-or-CONTRACT + TESTING docs/ minimum, invariants and authority-boundary sections, hub-and-spoke package docs). Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits.",
+  "version": "1.5.0",
+  "description": "Preferred GitHub repository standards, audited and applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, the README/CONTRIBUTING/AGENTS.md/CLAUDE.md doc split (AGENTS.md canonical when present, CLAUDE.md a thin @import wrapper), and a knowledge-base standard (the agent map as a ~100-line map with hybrid eager-imports + lazy routing, an in-repo PRD-or-CONTRACT + TESTING docs/ minimum, invariants and authority-boundary sections, hub-and-spoke package docs). Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits.",
   "author": {
     "name": "jedwards1230"
   },
@@ -11,6 +11,7 @@
     "rulesets",
     "dependabot",
     "github",
-    "contributing"
+    "contributing",
+    "agents-md"
   ]
 }

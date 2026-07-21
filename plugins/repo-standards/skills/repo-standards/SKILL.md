@@ -1,6 +1,6 @@
 ---
 name: repo-standards
-description: Preferred GitHub repository standards — repo settings baseline (wiki/projects off, auto-delete merged branches, SHA-pinned actions, Dependabot security updates), branch-ruleset classes, Dependabot version-updates config, the README/CONTRIBUTING/CLAUDE.md doc split, and a lightweight tier for content/asset/config repos, all audited/applied with `gh`. Use when asked to "standardize a repo", "set up branch protection", "apply repo rulesets", "audit repo settings", "protect main", "turn off the wiki/projects", "enable Dependabot", "add a dependabot.yml", "set up dependency updates", "add a CONTRIBUTING", "classify a repo as lightweight", or to classify a repo as public/private-infra/scratch.
+description: Preferred GitHub repository standards — repo settings baseline (wiki/projects off, auto-delete merged branches, SHA-pinned actions, Dependabot security updates), branch-ruleset classes, Dependabot version-updates config, the README/CONTRIBUTING/AGENTS.md/CLAUDE.md doc split, and a lightweight tier for content/asset/config repos, all audited/applied with `gh`. Use when asked to "standardize a repo", "set up branch protection", "apply repo rulesets", "audit repo settings", "protect main", "turn off the wiki/projects", "enable Dependabot", "add a dependabot.yml", "set up dependency updates", "add a CONTRIBUTING", "add an AGENTS.md", "should AGENTS.md or CLAUDE.md be canonical", "classify a repo as lightweight", or to classify a repo as public/private-infra/scratch.
 ---
 
 # repo-standards
@@ -31,7 +31,7 @@ there anything to build, test, or version?** No → lightweight.
 
 | Still applies | Waived |
 |---|---|
-| Layer-1 settings baseline · Dependabot security · a Class-C-shaped `main` ruleset (block deletion + non-fast-forward, no PR) | Docs split (CONTRIBUTING.md + CLAUDE.md's `@CONTRIBUTING.md` import) · Dependabot version updates (`dependabot.yml`) · SHA-pinning (moot — applies once CI exists) |
+| Layer-1 settings baseline · Dependabot security · a Class-C-shaped `main` ruleset (block deletion + non-fast-forward, no PR) | Docs split (CONTRIBUTING.md + CLAUDE.md's import line(s)) · Knowledge base · Dependabot version updates (`dependabot.yml`) · SHA-pinning (moot — applies once CI exists) |
 
 Lightweight is not a 4th ruleset class — it pairs with the existing **Class C** shape and
 additionally waives the docs split and version updates.
@@ -155,33 +155,43 @@ Detect which ecosystems a repo has, then keep only those `updates:` entries:
 a `deps(<ecosystem>)` commit prefix. Copy it, delete the ecosystem blocks that don't apply, and
 duplicate a block per extra subdirectory. Commit on a branch + PR; never merge directly.
 
-## Repo docs — README / CONTRIBUTING / CLAUDE.md
+## Repo docs — README / CONTRIBUTING / AGENTS.md / CLAUDE.md
 
-Beyond settings and rulesets, a repo's three top-level docs each own a distinct, non-overlapping job:
-`README.md` for users, `CONTRIBUTING.md` for contributors (build/test/lint + PR/release flow), and
-`CLAUDE.md` for working *in* the code (architecture + codebase-unique run/ops commands only).
-Lightweight-tier repos are exempt from this split — a README is still encouraged, but
-CONTRIBUTING.md and the `@CONTRIBUTING.md` import line are not required.
+Beyond settings and rulesets, a repo's root docs each own a distinct, non-overlapping job:
+`README.md` for users, `CONTRIBUTING.md` for contributors (build/test/lint + PR/release flow), and a
+**canonical agent file** for working *in* the code (architecture + codebase-unique run/ops commands
+only). Lightweight-tier repos are exempt from this split — a README is still encouraged, but
+CONTRIBUTING.md and the import line(s) are not required.
 
-**`references/repo-docs.md`** is the full standard: the ownership table, the anti-duplication rules
-(CLAUDE.md `@import`s CONTRIBUTING; no doc points *at* CLAUDE.md; the build/test/lint-only over-trim
-trap), the `CONTRIBUTING.md` baseline + its conditional-block table (paired with
-`templates/CONTRIBUTING.template.md`), and the step-by-step apply procedure. Read it before adding or
-auditing a repo's docs.
+Which file is canonical depends on one mechanic: `@import` is a **CLAUDE.md memory feature** —
+Claude Code reads `CLAUDE.md`, not `AGENTS.md` — so imports only ever live in `CLAUDE.md`:
 
-## Knowledge base — CLAUDE.md as a map + docs/
+- **Shape 1 — no `AGENTS.md`** (default, fine to stay on): `CLAUDE.md` is canonical and carries
+  `@CONTRIBUTING.md` on the line after its H1.
+- **Shape 2 — `AGENTS.md` exists**: `AGENTS.md` is canonical (portable across agent vendors) and
+  `CLAUDE.md` is a thin wrapper — `@AGENTS.md` + `@CONTRIBUTING.md`, nothing else. `AGENTS.md` uses
+  plain markdown links, never `@imports`, and never mentions `CLAUDE.md`: the direction is one-way.
 
-Below the three root docs sits the knowledge-base standard: `CLAUDE.md` is a **map, not a manual**
+**`references/repo-docs.md`** is the full standard: the ownership table, both shapes with worked
+examples, the anti-duplication rules (imports live only in CLAUDE.md; no doc points *at* CLAUDE.md;
+the build/test/lint-only over-trim trap), the `CONTRIBUTING.md` baseline + its conditional-block table
+(paired with `templates/CONTRIBUTING.template.md`), and the step-by-step apply procedure. Read it
+before adding or auditing a repo's docs.
+
+## Knowledge base — the agent map + docs/
+
+Below the root docs sits the knowledge-base standard, which applies to whichever file is canonical
+above (`AGENTS.md` if present, else `CLAUDE.md` — "the map"): the map is a **map, not a manual**
 (~100-line budget; `@CONTRIBUTING.md` always eager-imported plus at most one more high-leverage
 import; everything else routed lazily; every `docs/` file reachable from the map), standard-tier
 repos carry a minimum `docs/` (`PRD.md` **or** `CONTRACT.md` as the in-repo requirements source of
-truth, plus `TESTING.md`), CLAUDE.md carries a numbered **invariants** section ("violations are
+truth, plus `TESTING.md`), the map carries a numbered **invariants** section ("violations are
 bugs"), infra repos add an **authority-boundary** table (gated-pipeline / drift-report / GitOps
 archetypes), and component depth lives in **hub-and-spoke** package docs updated in the same PR.
 Lightweight-tier repos are exempt.
 
 **`references/knowledge-base.md`** is the full standard (paired with
-`templates/CLAUDE.template.md`). Read it before writing or auditing a `CLAUDE.md` or a repo's
+`templates/CLAUDE.template.md`). Read it before writing or auditing a repo's agent file or its
 `docs/` layout.
 
 ## Audit — what's live vs the standard

@@ -1,25 +1,34 @@
-# Knowledge base — CLAUDE.md as a map + the docs/ minimum
+# Knowledge base — the agent map + the docs/ minimum
 
-`repo-docs.md` owns the three root docs' *split* (who owns what prose). This standard owns what sits
-underneath: how `CLAUDE.md` routes into the repo's knowledge base, and the minimum `docs/` a
-standard-tier repo carries. Lightweight-tier repos are exempt (same litmus as the docs split).
+`repo-docs.md` owns the root docs' *split* (who owns what prose). This standard owns what sits
+underneath: how the **canonical agent file** routes into the repo's knowledge base, and the minimum
+`docs/` a standard-tier repo carries. Lightweight-tier repos are exempt (same litmus as the docs
+split).
 
-The goal is agent-operability: an agent's working context is scarce, so the root doc must be a small,
+Throughout this file, "the map" means that canonical agent file — **`AGENTS.md` when the repo has
+one, otherwise `CLAUDE.md`** (`repo-docs.md` defines the two shapes). In Shape 2 the map is
+`AGENTS.md` and `CLAUDE.md` is a thin wrapper that imports it; every rule below then applies to
+`AGENTS.md`.
+
+The goal is agent-operability: an agent's working context is scarce, so the map must be a small,
 stable entry point that *routes* to depth, loaded lazily — never a manual that front-loads everything.
 
-## CLAUDE.md is a map, not a manual
+## The map is a map, not a manual
 
 - **Line budget: ~100 lines.** Over ~150 is an audit finding. A map that keeps growing is absorbing
-  content that belongs in a `docs/` file or a package doc — route to it instead.
+  content that belongs in a `docs/` file or a package doc — route to it instead. (Shape 2: the budget
+  is the map's — `AGENTS.md`; the `CLAUDE.md` wrapper is ~4 lines and doesn't count against it.)
 - **Hybrid loading — eager imports plus a lazy index.** Two tiers, chosen deliberately:
   - **Eager (`@import`)**: `@CONTRIBUTING.md` always (placement rule in `repo-docs.md`), plus **at
     most one** repo-specific doc that pays for its tokens on nearly every task — e.g. a fork-policy
     doc in a fork, a QA/verification catalog in a UI repo. Two eager imports is the ceiling; wanting
-    a third means one of them belongs in the index.
+    a third means one of them belongs in the index. **All imports live in `CLAUDE.md`** — in Shape 2
+    that's `@AGENTS.md` (the map itself, which doesn't count against the ceiling) plus
+    `@CONTRIBUTING.md` plus at most that one extra; `AGENTS.md` itself never imports.
   - **Lazy (the map index)**: everything else is a routing line — *"Full requirements:
     `docs/PRD.md`. Read it before structural changes."* — loaded only when the task needs it.
 - **Every file under `docs/` must be reachable from the map.** An unrouted doc is invisible to an
-  agent that starts from CLAUDE.md — it will re-derive (or contradict) what the doc already says.
+  agent that starts from the map — it will re-derive (or contradict) what the doc already says.
   One routing line per doc, or one line for a directory of same-shaped docs ("design history in
   `docs/design/`").
 - **What the map body owns**: a one-paragraph purpose, the invariants block (below), the authority
@@ -28,7 +37,8 @@ stable entry point that *routes* to depth, loaded lazily — never a manual that
   package docs, env-var references, schema listings, TODO lists — each of those is a `docs/` file or
   package doc the map routes to.
 
-Template: `../templates/CLAUDE.template.md` — a filled-shape skeleton of the above.
+Template: `../templates/CLAUDE.template.md` — a filled-shape skeleton of the above (in Shape 2, copy
+that body into `AGENTS.md` per the note at its top).
 
 ## Minimum docs/ (standard tier)
 
@@ -52,7 +62,7 @@ Template: `../templates/CLAUDE.template.md` — a filled-shape skeleton of the a
   is one README paragraph may skip the PRD. The escape hatch is for genuinely small repos — not
   for deferring the write-up in a repo that already has nontrivial behavior to specify.
 
-## Invariants (a named CLAUDE.md section)
+## Invariants (a named section in the map)
 
 A short numbered list — **"violations are bugs"** — of properties that must never regress, distinct
 from style/conventions: breaking one is a defect even if every test passes.
@@ -68,7 +78,7 @@ from style/conventions: breaking one is a defect even if every test passes.
 
 ## Authority boundary (repos that operate real systems)
 
-Infra-class repos (IaC, config management, GitOps manifests) add a named CLAUDE.md section — a
+Infra-class repos (IaC, config management, GitOps manifests) add a named section to the map — a
 table, not prose — declaring who may perform each class of operation, through what mechanism, and
 why:
 
@@ -118,4 +128,4 @@ Component-level depth lives **with the component**, routed from the map — neve
   says what it *is*; the spoke doc says how it works.
 - **Spoke docs update in the same PR as the component they describe.** State this rule in
   CONTRIBUTING's documentation section. It is what keeps the map from re-absorbing detail ("the
-  package doc is stale so I'll explain it in CLAUDE.md") and what keeps spokes trustworthy.
+  package doc is stale so I'll explain it in the map") and what keeps spokes trustworthy.
