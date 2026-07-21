@@ -128,4 +128,4 @@ Component-level depth lives **with the component**, routed from the map — neve
   says what it *is*; the spoke doc says how it works.
 - **Spoke docs update in the same PR as the component they describe.** State this rule in
   CONTRIBUTING's documentation section. It is what keeps the map from re-absorbing detail ("the
-  package doc is stale so I'll explain it in CLAUDE.md") and what keeps spokes trustworthy.
+  package doc is stale so I'll explain it in the map") and what keeps spokes trustworthy.

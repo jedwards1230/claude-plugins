@@ -330,9 +330,10 @@ Shape 2, otherwise `CLAUDE.md`), not the wrapper.
 - **Map size**: count the map's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 —
   when over, name the largest absorbable section in the notes. (Shape 2: the
   `CLAUDE.md` wrapper's own handful of lines never counts here.)
-- **Eager imports**: count `@`-import lines in `CLAUDE.md`. In Shape 2, `@AGENTS.md`
-  is the map itself and doesn't count against the ceiling; excluding it, three or
-  more → `⚠️` (Shape 1: three or more outright).
+- **Eager imports**: count `@`-import lines in `CLAUDE.md` — imports mechanically
+  live there in both shapes, so this is the one row read from the wrapper rather than
+  the map. In Shape 2, `@AGENTS.md` is the map itself and doesn't count against the
+  ceiling; excluding it, three or more → `⚠️` (Shape 1: three or more outright).
 - **Routing completeness**: list `docs/**/*.md`, grep the map for a reference to
   each (by path, or an explicit directory-level route). Unrouted files → `⚠️`,
   listed by name.
@@ -438,7 +439,7 @@ Shape: 1 (CLAUDE.md canonical) | 2 (AGENTS.md canonical, CLAUDE.md wrapper)
 | README.md exists | yes | ... | |
 | README has ## Contributing link | yes | ... | |
 | CONTRIBUTING.md exists | yes | ... | |
-| CLAUDE.md @imports (line(s) after H1) | @CONTRIBUTING.md (+ @AGENTS.md in Shape 2) | ... | |
+| CLAUDE.md @imports (line(s) after H1) | @CONTRIBUTING.md; Shape 2: @AGENTS.md then @CONTRIBUTING.md | ... | |
 | CLAUDE.md wrapper is thin (Shape 2) | yes | ... | ✅/⚠️/⏭️ |
 | AGENTS.md free of @imports (Shape 2) | yes | ... | ✅/⚠️/⏭️ |
 | Canonical agent file duplicates build/test/lint | no | ... | |
