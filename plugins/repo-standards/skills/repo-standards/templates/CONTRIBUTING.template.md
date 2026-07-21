@@ -3,20 +3,23 @@ CONTRIBUTING.md baseline — repo-standards plugin.
 
 HOW TO USE
 - Copy this to the repo root as CONTRIBUTING.md and fill every <ANGLE-BRACKET>
-  placeholder from the repo's OWN CLAUDE.md + CI workflows (ground truth — never
-  invent commands; copy them verbatim so they match CI exactly).
+  placeholder from the repo's OWN canonical agent file (AGENTS.md if present, else
+  CLAUDE.md) + CI workflows (ground truth — never invent commands; copy them
+  verbatim so they match CI exactly).
 - Keep a [conditional: ...] block only when its condition holds; delete it otherwise.
 - Pick exactly one Release variant and delete the others.
 - Delete this comment block before committing.
 
-RULES (see SKILL.md "Documentation files — README / CONTRIBUTING / CLAUDE.md")
+RULES (see references/repo-docs.md — README / CONTRIBUTING / AGENTS.md / CLAUDE.md)
 - This file is the SINGLE canonical home for build/test/lint + the PR/release process.
 - It states ONE set of rules for all contributors (human or agent). No "for AI agents"
   section, and no distinction between humans and agents anywhere.
 - It NEVER references CLAUDE.md. (CLAUDE.md @imports this file, not the reverse.)
-- CLAUDE.md must NOT duplicate the build/test/lint block — delete it there. CLAUDE.md's
-  `@CONTRIBUTING.md` line goes immediately after its H1 title (H1 stays first, NOT the
-  import) and is the single reference between the two files.
+- The canonical agent file must NOT duplicate the build/test/lint block — delete it there.
+- CLAUDE.md carries the import(s) immediately after its H1 title (H1 stays first, NOT the
+  import): `@CONTRIBUTING.md` alone, or `@AGENTS.md` + `@CONTRIBUTING.md` when the repo has
+  an AGENTS.md. That import is the single reference between the files. AGENTS.md never
+  @imports anything — it links here in plain markdown: [CONTRIBUTING.md](CONTRIBUTING.md).
 - README links here with a short `## Contributing` section.
 -->
 

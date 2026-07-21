@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "25.0.3"
+    "version": "25.0.4"
   },
   "plugins": [
     {
@@ -70,7 +70,7 @@
     {
       "name": "repo-standards",
       "source": "./plugins/repo-standards",
-      "description": "Preferred GitHub repository standards, audited/applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, and the README/CONTRIBUTING/CLAUDE.md doc split. Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
+      "description": "Preferred GitHub repository standards, audited/applied with `gh` — a repo-settings baseline (wiki/projects off, auto-delete merged branches, read-only workflow token, SHA-pinned actions, Dependabot security updates), three branch-ruleset classes, a Dependabot version-updates config, a lightweight tier for content/asset/config repos, the README/CONTRIBUTING/AGENTS.md/CLAUDE.md doc split (AGENTS.md canonical when present, CLAUDE.md a thin @import wrapper), and a knowledge-base standard (the agent map + docs/ minimum). Ships templates plus a read-only repo-standards-auditor agent for per-repo (fan-out) conformance audits."
     },
     {
       "name": "screenshotter",

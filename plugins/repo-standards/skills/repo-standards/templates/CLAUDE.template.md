@@ -1,8 +1,27 @@
+<!--
+This is the canonical agent file's shape (see references/repo-docs.md).
+
+- Shape 1 — no AGENTS.md: copy this verbatim to CLAUDE.md. Done.
+- Shape 2 — the repo has an AGENTS.md: AGENTS.md is canonical, so copy this BODY there
+  instead, retitled `# AGENTS.md`, with the @CONTRIBUTING.md import replaced by a plain
+  link ("Build, test, and lint commands live in [CONTRIBUTING.md](CONTRIBUTING.md).") —
+  @imports only work in CLAUDE.md. CLAUDE.md then becomes just:
+
+      # CLAUDE.md
+
+      @AGENTS.md
+      @CONTRIBUTING.md
+
+  Never point AGENTS.md back at CLAUDE.md; the wrapper direction is one-way.
+
+Delete this comment block before committing.
+-->
+
 # CLAUDE.md
 
 @CONTRIBUTING.md
 
-Guidance for Claude Code when working in this repository.
+Guidance for coding agents working in this repository.
 
 ## What this is
 

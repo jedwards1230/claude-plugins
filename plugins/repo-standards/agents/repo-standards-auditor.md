@@ -1,8 +1,8 @@
 ---
 name: repo-standards-auditor
 description: 'Read-only audit of a single GitHub repo against the repo-standards
-  skill baseline (Layer-1 settings, Dependabot, branch rulesets, README/CONTRIBUTING/CLAUDE.md
-  doc split, knowledge base — CLAUDE.md-as-map + docs/ minimum + staleness, and verification
+  skill baseline (Layer-1 settings, Dependabot, branch rulesets, README/CONTRIBUTING/AGENTS.md/CLAUDE.md
+  doc split, knowledge base — the agent map + docs/ minimum + staleness, and verification
   affordances). Reports conformance only — never edits files, changes repo settings,
   or opens PRs. Triggers: "audit repo standards", "check repo conformance", "how
   does <repo> score against our standards", "audit these repos against repo-standards",
@@ -115,7 +115,7 @@ you were passed, or your default `gh` org), or a local path. Resolve in this ord
 
 1. **Prefer a local clone** if one exists (e.g. under a `repos/<name>` checkout dir)
    for anything that requires reading files: `dependabot.yml`, manifests (`go.mod`,
-   `package.json`, etc.), `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`. Use
+   `package.json`, etc.), `README.md`, `CONTRIBUTING.md`, `CLAUDE.md`, `AGENTS.md`. Use
    `Read`/`Glob`/`Grep` against that path.
 2. **Always use `gh api` for GitHub-side state** regardless of whether a local
    clone exists — settings, Actions permissions, Dependabot security-fix status,
@@ -276,32 +276,47 @@ concern owned by the caller, not this agent. Instead:
   pass.
 - If there is no `main` ruleset at all, that is a clear gap.
 
-### 4. Docs split (README / CONTRIBUTING / CLAUDE.md)
+### 4. Docs split (README / CONTRIBUTING / AGENTS.md / CLAUDE.md)
 
 If the Tier check above classified the repo as lightweight, skip the per-row checks
 below and report the whole section as `⏭️ N/A (lightweight tier)` — the docs split is
 waived for lightweight repos (a README is still encouraged but not required to link
 CONTRIBUTING).
 
-Requires the local clone (or contents API fallback) to read file bodies:
+Requires the local clone (or contents API fallback) to read file bodies. **First
+determine the shape** (`references/repo-docs.md`): if a root `AGENTS.md` exists the
+repo is **Shape 2** and `AGENTS.md` is the canonical agent file; otherwise **Shape 1**
+and `CLAUDE.md` is. Report the shape in the notes — neither is a finding on its own.
 
 - `README.md` exists and contains a `## Contributing` heading/link.
 - `CONTRIBUTING.md` exists at repo root.
-- `CLAUDE.md` exists, and its second non-blank content line (immediately after
-  the H1 title line) is `@CONTRIBUTING.md` — the H1 must stay first.
-- No document (`README.md`, `CONTRIBUTING.md`, anything under `docs/**`) contains
-  a pointer/reference to `CLAUDE.md` (grep case-sensitively for the literal string
-  `CLAUDE.md`). A bare filename appearing in a changelog or files-touched list is
-  not a violation — only a "see CLAUDE.md for X"-style pointer is.
-- If `CLAUDE.md` restates build/test/lint commands instead of relying on the
-  `@CONTRIBUTING.md` import, note it as a duplication finding (the standard says
+- `CLAUDE.md` exists and carries the import(s) starting on its second non-blank
+  content line (immediately after the H1 title line — the H1 must stay first):
+  - Shape 1: `@CONTRIBUTING.md`.
+  - Shape 2: `@AGENTS.md` then `@CONTRIBUTING.md`. A Shape-2 repo whose `CLAUDE.md`
+    imports CONTRIBUTING but *not* `AGENTS.md` is a `⚠️` — Claude Code never reads
+    `AGENTS.md` on its own, so the canonical instructions are silently unloaded.
+- **Shape 2 only — wrapper is thin**: `CLAUDE.md` holds nothing beyond its H1, the
+  imports, and optionally genuinely Claude-Code-specific instructions. General
+  guidance still sitting in the wrapper (architecture, conventions, run/ops commands)
+  belongs in `AGENTS.md` → `⚠️`.
+- **Shape 2 only — `AGENTS.md` contains no `@`-import lines** (it must be portable
+  plain markdown; a pointer to CONTRIBUTING should be an ordinary markdown link) → an
+  `@import` there is `⚠️`.
+- No document (`README.md`, `CONTRIBUTING.md`, `AGENTS.md`, anything under `docs/**`)
+  contains a pointer/reference to `CLAUDE.md` (grep case-sensitively for the literal
+  string `CLAUDE.md`). A bare filename appearing in a changelog or files-touched list
+  is not a violation — only a "see CLAUDE.md for X"-style pointer is. The wrapper
+  direction is one-way, so an `AGENTS.md` → `CLAUDE.md` reference is always a finding.
+- If the **canonical agent file** restates build/test/lint commands instead of relying
+  on the `@CONTRIBUTING.md` import, note it as a duplication finding (the standard says
   delete that block, not just add the import).
 
 If no local clone is available and the contents API also can't be reached for
 these files, mark this whole dimension `❓ unknown` rather than partially
 guessing from whatever fetched.
 
-### 5. Knowledge base (CLAUDE.md as a map + docs/ minimum)
+### 5. Knowledge base (the agent map + docs/ minimum)
 
 The standard's definitions live in `references/knowledge-base.md`, which ships with
 this skill — **Read it before scoring** rather than re-deriving the rules here, and
@@ -309,10 +324,16 @@ audit only what it defines. This section owns just the scoring procedure. Skip f
 lightweight tier (`⏭️ N/A (lightweight tier)` for the whole section). The staleness
 row needs a local clone with history; the others degrade to the contents API.
 
-- **Map size**: count CLAUDE.md's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 —
-  when over, name the largest absorbable section in the notes.
-- **Eager imports**: count `@`-import lines. Three or more → `⚠️`.
-- **Routing completeness**: list `docs/**/*.md`, grep CLAUDE.md for a reference to
+Score **the map** — the canonical agent file identified in Dimension 4 (`AGENTS.md` in
+Shape 2, otherwise `CLAUDE.md`), not the wrapper.
+
+- **Map size**: count the map's lines. `✅` ≤ ~100, `ℹ️` 100–150, `⚠️` > 150 —
+  when over, name the largest absorbable section in the notes. (Shape 2: the
+  `CLAUDE.md` wrapper's own handful of lines never counts here.)
+- **Eager imports**: count `@`-import lines in `CLAUDE.md`. In Shape 2, `@AGENTS.md`
+  is the map itself and doesn't count against the ceiling; excluding it, three or
+  more → `⚠️` (Shape 1: three or more outright).
+- **Routing completeness**: list `docs/**/*.md`, grep the map for a reference to
   each (by path, or an explicit directory-level route). Unrouted files → `⚠️`,
   listed by name.
 - **Requirements SoT**: score against the reference's PRD-or-CONTRACT and
@@ -339,14 +360,14 @@ row needs a local clone with history; the others degrade to the contents API.
 Definitions again in `references/knowledge-base.md` (the enforcing-mechanism rules).
 Skip for lightweight tier. Requires file reads (clone or contents API). Scoring:
 
-- **Bootable/demo path**: CLAUDE.md or `docs/TESTING.md` documents a
-  no-external-deps local run path (demo/mock/fixture mode, compose file,
+- **Bootable/demo path**: the map (canonical agent file) or `docs/TESTING.md`
+  documents a no-external-deps local run path (demo/mock/fixture mode, compose file,
   check-mode) → `✅`; nothing documented → `⚠️`; genuinely impossible (only exists
   against a live third-party system) → `⏭️` with the reason.
 - **CONTRIBUTING ↔ CI parity**: diff CONTRIBUTING's build/test/lint commands
   against what `.github/workflows/*` actually runs. A documented-required gate
   absent from CI, or a CI gate CONTRIBUTING omits → `⚠️`, naming the command.
-- **Enforcement claims are real**: grep README/CONTRIBUTING/CLAUDE.md/`docs/**`
+- **Enforcement claims are real**: grep README/CONTRIBUTING/the map/`docs/**`
   for claimed mechanisms ("a pre-commit hook blocks…", "CI
   enforces/fails/validates…", "blocked by…"); verify each names something that
   exists (a `.pre-commit-config.yaml` entry, a workflow step, a linter config).
@@ -410,21 +431,27 @@ Other rulesets present: <name(s), or "none">
 Notes/mismatches: <e.g. public repo on a no-PR ruleset — flag only if obvious>
 
 ## 4. Docs Split
+Shape: 1 (CLAUDE.md canonical) | 2 (AGENTS.md canonical, CLAUDE.md wrapper)
+
 | Dimension | Standard | Observed | Status |
 |---|---|---|---|
 | README.md exists | yes | ... | |
 | README has ## Contributing link | yes | ... | |
 | CONTRIBUTING.md exists | yes | ... | |
-| CLAUDE.md @imports CONTRIBUTING (line after H1) | yes | ... | |
-| CLAUDE.md duplicates build/test/lint | no | ... | |
+| CLAUDE.md @imports (line(s) after H1) | @CONTRIBUTING.md (+ @AGENTS.md in Shape 2) | ... | |
+| CLAUDE.md wrapper is thin (Shape 2) | yes | ... | ✅/⚠️/⏭️ |
+| AGENTS.md free of @imports (Shape 2) | yes | ... | ✅/⚠️/⏭️ |
+| Canonical agent file duplicates build/test/lint | no | ... | |
 | Any doc points at CLAUDE.md | no | ... | |
 
 ## 5. Knowledge Base
+Map: AGENTS.md | CLAUDE.md
+
 | Dimension | Standard | Observed | Status |
 |---|---|---|---|
-| CLAUDE.md line count | ≤ ~100 | ... | ✅/ℹ️/⚠️ |
-| Eager @imports | CONTRIBUTING + ≤1 | ... | |
-| docs/ files unrouted from CLAUDE.md | none | <list or none> | |
+| Map line count | ≤ ~100 | ... | ✅/ℹ️/⚠️ |
+| Eager @imports | CONTRIBUTING + ≤1 (excl. @AGENTS.md) | ... | |
+| docs/ files unrouted from the map | none | <list or none> | |
 | Requirements SoT (PRD or CONTRACT) in-repo | exactly one | ... | |
 | docs/TESTING.md | yes (or CONTRIBUTING covers) | ... | |
 | Design docs behind code churn | none > ~30 commits | <doc: N commits, or none> | |
@@ -457,8 +484,9 @@ on which class the repo is meant to be).
 4. Run the Dimension 3 reads (`rulesets` list, then the `main` ruleset's full body);
    if it requires any status checks, also read the default branch HEAD's check-runs +
    statuses and cross-check each required `context` against them.
-5. Run the Dimension 4 reads (README/CONTRIBUTING/CLAUDE.md content + cross-doc
-   grep for `CLAUDE.md` references).
+5. Run the Dimension 4 reads (README/CONTRIBUTING/CLAUDE.md/`AGENTS.md` content +
+   cross-doc grep for `CLAUDE.md` references). Settle the shape here — Dimensions 5
+   and 6 score the canonical agent file it identifies.
 6. Run the Dimension 5 reads (line/import counts, docs/ routing grep, SoT check,
    staleness) and Dimension 6 reads (demo-path grep, CONTRIBUTING↔CI diff,
    enforcement-claim verification).
