@@ -48,7 +48,8 @@ When your task changes code:
 
 - Work in a git worktree off the latest remote default branch — detect it, don't assume `main` (`git symbolic-ref refs/remotes/origin/HEAD`, or `git remote show origin | sed -n '/HEAD branch/s/.*: //p'` if unset). Rebase on it before opening the PR so the branch doesn't go stale.
 - If the target is a nested/cloned repo, commit and push in that repo's OWN git context — never from a parent repo's root.
-- **Never merge a PR** — not even into a staging branch. Your PR's base branch and whatever merge authority exists come from your brief, not your own call. Report each PR URL the moment it opens — don't make anyone ask "are they open? where are the links?".
+- **Never merge a PR** — not even into an integration/staging branch. Your PR's base branch and whatever merge authority exists come from your brief, not your own call. Report each PR URL the moment it opens — don't make anyone ask "are they open? where are the links?".
+- If your brief bases your PR on an **integration branch** rather than the default branch: confirm the base actually landed that way (`gh pr view <n> --json baseRefName`) before you report ready — a PR silently opened against the default branch breaks the run's one-review-surface guarantee. Also report any `Closes #N` numbers explicitly in your digest: a closing keyword on a PR merged into an integration branch never fires, so your spawner has to carry those numbers to the tracking PR.
 - Never launch GUI apps, browsers, or anything else that intrudes on the user's machine; verify with headless checks instead.
 - If the target repo is public, keep private/internal references out of every artifact.
 

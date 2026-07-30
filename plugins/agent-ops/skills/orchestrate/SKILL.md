@@ -11,6 +11,11 @@ description: >-
   cross-talk. Triggers: "orchestrate this", "orchestrate
   these tasks", "fan out agents", "use subagents", "spawn agents in parallel",
   "delegate this", "run agents on this", "coordinate subagents", "nest agents".
+  Also carries an OPT-IN integration-branch topology — many agent PRs built up
+  into one branch so the human reviews and merges exactly one thing — requested
+  with: "use an integration branch", "integration branch", "use a staging
+  branch", "bundle these into one PR", "one PR at the end", "I'll review one PR",
+  "merge them into one branch for review".
 
 
   <example>
@@ -46,6 +51,30 @@ description: >-
   <commentary>
 
   N tasks → N owners at depth 1, each managing its own subtree independently.
+
+  </commentary>
+
+  </example>
+
+
+  <example>
+
+  Context: The user explicitly asks for the integration-branch topology.
+
+  user: "Orchestrate these six issues, but use an integration branch — I only want
+  to review one PR."
+
+  assistant: "Integration-branch flow, then. I'll cut `integration/<scope>` off the
+  default branch, land the shared schema change first, then fan out owners on
+  disjoint file scopes — each PR based on the integration branch, not the default
+  branch. I merge those as they go green; you review and merge the one tracking PR
+  at the end."
+
+  <commentary>
+
+  Opt-in topology — I use it because the user asked, not because the work looked
+  big. Without that ask, each task would get its own PR straight to the default
+  branch.
 
   </commentary>
 
@@ -254,67 +283,149 @@ relaying a worker's "done" for work that never landed. So:
   Treat a failure notification as an immediate resume; don't leave a dead owner
   waiting on the user to notice.
 
-## Staging-branch flow: one review surface for a multi-PR build
+## Integration-branch flow (opt-in): one review surface for a multi-PR build
 
-A topology choice **orthogonal** to one-owner-vs-N-owners: reach for it when the
-work is too big for one PR and you want the human to review and merge exactly
-**one** thing at the end. The agents build up a staging branch — each owning its
-own CI-to-green loop and merging into it as it's ready — while you keep that
-branch healthy and the human reviews once at promotion. (Milestones and PRDs are
-just one instantiation; the shape is structural, not tied to them.)
+**Off by default — the user asks for it.** Requested with "use an integration
+branch", "use a staging branch", "bundle these into one PR", "one PR at the end",
+"I'll review one PR". If the work looks too big for one PR but the user *didn't*
+ask, **suggest it and let them choose** — don't assume it. Absent the ask, the
+default stands: one PR per task, based on the default branch.
 
-- **Topology.** Cut a staging branch off the default branch. Feature branches
-  take the **hyphen** form `<staging>-<topic>` — never `<staging>/<topic>`: git
-  can't hold both a ref named `<staging>` and one nested under `<staging>/`
-  (directory/file conflict), so the slash form is impossible while the staging
-  branch exists. Every feature PR targets **base = the staging branch**, never
-  the default branch.
-- **One review surface.** A **draft** tracking PR (staging → default) opens on
-  the first commit; its body is a live checklist/changelog kept current as
-  feature PRs land. It stays draft until promotion — which is also the review
-  throttle: an un-suppressed growing staging diff triggered 13–16 full
-  auto-review passes per repo.
-- **Two-tier merge authority.**
-  - *Feature PRs into staging* — merged autonomously by you (the orchestrator)
-    under a **scoped standing merge grant** from the user, gated on: (a) CI
-    green, (b) all review-bot threads resolved, (c) the owner's explicit
-    **verified-ready** hand-off — not CI-green alone (CI-green merges have
-    shipped goroutine/fd leaks `go test -race` doesn't catch), and (d) your own
-    independent check (base branch, mergeable state, file scope, secret scan).
-  - *Staging → default* — **always merged by the human.** The grant is per-run
-    and never carries over; renew it explicitly.
+*Integration branch* and *staging branch* are the same thing; the user's wording
+sets which name to use for the run.
+
+A topology choice **orthogonal** to one-owner-vs-N-owners: the agents build up one
+branch — each owning its own CI-to-green loop and merging into it as it's ready —
+while you keep that branch healthy and the human reviews and merges exactly
+**one** thing at the end. (Milestones and PRDs are just one instantiation; the
+shape is structural, not tied to them.)
+
+### Pre-flight, before spawning anything
+
+1. **Cut the integration branch** off the default branch and push it.
+2. **Fix the CI trigger.** `on: pull_request: branches: [main]` **silently skips
+   stacked PRs** whose base is the integration branch — they report a meaningless
+   green. Add the integration base, then confirm a stacked PR actually shows
+   build/lint/test. The review bot has its own trigger and fires regardless, so
+   its presence proves nothing. **Don't retire the fix until every stacked PR has
+   landed** — verify with `gh pr list --base <integration>`, don't assume.
+3. **Confirm nothing auto-deploys or auto-releases off the branch** — CD that
+   tracks a branch pattern, or a release workflow that isn't default-branch-only.
+4. **Land the shared prerequisite first**, as its own PR, before any owner
+   branches: dependency bumps, schema/migration, generated types, config scaffold.
+   Skip this and every owner conflicts in the same lockfile or schema file.
+5. **Write the brief to disk and name who holds the merge grant** — "the
+   orchestrator only", explicitly. An owner reading a bare "never merge" can't
+   tell whether the grant applies to it, and will ask or stall.
+
+### Topology
+
+- Feature branches take the **hyphen** form `<integration>-<topic>` — never
+  `<integration>/<topic>`: git can't hold both a ref named `<integration>` and one
+  nested under `<integration>/` (directory/file conflict), so the slash form is
+  impossible while the integration branch exists. A `<prefix>/<name>` integration
+  branch (e.g. `integration/<scope>`) avoids the clash and lets features keep
+  conventional `feat/<topic>` names.
+- Every feature PR targets **base = the integration branch**, never the default
+  branch. Owners verify their own base (`gh pr view --json baseRefName`) before
+  reporting ready.
+- **Split owners by disjoint file scope, not by issue count.** Five issues where
+  four of them edit one config file is a *two*-owner job, not five — fanning out
+  per-issue there guarantees collisions. Assign each owner an explicit path glob
+  and check the delivered diff against it.
+
+### One review surface
+
+A **draft** tracking PR (integration → default) opens on the first commit; its
+body is a live checklist/changelog kept current as feature PRs land. It stays
+draft until promotion — which is also the review throttle: an un-suppressed
+growing integration diff has triggered 13–16 full auto-review passes per repo.
+
+**Re-list every `Closes #N` on the tracking PR body.** A closing keyword in a
+feature PR merged into the integration branch **never fires** — the issue stays
+open because the merge didn't land on the default branch. Only the tracking PR's
+own body closes anything. Corollary: in a repo run this way, an open issue is not
+evidence of unfinished work.
+
+### Two-tier merge authority
+
+- *Feature PRs into the integration branch* — merged autonomously by you (the
+  orchestrator) under a **scoped standing merge grant** from the user, gated on:
+  - **the review check reaching a terminal state** — *not* a thread count. "0 of 0
+    threads" reads identically whether review found nothing or **hadn't started
+    yet**; treat "no threads" as unknown until the check concludes.
+  - all review threads then read and resolved.
+  - CI green — necessary, not sufficient (CI-green merges have shipped
+    goroutine/fd leaks `go test -race` doesn't catch).
+  - the owner's explicit **verified-ready** hand-off.
+  - your own independent check: base branch, mergeable state, delivered file scope
+    vs assigned scope, secret scan.
+- **Merging a PR cancels its in-flight review.** Merging early doesn't merely risk
+  missing findings — it destroys them, leaving that PR with zero review coverage
+  in the final diff.
+- *Integration → default* — **always merged by the human.** The grant is per-run
+  and never carries over; renew it explicitly.
+
+### Running the branch
+
 - **Agents own the CI loop.** Each owner arms ci-watch on its PR, fixes red CI,
   answers and resolves review-bot threads, and flips its PR draft→ready itself.
   You merge; you don't babysit the loop.
-- **Conflict handling is its own role.** After each merge into staging, check
-  the remaining open PRs for conflicts/staleness and spawn a **short-lived
-  rebase agent per conflicted PR** — a mechanical rebase doesn't go back to the
-  feature owner. Route only *semantic* conflicts to the still-idle owner (via
-  SendMessage) — it holds the context.
-- **Live-test loop.** Bugs found in manual/live testing route back as new tasks
-  to the **same idle owner** via SendMessage (repro + diagnosis direction +
+- **Conflict handling is its own role.** After each merge, check the remaining
+  open PRs for conflicts/staleness and spawn a **short-lived rebase agent per
+  conflicted PR** — a mechanical rebase doesn't go back to the feature owner.
+  Route only *semantic* conflicts to the still-idle owner (via SendMessage) — it
+  holds the context.
+- **Live-test loop.** Bugs found in manual/live testing route back as new tasks to
+  the **same idle owner** via SendMessage (repro + diagnosis direction +
   failing-test-first), not fresh spawns — the owner still holds the context.
-- **Cross-repo dependents.** When repo B depends on repo A's staging work (app ⇢
-  SDK), B re-pins after each A merge — and you **verify the pin actually moved on
-  the remote branch**, never relaying a subagent's "done".
-- **Promotion.** Adversarial review sweep over the *full* staging diff → fix wave
-  → human merges the tracking PR → auto-delete retires the staging branch.
+- **Cross-repo dependents.** One integration branch **per repo** — a single PR
+  can't span repos. Give them the same name where possible. Have the dependent
+  build against the last *release* of its dependency rather than an in-flight
+  branch so it's never blocked; when it must re-pin, **verify the pin actually
+  moved on the remote**, never relaying a subagent's "done".
+- **Promotion.** Adversarial review sweep over the *full* integration diff → fix
+  wave → human merges the tracking PR → auto-delete retires the branch.
 
-### Staging-flow footguns (each hit for real)
+### Worked example
 
-- `on: pull_request: branches: [main]` **silently skips stacked PRs** whose base
-  is the staging branch — CI must also trigger on the staging base.
-- Squash-merging the tracking PR **deletes the staging branch**, orphaning any
+Six issues, one repo, user asked for an integration branch:
+
+1. Cut `integration/api-v2` off `main`, push. Add it to the CI `pull_request`
+   bases; open a throwaway stacked PR to confirm build/lint/test actually run.
+2. Land `integration/api-v2` ← one prerequisite PR adding the shared config
+   schema all six features read.
+3. Write `docs/projects/api-v2-plan.md`: the six slices, an explicit path glob per
+   slice, the shared contract at their boundaries, and "merge grant: orchestrator
+   only; the human merges the tracking PR."
+4. Open the draft tracking PR `integration/api-v2 → main`, body = the six-item
+   checklist.
+5. Spawn owners **in one message** — three, not six, because slices 2–4 all edit
+   the same router file. Each gets the brief path plus its slice delta.
+6. As each PR goes green and its review concludes: read threads, verify base +
+   scope, merge. Update the checklist. Spawn a rebase agent for whatever went
+   stale.
+7. Route live-test bugs back to the owning agent; they land inside the same
+   integration PR rather than as follow-ups.
+8. At promotion: adversarial sweep over the full diff, fix wave, re-list all six
+   `Closes #N` in the tracking PR body, mark ready, hand to the human.
+
+### Footguns (each hit for real)
+
+- Squash-merging the tracking PR **deletes the integration branch**, orphaning any
   dependent repo's pseudo-version pin — dependents must re-pin to a real release
   tag at promotion.
-- Never commit or merge from a live owner's worktree — a sub-worker's "done" ≠
-  the owner is done; torn snapshots pass local gates and fail CI.
+- Never commit or merge from a live owner's worktree — a sub-worker's "done" ≠ the
+  owner is done; torn snapshots pass local gates and fail CI.
+- Editing the brief file *after* spawning doesn't reach the owners already running.
+  Re-send changed constraints by SendMessage.
 
 ### Optional: a per-run tracking artifact
 
-The lead can instantiate a small checklist per run — staging branch name,
-tracking PR numbers, and the grant's scope + expiry — so the run's state and the
-bounds of the merge grant are written down rather than reconstructed from memory.
+The lead can instantiate a small checklist per run — integration branch name,
+tracking PR numbers, per-owner path scopes, and the grant's scope + expiry — so
+the run's state and the bounds of the merge grant are written down rather than
+reconstructed from memory.
 
 ## When to reach for a different tool
 
@@ -336,7 +447,9 @@ bounds of the merge grant are written down rather than reconstructed from memory
 | One task                   | One owner agent (depth 1) that orchestrates its own subagents.     |
 | Many tasks                 | One owner per task, spawned in parallel; each owns its subtree.    |
 | Parallel owners            | Disjoint write scopes; shared contract at boundaries; one global check before fanout PRs. |
-| Too big for one PR         | Staging-branch flow: feature PRs (`<staging>-<topic>`) into a staging branch; you merge those under a scoped grant, the human merges staging→default once. |
+| User asked for an integration branch | Integration-branch flow (opt-in): pre-flight the CI trigger, land the shared prerequisite, feature PRs based on the integration branch; you merge those under a scoped grant, the human merges integration→default once. |
+| Too big for one PR, user didn't ask | **Suggest** the integration branch; don't assume it. Default is one PR per task, based on the default branch. |
+| Owner split under integration flow | By disjoint file scope, not issue count — re-list every `Closes #N` on the tracking PR or nothing closes. |
 | Owner type                 | Prefer the plugin's `owner` agent; unrestricted types (`general-purpose` / `claude` / `fork`) also work. |
 | Owner model                | Pick via `--model <name>` or prose ("use an opus agent"); sets the owner spawned, not the skill's own `model:`. |
 | Worker-only types          | `Explore`, `Plan`, `*-developer` (no Agent tool).                  |
