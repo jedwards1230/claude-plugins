@@ -31,11 +31,20 @@ stable entry point that *routes* to depth, loaded lazily — never a manual that
   agent that starts from the map — it will re-derive (or contradict) what the doc already says.
   One routing line per doc, or one line for a directory of same-shaped docs ("design history in
   `docs/design/`").
-- **What the map body owns**: a one-paragraph purpose, the invariants block (below), the authority
-  boundary (below, infra repos), the routing index, and codebase-unique run/ops commands (per
-  `repo-docs.md`). **What it must not absorb**: package-by-package detail tables that restate
-  package docs, env-var references, schema listings, TODO lists — each of those is a `docs/` file or
-  package doc the map routes to.
+- **What the map body owns**: a one-paragraph purpose, the **gotchas block** (below), the invariants
+  block (below), the authority boundary (below, infra repos), the routing index, and codebase-unique
+  run/ops commands (per `repo-docs.md`). **What it must not absorb**: package-by-package detail
+  tables that restate package docs, env-var references, schema listings, TODO lists — each of those
+  is a `docs/` file or package doc the map routes to.
+- **Spend the budget on what the code can't say.** The single best test for a map line: *could an
+  agent reconstruct this by reading the repo?* Layout, tech stack, build commands, and API
+  signatures all fail that test — the code already says them, and a stale copy in the map is worse
+  than no copy. Gotchas, invariants, and design rationale pass it. Most of the ~100 lines should go
+  to those, not to orientation.
+- **Route exclusively, not just completely.** Content that lives in a routed `docs/` file must not
+  also be inlined in the map. Duplication is paid for on every task *and* drifts: the two copies
+  diverge silently, and a back-pointer ("full rationale in X") outlives the move that made it false.
+  One home per fact; the other place gets a route.
 
 Template: `../templates/CLAUDE.template.md` — a filled-shape skeleton of the above (in Shape 2, copy
 that body into `AGENTS.md` per the note at its top).
@@ -61,6 +70,59 @@ that body into `AGENTS.md` per the note at its top).
   verification may skip `docs/TESTING.md` until it outgrows that; a thin adapter whose "product"
   is one README paragraph may skip the PRD. The escape hatch is for genuinely small repos — not
   for deferring the write-up in a repo that already has nontrivial behavior to specify.
+- **Prefer executable ground truth over prose that restates it.** Where a requirement is already
+  enforced by an artifact — a schema file, a golden/fixture file, a named test, a JSON Schema, an
+  exit-code table under test — the doc should *cite that artifact* rather than paraphrase its
+  content. A CONTRACT clause reading "wire format per `schema/event.json`, enforced by
+  `TestEventRoundTrip`" cannot drift from the code; the same clause spelled out in prose can, and
+  eventually will. Same for `TESTING.md`: name the real test files and CI job names instead of
+  describing layers abstractly. Prose earns its place where there is no artifact — intent,
+  rationale, non-goals, what was deliberately rejected.
+
+## What belongs in the repo at all
+
+Agents now keep their own machine-local memory, and many orgs also run a shared knowledge base.
+Without a stated boundary the three destinations compete: durable gotchas get captured in an
+agent's local memory where no teammate, CI run, or second machine will ever see them, while
+session-specific ephemera gets committed into the map. Declare the split once, in the map:
+
+| Destination | Holds | Test |
+|---|---|---|
+| Agent-local memory | machine-specific facts — tool paths, local env quirks, personal workflow | would this be wrong on a teammate's machine? |
+| **This repo** (map + `docs/`) | anything a contributor or agent needs *to work in this repo* — gotchas, invariants, requirements, plans | would someone cloning only this repo need it? |
+| Shared knowledge base *(if the org has one)* | knowledge that outlives any single repo and is read without cloning it — cross-repo architecture, system/service documentation, org practices | is it still true when this repo is archived? |
+
+Two rules that keep it stable:
+
+- **Durable + shared + reviewable ⇒ the repo.** If it should survive a laptop reimage, be visible
+  in review, and be versioned alongside the code that makes it true, it is repo content — not
+  agent memory. Agent memory is a cache, never the only copy of something load-bearing.
+- **Route by lifecycle too, not just scope.** In-progress material — plans, roadmaps, phased
+  work — belongs in the repo (`docs/`), not in the reference layer of a shared knowledge base,
+  which should read as current state. Reference pages that accumulate "Phase 2 (planned)" go
+  stale invisibly.
+
+State the boundary in a couple of lines and keep it vendor-neutral; a repo whose org has no
+shared knowledge base simply collapses the third row into the second.
+
+## Gotchas (a named section in the map)
+
+The highest-value content in the map, and usually the largest share of its budget. A gotcha is
+something the codebase actively teaches you *wrong*: the safe-looking call with a surprising
+side effect, the config that is silently ignored, the command that exits 0 having done nothing,
+the second place a value must be changed.
+
+- **The test is counterfactual**: would a competent agent, reading only the code, get this wrong
+  or waste a cycle discovering it? If the code already makes it obvious, it is not a gotcha.
+- **State the trap, not just the rule.** "X looks safe but does Y" beats "be careful with X" —
+  the failure mode is what makes it checkable and memorable.
+- **Cite the scar where there is one.** A one-line "this cost us N hours / shipped a bad merge"
+  is what stops a future reader from re-litigating the rule and deleting it.
+- Prefer gotchas that generalize over one-off bug notes; a bug that is fixed and regression-tested
+  belongs in the test, not the map.
+
+Sources worth mining: incident write-ups, review comments that had to be made twice, and any
+place a contributor's first instinct was wrong.
 
 ## Invariants (a named section in the map)
 
@@ -124,8 +186,13 @@ Component-level depth lives **with the component**, routed from the map — neve
 
 - **Go**: a `doc.go` package comment per nontrivial package (renders on pkg.go.dev, greppable,
   adjacent to the code). **Other stacks**: a `README.md` per role/module/package directory.
-- The map's Layout section carries **one line per component** plus "see its package doc" — the line
-  says what it *is*; the spoke doc says how it works.
+- The map's Layout section carries a line only for components whose purpose or relationship is
+  **not** evident from the directory name — plus "see its package doc". The line says what it *is*;
+  the spoke doc says how it works. **A complete component listing is an anti-pattern**: for a
+  conventionally-named tree it restates `ls`, costs tokens on every task, and silently goes stale
+  as directories are added. Skip the obvious ones; spend the lines on the component whose name
+  misleads, the one that looks optional but is load-bearing, and the coupling between two that a
+  reader would not guess. A repo whose layout is entirely conventional needs no Layout section.
 - **Spoke docs update in the same PR as the component they describe.** State this rule in
   CONTRIBUTING's documentation section. It is what keeps the map from re-absorbing detail ("the
   package doc is stale so I'll explain it in the map") and what keeps spokes trustworthy.

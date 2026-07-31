@@ -35,6 +35,18 @@ references/knowledge-base.md -->. Read it before structural changes.
      from this map. At most ONE extra @import above (beyond CONTRIBUTING) — and only for a
      doc that pays for its tokens on nearly every task. -->
 
+## Gotchas
+
+<!-- The highest-value section here — usually the biggest share of the line budget. Each entry
+     is something the code teaches you WRONG: a safe-looking call with a surprising side effect,
+     a config that's silently ignored, a command that exits 0 having done nothing, a value that
+     must change in two places. Test: would an agent reading only the code get this wrong?
+     If the code makes it obvious, it doesn't belong here. -->
+
+- **<the trap, stated as what looks true>**: <what actually happens, and what to do instead.
+  Add a one-line scar — "this shipped a bad merge" — where there is one; it's what stops a
+  future reader from deleting the rule.>
+
 ## Architecture invariants (violations are bugs)
 
 1. **<invariant name>**: <a property a reviewer can check against a diff — layering,
@@ -66,6 +78,11 @@ and arrive via the @import; do not restate them here>
 
 ## Layout
 
-- `<dir>/` — <one line: what it is> — see its package doc.
-<!-- One line per component. Depth lives in the component's doc.go / README (the spoke),
+<!-- OPTIONAL — delete this section entirely if the tree is conventionally named. Do NOT list
+     every directory: that restates `ls`, costs tokens every task, and goes stale as dirs are
+     added. Include a line only where the name doesn't already tell you: the component whose
+     name misleads, the one that looks optional but is load-bearing, or a coupling between two
+     that a reader wouldn't guess. Depth lives in the component's doc.go / README (the spoke),
      updated in the same PR as the component. -->
+
+- `<dir>/` — <what's NOT obvious from the name> — see its package doc.

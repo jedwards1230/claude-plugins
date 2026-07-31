@@ -337,6 +337,23 @@ Shape 2, otherwise `CLAUDE.md`), not the wrapper.
 - **Routing completeness**: list `docs/**/*.md`, grep the map for a reference to
   each (by path, or an explicit directory-level route). Unrouted files → `⚠️`,
   listed by name.
+- **Routing exclusivity**: for each routed `docs/` file, check the map does not
+  also inline that file's content. Cheap signal: a table, code block, or heading
+  present in both, or a back-pointer in the doc ("full rationale in <the map>")
+  pointing at content the map no longer holds. Duplicated content → `⚠️`, naming
+  both locations — it is paid for every task and the copies drift apart silently.
+- **Gotchas section**: present and non-trivial → `✅`; absent → `⚠️`. This is the
+  highest-value content in the map, so score its *share* too: if the map is mostly
+  layout/stack/build detail with no gotchas block, say so in the notes and name
+  the derivable sections that should give up their lines. Judge quality lightly —
+  entries stating a trap ("X looks safe but does Y") count; a heading with generic
+  advice ("be careful with the cache") does not.
+- **Derivable content**: sample the map for sections an agent could reconstruct
+  from the repo — a full directory listing, a dependency/tech-stack list already
+  in the package manifest, build/test/lint commands (which belong in CONTRIBUTING
+  and arrive via the import), API signatures or schemas copied from source.
+  Present → `ℹ️`, naming the sections and their approximate line counts. A
+  complete component listing under a Layout heading is the most common instance.
 - **Requirements SoT**: score against the reference's PRD-or-CONTRACT and
   in-repo rules — `⚠️` if the routed SoT lives outside the repo; `ℹ️` if both docs
   exist (note which claims authority) or if the small-repo escape hatch plausibly
