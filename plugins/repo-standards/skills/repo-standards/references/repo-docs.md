@@ -9,7 +9,7 @@ and hub-and-spoke package docs.)
 |------|----------------|------|
 | `README.md` | users / consumers | what it is, install/quickstart/usage, badges, license, a short `## Contributing` link |
 | `CONTRIBUTING.md` | anyone contributing (human **or** agent) | prerequisites, **build/test/lint**, before-you-open-a-PR, branching/commits, PR flow, releases, doc upkeep |
-| `AGENTS.md` *(optional)* | any coding agent, any vendor | architecture, module map, conventions, gotchas, and only **codebase-unique** commands (run/serve, deploy/musl, single-package test) — **canonical when present** |
+| `AGENTS.md` *(optional)* | any coding agent, any vendor | **gotchas and invariants first**, design rationale, non-obvious layout, conventions that differ from tool defaults, and only **codebase-unique** commands (run/serve, deploy/musl, single-package test) — **canonical when present** |
 | `CLAUDE.md` | Claude Code | **either** that same canonical content (no `AGENTS.md`) **or** a thin wrapper importing it (when `AGENTS.md` exists) |
 
 Exactly one file is the **canonical agent file** — `AGENTS.md` if the repo has one, otherwise

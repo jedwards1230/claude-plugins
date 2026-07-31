@@ -183,12 +183,18 @@ before adding or auditing a repo's docs.
 Below the root docs sits the knowledge-base standard, which applies to whichever file is canonical
 above (`AGENTS.md` if present, else `CLAUDE.md` — "the map"): the map is a **map, not a manual**
 (~100-line budget; `@CONTRIBUTING.md` always eager-imported plus at most one more high-leverage
-import; everything else routed lazily; every `docs/` file reachable from the map), standard-tier
-repos carry a minimum `docs/` (`PRD.md` **or** `CONTRACT.md` as the in-repo requirements source of
-truth, plus `TESTING.md`), the map carries a numbered **invariants** section ("violations are
-bugs"), infra repos add an **authority-boundary** table (gated-pipeline / drift-report / GitOps
-archetypes), and component depth lives in **hub-and-spoke** package docs updated in the same PR.
-Lightweight-tier repos are exempt.
+import; everything else routed lazily; every `docs/` file reachable from the map, and **routed
+exclusively** — nothing inlined in the map that also lives in a routed doc). Spend the budget on
+what the code cannot say: the map carries a **gotchas** section (the highest-value content — traps
+the codebase teaches you wrong) and a numbered **invariants** section ("violations are bugs"),
+while layout/stack/build detail that an agent could reconstruct by reading the repo stays out.
+Standard-tier repos carry a minimum `docs/` (`PRD.md` **or** `CONTRACT.md` as the in-repo
+requirements source of truth, plus `TESTING.md`) that **cites enforcing artifacts** — schemas,
+golden files, named tests — rather than paraphrasing them. The map also declares the boundary
+between agent-local memory, the repo, and any shared knowledge base. Infra repos add an
+**authority-boundary** table (gated-pipeline / drift-report / GitOps archetypes), and component
+depth lives in **hub-and-spoke** package docs updated in the same PR. Lightweight-tier repos are
+exempt.
 
 **`references/knowledge-base.md`** is the full standard (paired with
 `templates/CLAUDE.template.md`). Read it before writing or auditing a repo's agent file or its
