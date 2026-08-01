@@ -14,6 +14,15 @@
 #
 # Convention: group all bumps per ecosystem into ONE PR (`patterns: ["*"]`),
 # cap open PRs, and label + prefix commits so they classify cleanly.
+#
+# REQUIRED LABELS: every label named in `labels:` below must ALREADY EXIST in the
+# repo — Dependabot does not create them, it silently drops the ones it can't
+# apply, so PRs land unlabeled with no error anywhere. With the labels below that
+# means `dependency` and `chore`. Verify/create before landing this file:
+#   gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name' \
+#     | grep -xE 'dependency|chore'    # expect BOTH
+#   gh label create dependency --repo "$OWNER/$REPO" --color 0366d6 --description "Dependency update"
+#   gh label create chore      --repo "$OWNER/$REPO" --color fef2c0 --description "Routine maintenance"
 version: 2
 updates:
   # --- CI actions: keep on any repo with .github/workflows/ ---
