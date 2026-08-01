@@ -265,8 +265,9 @@ rules unprompted. Restate the ones that matter for this task, typically:
 
 - work in a worktree; rebase on the latest default branch before opening the PR
   (detect it — `git symbolic-ref refs/remotes/origin/HEAD`; don't assume `main`)
-- never merge unless the brief names you as the merge-grant holder; report PR URLs
-  the moment they open
+- never merge into the default branch; merge a feature PR into an integration
+  branch only if the brief names you as the grant holder; report PR URLs the
+  moment they open
 - no GUI/browser launches or other intrusions on the user's machine
 - public-repo hygiene when the target repo is public
 
@@ -305,10 +306,11 @@ shape is structural, not tied to them.)
 ### Pre-flight, before spawning anything
 
 1. **Cut the integration branch** off the default branch, seed it with an **empty
-   commit** (`git commit --allow-empty`), and push. A PR can't exist without a
-   commit — zero commits ahead of the default branch leaves `gh pr create` nothing
-   to open against — and an empty commit leaves no tracking file to delete before
-   promotion.
+   commit**, and push. A PR can't exist without a commit — zero commits ahead of
+   the default branch leaves `gh pr create` nothing to open against — and an empty
+   commit leaves no tracking file to delete before promotion. Always pass `-m`
+   (`git commit --allow-empty -m "chore: seed integration branch"`); without it git
+   opens an editor and hangs a non-interactive run.
 2. **Open the draft tracking PR** (integration → default) **now, before any owner
    spawns.** Body: a short overview of the work plus an **unchecked** checklist of
    every planned item, so it reads as the plan from the first minute and the user
