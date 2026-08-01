@@ -208,6 +208,19 @@ check the exit/status, not JSON content.)
    and no `dependabot.yml` is **not a gap** — nothing to track — mark that
    dimension `⏭️ N/A` (`⏭️ N/A (lightweight tier)` if the Tier check above
    classified the repo as lightweight), not `⚠️`.
+4. **Required labels.** If `dependabot.yml` exists, collect every label named in
+   any `labels:` list (the skill's template convention is `dependency` + `chore`)
+   and check each one exists in the repo:
+
+   ```bash
+   gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name'
+   ```
+
+   A label referenced in `labels:` but absent from the repo is a **gap** —
+   Dependabot does not create labels, it silently drops the ones it can't apply,
+   so the PRs land unlabeled and nothing reports an error. Report one row per
+   referenced label. Skip this check entirely when there's no `dependabot.yml`;
+   do **not** flag labels the config never references.
 
 ### 3. Layer-2 branch ruleset (`main`)
 
@@ -432,6 +445,13 @@ Manifests detected: <list, or "none">
 | docker | ... | ... | |
 | github-actions | ... | ... | |
 
+Labels referenced by `dependabot.yml` (omit this table when there is no `dependabot.yml`):
+
+| Label | Referenced in labels: | Exists in repo | Status |
+|---|---|---|---|
+| dependency | ... | ... | |
+| chore | ... | ... | |
+
 ## 3. Branch Ruleset (main)
 | Dimension | Standard | Observed | Status |
 |---|---|---|---|
@@ -498,7 +518,8 @@ on which class the repo is meant to be).
 1. Resolve the repo identity (`owner/repo`) and check for a local clone at
    `repos/<name>`.
 2. Run the Dimension 1 `gh api` reads; also scan workflow files for unpinned refs.
-3. Run the Dimension 2 reads (Dependabot API + manifest glob + `dependabot.yml`).
+3. Run the Dimension 2 reads (Dependabot API + manifest glob + `dependabot.yml`,
+   plus `gh label list` when a `dependabot.yml` is present).
 4. Run the Dimension 3 reads (`rulesets` list, then the `main` ruleset's full body);
    if it requires any status checks, also read the default branch HEAD's check-runs +
    statuses and cross-check each required `context` against them.

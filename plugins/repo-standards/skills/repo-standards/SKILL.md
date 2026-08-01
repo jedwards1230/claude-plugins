@@ -155,6 +155,28 @@ Detect which ecosystems a repo has, then keep only those `updates:` entries:
 a `deps(<ecosystem>)` commit prefix. Copy it, delete the ecosystem blocks that don't apply, and
 duplicate a block per extra subdirectory. Commit on a branch + PR; never merge directly.
 
+### Required labels
+
+**Every label named in `labels:` must already exist in the repo.** Dependabot does not create
+missing labels — it silently drops the ones it can't apply, so the PRs land unlabeled and any
+automation keyed on those labels (triage, auto-merge, release classification) never fires. Nothing
+in the PR or the Dependabot logs surfaces this as an error.
+
+With the template's convention that means **`dependency` and `chore`** — verify both before (or in
+the same pass as) landing `dependabot.yml`, and create whichever is missing:
+
+```bash
+gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name' \
+  | grep -xE 'dependency|chore'   # expect BOTH lines back
+
+gh label create dependency --repo "$OWNER/$REPO" --color 0366d6 --description "Dependency update" 2>/dev/null || true
+gh label create chore      --repo "$OWNER/$REPO" --color fef2c0 --description "Routine maintenance" 2>/dev/null || true
+```
+
+If the repo's `labels:` list is customized away from the template's, the rule is the same for
+whatever it names: **every label in `labels:` must exist first**. Don't add labels beyond what
+`labels:` actually references.
+
 ## Repo docs — README / CONTRIBUTING / AGENTS.md / CLAUDE.md
 
 Beyond settings and rulesets, a repo's root docs each own a distinct, non-overlapping job:
