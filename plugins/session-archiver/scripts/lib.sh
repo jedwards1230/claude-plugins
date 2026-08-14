@@ -225,12 +225,29 @@ sa_acquire_lock() {
 sa_release_lock() { rmdir "$SA_LOCKS/$1.lock" 2>/dev/null || true; }
 
 # ── Portable mtime / size ─────────────────────────────────────────────────────
+# sa__stat_num <gnu-fmt> <bsd-fmt> <path> -> all-digits value, or 0.
+#
+# GNU stat is tried first, and the result is validated. A BSD-first `||` chain
+# is NOT safe here: on GNU coreutils `-f` means --file-system, so `stat -f %m p`
+# fails on the `%m` operand (stderr) but still prints a multi-line filesystem
+# block to stdout and exits non-zero. The fallback then runs too, and the caller
+# receives that text concatenated with the real number — which blows up the
+# arithmetic and signature comparisons downstream. Validating the output keeps
+# this correct on both platforms regardless of which form wins.
+sa__stat_num() {
+  local gfmt="$1" bfmt="$2" path="$3" v
+  v=$(stat -c "$gfmt" "$path" 2>/dev/null) || v=""
+  case "$v" in ''|*[!0-9]*) v=$(stat -f "$bfmt" "$path" 2>/dev/null) || v="" ;; esac
+  case "$v" in ''|*[!0-9]*) v=0 ;; esac
+  printf '%s' "$v"
+}
 sa_mtime() {
-  # epoch seconds of a path's mtime, 0 on miss. BSD vs GNU stat.
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0
+  # epoch seconds of a path's mtime, 0 on miss. GNU (%Y) then BSD (%m).
+  sa__stat_num %Y %m "$1"
 }
 sa_size() {
-  stat -f %z "$1" 2>/dev/null || stat -c %s "$1" 2>/dev/null || echo 0
+  # size in bytes, 0 on miss. GNU (%s) then BSD (%z).
+  sa__stat_num %s %z "$1"
 }
 
 # ── Local mirror of one session (shared by the hook and by backfill) ──────────
