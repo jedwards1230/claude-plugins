@@ -328,13 +328,10 @@ if [ "$current_branch" = "$default_branch" ]; then
   repo_label="$(basename "$repo_root")"
   reason="About to commit on the default branch (\`${default_branch}\`) of \`${repo_label}\`.
 
-This repo follows a worktree -> branch -> PR workflow. Consider creating a worktree first:
+This repo follows a branch -> PR workflow. Consider branching first:
 
-  git worktree add worktrees/<short-name> -b <type>/<short-desc>
-  cd worktrees/<short-name>
+  git switch -c <type>/<short-desc>
   # ... make commits here, then push and open a PR with \`gh pr create\`
-
-See the \`git-worktree\` skill in the git-tooling plugin for the full convention.
 
 If this commit on the default branch is intentional (release chore, hotfix, etc.),
 approve the prompt. To skip this check entirely on a future commit:

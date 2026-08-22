@@ -1,15 +1,13 @@
 # git-tooling
 
-Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
+Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-aware push reminders, and on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
 
 ## Features
 
-- **Worktree management** (skill `git-worktree`) — create, inspect, and clean up worktrees for parallel branch development
 - **Default-branch commit prompt** (hook) — routes `git commit` through Claude Code's permission prompt when HEAD is on the repo's default branch (discovered dynamically — works with `main`, `master`, `trunk`, etc.), so the user gets a "pause and consider" moment to switch to a worktree -> branch -> PR workflow
 - **Push reminder** (hook) — after every `git push`, nudge the agent to update the PR title/description if the pushed scope drifted from the original PR text
 - **Bulk worktree force-remove guard** (hook) — routes a *bulk* `git worktree remove --force` (a loop/pipe/glob/multiple targets) through the permission prompt, so an unscoped force-removal can't silently wipe other sessions' worktrees and their uncommitted work. Single literal-path removals pass untouched.
 - **Force-push guard** (hook) — routes a `git push` through the permission prompt when it uses a *non-lease* force (`--force`/`-f`/`+refspec`) or targets the repo's default/protected branch. Stays silent for the normal feature-branch flow, including pre-approved `--force-with-lease` rebase hygiene on feature branches. Catches the case where a *subagent* is instructed to force-push (settings don't gate subagent Bash; this hook does).
-- **Worktree edit-path guard** (hook) — denies an `Edit`/`Write`/`MultiEdit`/`NotebookEdit` call when the session is working in a worktree (`<repo>/worktrees/<branch>/`) but the target path is the same repo's MAIN checkout — the "silently edited the wrong copy" mistake. The reverse direction (editing into a worktree from the main checkout) and sibling-worktree edits stay untouched.
 - **`wt-done`** (bin) — finish a single merged branch: verifies it's actually merged, then checks out + pulls the default branch, removes the worktree, deletes the local branch, and prunes. Handles the two chronic failure modes of hand-rolling this: a squash-merged branch that `git branch -d` refuses (falls back to `-D`, but only because the merge was already verified), and a dirty worktree that `git worktree remove` refuses (`--force` required, with the discarded state printed first). Single-target only — never a bulk sweep.
 - **`gh-resolve-threads`** (bin) — list a PR's unresolved review threads, or resolve specific ones by id, without hand-writing the GraphQL each time. Paginates past the 100-thread-per-page GraphQL limit. No `--resolve-all` — resolution stays per-thread, on purpose.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
@@ -24,17 +22,6 @@ Git tooling for Claude Code. Worktree workflows, PR-aware push reminders, and on
 > The `ci-watch` and `release-watch` scripts use only the Python 3 standard library (no `pip`/Docker/`jq`) and need `python3` (3.8+).
 
 ## Usage
-
-### Worktree skill
-
-The skill activates automatically when discussing worktree operations:
-
-```
-> Create worktrees for all open PRs
-> Set up a new worktree for feature/auth
-> Clean up stale worktrees
-> List my worktrees
-```
 
 ### Default-branch commit prompt
 
@@ -57,9 +44,9 @@ GIT_TOOLING_ALLOW_DEFAULT_BRANCH_COMMIT=1 git commit -m "..."
 
 **`PreToolUse(Bash)`** runs `scripts/worktree-remove-guard.sh`. It returns `permissionDecision: "ask"` **only** when a Bash command both (1) force-removes worktrees (`--force`/`-f` with `git worktree remove`) **and** (2) targets a bulk/dynamic set — an enumerate-then-remove pipe (`git worktree list | … remove`), a `for`/`while`/`xargs` loop, a glob target (`worktrees/*`), or two-plus `remove` invocations.
 
-The hazard: in a shared checkout (multiple sessions sharing one set of `<repo>/worktrees/*` roots), a bulk `git worktree remove --force` discards uncommitted work and can wipe *other* sessions' worktrees, not just yours. Plain `git worktree remove` (no `--force`) already refuses a dirty/unmerged tree, so the guard nudges you to drop `--force` and let git's own per-target safety do the filtering.
+The hazard: a bulk `git worktree remove --force` discards uncommitted work and can wipe *other* sessions' worktrees, not just yours. Plain `git worktree remove` (no `--force`) already refuses a dirty/unmerged tree, so the guard nudges you to drop `--force` and let git's own per-target safety do the filtering.
 
-Intentionally narrow — a single literal-path removal (`git worktree remove --force worktrees/foo`, the normal post-merge cleanup) is **not** bulk and passes silently.
+Intentionally narrow — a single literal-path removal (the normal post-merge cleanup) is **not** bulk and passes silently.
 
 Bypass — set `GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1` for a deliberate bulk force-remove:
 
@@ -108,26 +95,6 @@ is indistinguishable from a correct pass unless the exit code and stderr are
 checked too. `tests/guards.test.sh` asserts all three on every case for exactly
 that reason, and is mutation-tested against a do-nothing hook.
 
-### Worktree edit-path guard
-
-**`PreToolUse(Edit|Write|MultiEdit|NotebookEdit)`** runs `scripts/worktree-editpath-guard.sh`. It returns `permissionDecision: "deny"` when the session's `cwd` resolves into a linked git worktree (`<repo>/worktrees/<branch>/`) **and** the edit target is a path under that same repo's root but *outside* any `worktrees/` subtree — i.e. the main checkout. The denial message names the equivalent worktree-prefixed path.
-
-It stays silent for everything else:
-
-- editing *into* a worktree from a main-checkout session (a normal, deliberate pattern),
-- editing a file in a **sibling** worktree of the same repo,
-- new (not-yet-existing) file targets — still guarded the same way,
-- anything outside the repo entirely, and
-- nested repos (e.g. `repos/<name>/worktrees/<branch>/`) — scoped independently per repo.
-
-Bails out with pure string checks before touching git for the common cases (no `worktrees/` in `cwd`, or the target isn't under the same repo root), and only shells out to `git rev-parse --git-dir`/`--git-common-dir` to confirm a genuine *linked* worktree before denying — failing open (silent allow) on any ambiguity, so a directory that merely has `worktrees` as a path segment without real worktree state is never falsely blocked.
-
-Bypass — set `GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1` in the environment when editing the main checkout from a worktree session is genuinely intended (e.g. post-merge cleanup):
-
-```bash
-GIT_TOOLING_ALLOW_MAIN_CHECKOUT_EDIT=1 claude
-```
-
 ### Push reminder hook
 
 Runs automatically after every `Bash(git push ...)` and `Bash(gh pr create ...)`. If the pushed branch has an open PR — or a PR was just created — the hook reminds the agent to check whether the PR title/description still match what got pushed. Silent for any other Bash call.
@@ -160,7 +127,7 @@ Steps, in order:
 4. Deletes the local branch with `git branch -d`, falling back to `-D` **only** when `-d` refuses with "not fully merged" — which happens for a legitimately squash-merged branch, since git's own ancestry check doesn't recognize a squash merge, even though step 1 already verified it.
 5. `git worktree prune`.
 
-Works in the umbrella repo and in nested repos (`repos/<name>/worktrees/<branch>/`) alike, and degrades gracefully when `gh` is absent or unauthenticated (falls back to the git-only merge check).
+Degrades gracefully when `gh` is absent or unauthenticated (falls back to the git-only merge check).
 
 ### `gh-resolve-threads` — PR review-thread triage
 
@@ -214,19 +181,3 @@ release-watch.py owner/svc --ghcr owner/svc       # both halves of one release i
 `--tag T` binds to the immediately preceding target. The script polls every 30s (override via `GIT_TOOLING_RELEASE_POLL_SECONDS`), emits one notification per transition, and exits when every target is published or its release workflow concludes — exit 1 if any target hit a failure terminal (release workflow failed, or a private package the token can't read). Pass `--tag` for an already-published release/version and it reports it and exits at once. Use `TaskStop` to cancel early.
 
 Each notification is one line per transition — good terminals (`RELEASED <tag>`, `PUBLISHED <pkg>:<tag>`, `PUBLISHED <pkg>:latest repointed -> <digest>`), neutral terminals (`RUN success — no new release`, `idle — no release in flight`), and failure terminals (`RUN failure — release workflow failed (<url>)`, `INACCESSIBLE — … needs read:packages`). The full signature/output reference is the table in [`skills/release-watch/SKILL.md`](skills/release-watch/SKILL.md) (its source of truth), the same way `ci-watch`'s lives in its own SKILL.md.
-
-## Worktree Directory Convention
-
-Worktrees are created under `<repo-root>/worktrees/`:
-
-```
-my-repo/
-├── worktrees/
-│   ├── feature-auth/
-│   ├── bugfix-login/
-│   └── pr-123/
-├── src/
-└── ...
-```
-
-The plugin ensures `worktrees/` is in `.gitignore` for the workflows that create them.

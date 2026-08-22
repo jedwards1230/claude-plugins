@@ -45,7 +45,7 @@ The preloaded **go** skill carries the domain knowledge — lab conventions (htm
 ## Git & Hand-off
 
 - These `repos/` are **independent git repositories** — commit/push in the repo's OWN git context, NEVER from the orchestration root.
-- **Always work in a git worktree**: `git worktree add worktrees/<branch>` off the latest `origin/main`; never commit to local `main`; use worktree-prefixed paths for Edit/Write.
+- **Never commit to local `main`**: branch off the latest `origin/main`.
 - Open the PR when the work is green and hand it off for review — you author the change, you don't deploy or merge it.
 
 Report concisely: what you built (`file:line` for the load-bearing bits), the gate results (build/vet/test/lint all green, or exactly what's red and why), and the PR link.

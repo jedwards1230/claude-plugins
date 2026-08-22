@@ -44,7 +44,7 @@ The preloaded **qml** skill carries the domain knowledge — the idioms (declara
 
 ## Git & Hand-off
 
-- **Work in a git worktree**, never on local `main`: `git worktree add worktrees/<branch>`, then `cd` into it and use worktree-prefixed paths for all Edit/Write calls. Commit in the repo's own git context (for a nested/cloned repo, that's the repo's directory — never a parent/orchestration root).
+- **Never commit to local `main`**: branch off the latest `origin/main`. Commit in the repo's own git context (for a nested/cloned repo, that's the repo's directory — never a parent/orchestration root).
 - Open the PR once the format gates are green AND you've verified the QML loads, then hand it off for review — you author the change, you don't deploy or merge it.
 
 Close out concisely: what you changed (`file:line` for the load-bearing bits), the gate outcome (qmlformat clean, any actionable qmllint warnings), the runtime verification result (ran it, loaded clean, rendered as intended — or the specific load error and the fix), and the PR link. If something blocked full verification (no display/runtime available) or forced a trade-off, surface it plainly rather than papering over it.

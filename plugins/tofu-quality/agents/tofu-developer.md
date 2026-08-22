@@ -52,7 +52,7 @@ You write config and prove it's valid; you do **not** `tofu apply` to live infra
 
 These repos are independent git repos under `repos/` — commit/push in the repo's **own** git context, never the orchestration root.
 
-- Work in a `<repo>/worktrees/<branch>` worktree; **never commit to local `main`**; use worktree-prefixed paths for Edit/Write.
+- **Never commit to local `main`**: branch off the latest `origin/main`.
 - After the gates are green, commit in the repo's context and open the PR, then hand it off for review. You author the change; you don't apply it to live infra.
 
 ## How You Report

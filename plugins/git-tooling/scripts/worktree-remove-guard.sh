@@ -4,9 +4,8 @@
 # Routes *bulk / dynamically-targeted* `git worktree remove --force` invocations
 # through the "ask" permission flow. The hazard this guards against: removing
 # worktrees in a loop / pipe / glob with `--force`, which silently discards
-# uncommitted work — and in a shared-checkout setup (multiple sessions, one set
-# of `<repo>/worktrees/*` roots) wipes OTHER sessions' worktrees and their WIP,
-# not just your own. Plain `git worktree remove` (no --force) already refuses a
+# uncommitted work — including OTHER sessions', not just your own. Plain
+# `git worktree remove` (no --force) already refuses a
 # dirty/unmerged tree, so the danger is specifically force + an unbounded target
 # set.
 #
@@ -19,8 +18,8 @@
 #        - a glob in the remove target (`*`, `?`, `[`)
 #        - two or more `worktree remove` invocations
 #
-# A single literal-path removal — `git worktree remove --force worktrees/foo` —
-# is NOT bulk and passes silently (the normal post-merge cleanup case).
+# A single literal-path removal is NOT bulk and passes silently (the normal
+# post-merge cleanup case).
 #
 # Honors GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1 (hook env OR inline assignment
 # on the command) as a per-invocation bypass for an intentional bulk force-remove.
@@ -77,14 +76,14 @@ printf '%s' "$command_str" | grep -Eq '(^|[[:space:]])GIT_TOOLING_ALLOW_FORCE_WO
 
 reason="About to **force-remove git worktrees in bulk** (\`--force\` + a loop/pipe/glob/multiple targets).
 
-In a shared checkout, \`<repo>/worktrees/*\` roots are used by multiple sessions at once. A bulk \`git worktree remove --force\` discards uncommitted work and can wipe OTHER sessions' worktrees — not just yours.
+A bulk \`git worktree remove --force\` discards uncommitted work and can wipe OTHER sessions' worktrees — not just yours.
 
 Safer approach:
   1. Dry-run: print the resolved target list first, with each target's
      \`git -C <wt> status --porcelain\`, and confirm they are yours + clean.
   2. Drop \`--force\` — plain \`git worktree remove\` REFUSES a dirty/unmerged
      tree, so git's own safety filters out other sessions' work-in-progress.
-  3. Remove by the exact paths/branches you created, not a \`/worktrees/\` glob.
+  3. Remove by the exact paths/branches you created, not a glob.
 
 If this bulk force-remove is intentional, approve the prompt. To skip this check:
   GIT_TOOLING_ALLOW_FORCE_WORKTREE_REMOVE=1 <your command>"
