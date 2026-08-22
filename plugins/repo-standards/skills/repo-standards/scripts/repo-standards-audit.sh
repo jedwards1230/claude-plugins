@@ -2,9 +2,10 @@
 # repo-standards-audit.sh — portable audit of repo-standards conformance fields.
 #
 # Default mode reports, per repo: visibility, wiki/projects toggles,
-# delete-branch-on-merge, allow-update-branch, allowed merge methods, and the
-# main/default-branch ruleset(s). One batched GraphQL query per ~20-repo
-# chunk, no REST calls — cheap enough to run over a whole portfolio.
+# delete-branch-on-merge, allow-update-branch, allowed merge methods,
+# Dependabot label conformance, and the main/default-branch ruleset(s). One
+# batched GraphQL query per ~20-repo chunk, no REST calls — cheap enough to
+# run over a whole portfolio.
 #
 # --deep expands coverage to the full lever catalog: repo metadata/features,
 # PR & merge behavior, the complete Security & Analysis panel, the Actions
@@ -70,8 +71,16 @@ RATE LIMITS
   branch, merge methods, rulesets) come from ONE batched GraphQL query per
   ~20-repo chunk (aliased repository() blocks) — GraphQL has its own
   5000-point/hr budget, separate from REST, and a chunked query costs
-  roughly 1 request regardless of how many repos are in it. No REST calls
-  are made in default mode.
+  roughly 1 request regardless of how many repos are in it.
+
+  DEPLBL rides that same batched query: both halves of the check — the
+  .github/dependabot.yml blob (via object(expression: "HEAD:...")) and the
+  repo's label list (labels(first: 100)) — are extra FIELDS on the existing
+  repository() alias, not extra requests. So default mode still makes no
+  REST calls in the common case. The single exception: a repo with MORE than
+  100 labels needs one paginated REST call (GET /repos/{o}/{r}/labels) to
+  finish enumerating them, and only for that repo; on failure DEPLBL
+  degrades to 'n/a' like every other field.
 
   --deep mode: one (larger) batched GraphQL query per ~20-repo chunk
   covers everything the GraphQL schema exposes (repo metadata/features,
@@ -104,6 +113,16 @@ COLUMNS (default table)
   UPDBR    allow_update_branch
   MERGE    allowed merge methods: S/M/R = squash/merge-commit/rebase,
            uppercase = allowed, lowercase = disabled (e.g. "SmR")
+  DEPLBL   Dependabot label conformance — every label named in a `labels:`
+           list in .github/dependabot.yml (or .yaml) must ALREADY exist in
+           the repo, because Dependabot silently drops the ones it cannot
+           apply and declaring `labels:` also suppresses its built-in
+           defaults, so the PRs land unlabeled with nothing reporting an
+           error. States: "ok" (every declared label exists) ·
+           "miss:a,b" (those declared labels do not exist — the gap) ·
+           "n/a" (no dependabot config, no `labels:` declared anywhere in
+           it, or the repo/label list could not be read). Matching is
+           case-insensitive, mirroring GitHub's own label uniqueness.
   RULESET  main/default-branch ruleset(s) as "name/enforcement"; "-" if none
 
 COLUMNS (--deep table, in addition to the above)
@@ -117,6 +136,8 @@ COLUMNS (--deep table, in addition to the above)
   NONPROV   secret_scanning_non_provider_patterns status
   VALCHK    secret_scanning_validity_checks status
   DEPSEC    dependabot_security_updates status
+  DEPLBL    Dependabot label conformance (same column as default mode —
+            see above; it is shown in both tables)
   VULNALRT  vulnerability_alerts_enabled (Dependabot alerts on/off)
   AUTOFIX   automated_security_fixes_enabled
   PRIVVULN  private_vulnerability_reporting_enabled
@@ -353,12 +374,20 @@ fi
 # feature flags, PR/merge enums, and per-ruleset rule types + a databaseId
 # so --deep can fetch per-ruleset pull_request parameters via REST). Both
 # cost ~1 GraphQL request per chunk regardless of field count.
+#
+# GQL_DEPENDABOT_LABEL_FIELDS is shared by both sets: the dependabot config
+# blob and the repo's label list are fields on the SAME repository() alias,
+# so the DEPLBL check costs no extra request in either mode. labels(first:
+# 100) covers all but pathological repos; hasNextPage flags the rest for a
+# one-off REST pagination in dependabot_label_status.
 # ---------------------------------------------------------------------------
 CHUNK_SIZE=20
 
-GQL_FIELDS_LIGHT='nameWithOwner visibility hasWikiEnabled hasProjectsEnabled deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed rulesets(first: 10) { nodes { name enforcement } }'
+GQL_DEPENDABOT_LABEL_FIELDS='labels(first: 100) { nodes { name } pageInfo { hasNextPage } } dependabotYml: object(expression: "HEAD:.github/dependabot.yml") { ... on Blob { text } } dependabotYaml: object(expression: "HEAD:.github/dependabot.yaml") { ... on Blob { text } }'
 
-GQL_FIELDS_DEEP='nameWithOwner visibility defaultBranchRef { name } isTemplate isArchived isFork isMirror isEmpty isLocked isDisabled description homepageUrl repositoryTopics(first: 20) { nodes { topic { name } } } hasIssuesEnabled hasWikiEnabled hasProjectsEnabled hasDiscussionsEnabled forkingAllowed webCommitSignoffRequired licenseInfo { spdxId } isSecurityPolicyEnabled createdAt pushedAt deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed squashMergeCommitTitle squashMergeCommitMessage mergeCommitTitle mergeCommitMessage hasVulnerabilityAlertsEnabled rulesets(first: 20) { nodes { databaseId name target enforcement rules(first: 20) { nodes { type } } } }'
+GQL_FIELDS_LIGHT="nameWithOwner visibility hasWikiEnabled hasProjectsEnabled deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed rulesets(first: 10) { nodes { name enforcement } } ${GQL_DEPENDABOT_LABEL_FIELDS}"
+
+GQL_FIELDS_DEEP="nameWithOwner visibility defaultBranchRef { name } isTemplate isArchived isFork isMirror isEmpty isLocked isDisabled description homepageUrl repositoryTopics(first: 20) { nodes { topic { name } } } hasIssuesEnabled hasWikiEnabled hasProjectsEnabled hasDiscussionsEnabled forkingAllowed webCommitSignoffRequired licenseInfo { spdxId } isSecurityPolicyEnabled createdAt pushedAt deleteBranchOnMerge allowUpdateBranch mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed autoMergeAllowed squashMergeCommitTitle squashMergeCommitMessage mergeCommitTitle mergeCommitMessage hasVulnerabilityAlertsEnabled rulesets(first: 20) { nodes { databaseId name target enforcement rules(first: 20) { nodes { type } } } } ${GQL_DEPENDABOT_LABEL_FIELDS}"
 
 # fetch_graphql_chunk <fields> <slug> [<slug> ...] — one batched query for the whole chunk.
 fetch_graphql_chunk() {
@@ -465,6 +494,129 @@ normalize_repo_json_deep() {
       rule_types: [.rules.nodes[]?.type]
     }]
   }'
+}
+
+# ---------------------------------------------------------------------------
+# Dependabot label conformance (DEPLBL) — both modes
+#
+# The standard: every label named in a `labels:` list in
+# .github/dependabot.yml must ALREADY exist in the repo. Dependabot does not
+# create labels — it silently drops the ones it cannot apply — and declaring
+# `labels:` at all suppresses its built-in defaults (`dependencies`, the
+# ecosystem name). So a config naming labels that don't exist produces PRs
+# with NO labels, which is strictly worse than shipping no `labels:` key, and
+# nothing in the PR or Dependabot's logs reports it. Prose alone can't hold
+# that line, hence this check.
+#
+# Both inputs ride the batched GraphQL query, so this costs no extra request
+# unless a repo has >100 labels (then one paginated REST call, that repo only).
+# ---------------------------------------------------------------------------
+
+# YAML is parsed with awk rather than a YAML library because the script's
+# dependency floor is gh + jq + git, and the shape in play is narrow: the
+# `labels:` key of a dependabot config, as either a flow sequence
+# (labels: ["a", "b"]) or a block sequence (labels:\n  - a\n  - b). \047 is a
+# single quote — the program itself is single-quoted, so it can't contain one.
+# A `labels:` key must start a line (after indent, and an optional "- " when
+# it is the first key of a sequence item), so a commented-out `# labels:` is
+# correctly ignored.
+# shellcheck disable=SC2016
+DEPENDABOT_LABELS_AWK='
+function clean(v) {
+  sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v);
+  if (v ~ /^"/) { sub(/^"/, "", v); sub(/".*$/, "", v) }
+  else if (v ~ /^\047/) { sub(/^\047/, "", v); sub(/\047.*$/, "", v) }
+  else { sub(/[ \t]*#.*$/, "", v); sub(/[ \t]+$/, "", v) }
+  return v
+}
+function emit_flow(str,   n, i, parts, v) {
+  n = split(str, parts, ",")
+  for (i = 1; i <= n; i++) { v = clean(parts[i]); if (v != "") print v }
+}
+{ line = $0; sub(/\r$/, "", line) }
+inflow {
+  buf = buf " " line
+  if (line ~ /\]/) { sub(/\].*$/, "", buf); emit_flow(buf); inflow = 0 }
+  next
+}
+inblock {
+  if (line ~ /^[ \t]*(#.*)?$/) { next }
+  match(line, /^[ \t]*/)
+  if (RLENGTH >= keyindent && line ~ /^[ \t]*-[ \t]*/) {
+    v = line; sub(/^[ \t]*-[ \t]*/, "", v); v = clean(v)
+    if (v != "") print v
+    next
+  }
+  inblock = 0
+}
+/^[ \t]*(-[ \t]+)?labels:([ \t]|$)/ {
+  match(line, /^[ \t]*(-[ \t]+)?/); keyindent = RLENGTH
+  rest = line; sub(/^[ \t]*(-[ \t]+)?labels:[ \t]*/, "", rest)
+  sub(/^#.*$/, "", rest); sub(/[ \t]+$/, "", rest)
+  if (rest ~ /^\[/) {
+    sub(/^\[/, "", rest)
+    if (rest ~ /\]/) { sub(/\].*$/, "", rest); emit_flow(rest) }
+    else { buf = rest; inflow = 1 }
+  } else if (rest == "") { inblock = 1 }
+  next
+}
+'
+
+# dependabot_label_status <graphql_node_json> <slug>
+# Emits {state, reason, declared[], missing[]}. Never fails the run: every
+# unreadable input degrades to state "n/a" with a reason, per the script's
+# graceful-degradation contract.
+dependabot_label_status() {
+  local node="$1" slug="$2"
+  local cfg declared repo_labels has_next
+
+  if [ "$node" = "null" ]; then
+    jq -n '{state: "n/a", reason: "repo not found or no access", declared: [], missing: []}'
+    return 0
+  fi
+
+  # Prefer .yml, fall back to .yaml — both are valid names on GitHub.
+  cfg="$(printf '%s' "$node" | jq -r '(.dependabotYml.text // .dependabotYaml.text) // empty')"
+  if [ -z "$cfg" ]; then
+    jq -n '{state: "n/a", reason: "no dependabot config", declared: [], missing: []}'
+    return 0
+  fi
+
+  declared="$(printf '%s\n' "$cfg" | awk "$DEPENDABOT_LABELS_AWK" \
+    | jq -R -s -c 'split("\n") | map(select(length > 0)) | unique')"
+  if [ "$declared" = "[]" ]; then
+    jq -n '{state: "n/a", reason: "config declares no labels", declared: [], missing: []}'
+    return 0
+  fi
+
+  # labels(first: 100) covers all but pathological repos; only paginate via
+  # REST when GraphQL says there is more. Keeping this behind hasNextPage is
+  # what lets default mode stay REST-free for the ordinary repo.
+  has_next="$(printf '%s' "$node" | jq -r '.labels.pageInfo.hasNextPage // false')"
+  if [ "$has_next" = "true" ]; then
+    repo_labels="$(gh api --paginate "repos/${slug}/labels?per_page=100" --jq '.[].name' 2>/dev/null \
+      | jq -R -s -c 'split("\n") | map(select(length > 0))')" || repo_labels=""
+  else
+    repo_labels="$(printf '%s' "$node" | jq -c '[.labels.nodes[]?.name]')" || repo_labels=""
+  fi
+  [ -n "$repo_labels" ] || repo_labels='null'
+
+  # GitHub label names are case-insensitively unique, so compare that way —
+  # a config naming "Dependency" against a repo label "dependency" applies
+  # fine and must not be reported as missing.
+  jq -n --argjson declared "$declared" --argjson actual "$repo_labels" '
+    if $actual == null then
+      {state: "n/a", reason: "could not list repo labels", declared: $declared, missing: []}
+    else
+      ([$actual[] | ascii_downcase]) as $have
+      | ([$declared[] | . as $d | select(($have | index($d | ascii_downcase)) == null)]) as $missing
+      | {
+          state: (if ($missing | length) == 0 then "ok" else "miss" end),
+          reason: null,
+          declared: $declared,
+          missing: $missing
+        }
+    end'
 }
 
 # ---------------------------------------------------------------------------
@@ -680,6 +832,14 @@ while [ "$OFFSET" -lt "$TOTAL" ]; do
         secret_scanning: null, secret_scanning_push_protection: null, dependabot_security_updates: null
       }')"
     fi
+
+    # DEPLBL, both modes. Computed from the GraphQL node (not the normalized
+    # object) since the config blob and label list live there, and attached
+    # unconditionally — including to error rows, where it self-reports "n/a"
+    # — so the JSON shape stays uniform across every row.
+    dep_labels="$(dependabot_label_status "$node" "$slug")"
+    obj="$(printf '%s' "$obj" | jq -c --argjson dl "$dep_labels" '. + {dependabot_labels: $dl}')"
+
     ALL_JSON+=("$obj")
   done
 
@@ -697,8 +857,11 @@ fi
 TABLE_FILTER_LIGHT='
 def b: if . == true then "on" elif . == false then "off" else "-" end;
 def d: if . == null then "-" else . end;
+def deplbl: if . == null then "-"
+  elif .state == "miss" then "miss:" + (.missing | join(","))
+  else (.state // "-") end;
 if .error then
-  [.repo, "ERROR", "-", "-", "-", "-", "-", "not found or no access"] | @tsv
+  [.repo, "ERROR", "-", "-", "-", "-", "-", "-", "not found or no access"] | @tsv
 else
   [
     .repo,
@@ -710,6 +873,7 @@ else
     ((if .squash_merge_allowed then "S" else "s" end)
       + (if .merge_commit_allowed then "M" else "m" end)
       + (if .rebase_merge_allowed then "R" else "r" end)),
+    (.dependabot_labels | deplbl),
     (if (.ruleset // "") == "" then "-" else .ruleset end)
   ] | @tsv
 end
@@ -720,6 +884,9 @@ TABLE_FILTER_DEEP='
 def b: if . == true then "on" elif . == false then "off" elif . == "n/a" then "n/a" elif . == null then "-" else . end;
 def d: if . == null then "-" else . end;
 def flag(v; onch; offch): if v == true then onch elif v == false then offch else "?" end;
+def deplbl: if . == null then "-"
+  elif .state == "miss" then "miss:" + (.missing | join(","))
+  else (.state // "-") end;
 def codes: {
   "DELETION": "DEL", "NON_FAST_FORWARD": "NFF", "PULL_REQUEST": "PR",
   "REQUIRED_STATUS_CHECKS": "RSC", "REQUIRED_SIGNATURES": "SIG",
@@ -729,7 +896,7 @@ def codes: {
 };
 def rule_code: (codes[.] // .[0:3]);
 if .error then
-  [.repo, "ERROR"] + [range(23) | "-"] + ["not found or no access"] | @tsv
+  [.repo, "ERROR"] + [range(24) | "-"] + ["not found or no access"] | @tsv
 else
   (.rulesets[0]) as $rs |
   [
@@ -754,6 +921,7 @@ else
     (.security_and_analysis.secret_scanning_non_provider_patterns | b),
     (.security_and_analysis.secret_scanning_validity_checks | b),
     (.security_and_analysis.dependabot_security_updates | b),
+    (.dependabot_labels | deplbl),
     (.security_and_analysis.vulnerability_alerts_enabled | b),
     (.security_and_analysis.automated_security_fixes_enabled | b),
     (.security_and_analysis.private_vulnerability_reporting_enabled | b),
@@ -785,7 +953,7 @@ end
 
 if [ "$DEEP" -eq 1 ]; then
   {
-    printf 'REPO\tVIS\tFLAGS\tWIKI\tPROJ\tDELBR\tUPDBR\tAUTOMRG\tMERGE\tSECSCAN\tPUSHPROT\tNONPROV\tVALCHK\tDEPSEC\tVULNALRT\tAUTOFIX\tPRIVVULN\tACTENB\tALLOWACT\tSHAPIN\tWFPERM\tAPPRVPR\tACCESSLV\tIMMUT\tRULETYPE\tPRPARAMS\n'
+    printf 'REPO\tVIS\tFLAGS\tWIKI\tPROJ\tDELBR\tUPDBR\tAUTOMRG\tMERGE\tSECSCAN\tPUSHPROT\tNONPROV\tVALCHK\tDEPSEC\tDEPLBL\tVULNALRT\tAUTOFIX\tPRIVVULN\tACTENB\tALLOWACT\tSHAPIN\tWFPERM\tAPPRVPR\tACCESSLV\tIMMUT\tRULETYPE\tPRPARAMS\n'
     for obj in "${ALL_JSON[@]}"; do
       printf '%s' "$obj" | jq -r "$TABLE_FILTER_DEEP"
     done
@@ -793,14 +961,16 @@ if [ "$DEEP" -eq 1 ]; then
   echo
   echo "FLAGS legend: t=template a=archived d=discussions p=pages f=forking s=web-signoff (uppercase=on)"
   echo "RULETYPE/PRPARAMS show the first ruleset only — use --deep --json for full multi-ruleset detail."
+  echo "DEPLBL: a declared dependabot.yml label that does not exist in the repo is silently dropped — create it (or drop it from labels:); 'n/a' = no config / none declared."
   echo "'n/a' = not applicable/unavailable for this repo (e.g. GHAS on a private repo, org-only feature on a user account)."
 else
   {
-    printf 'REPO\tVIS\tWIKI\tPROJ\tDELBR\tUPDBR\tMERGE\tRULESET\n'
+    printf 'REPO\tVIS\tWIKI\tPROJ\tDELBR\tUPDBR\tMERGE\tDEPLBL\tRULESET\n'
     for obj in "${ALL_JSON[@]}"; do
       printf '%s' "$obj" | jq -r "$TABLE_FILTER_LIGHT"
     done
   } | column -t -s "$(printf '\t')"
   echo
+  echo "DEPLBL: a declared dependabot.yml label that does not exist in the repo is silently dropped — create it (or drop it from labels:); 'n/a' = no config / none declared."
   echo "Re-run with --deep for the full lever catalog (security, actions, releases, pages, environments, ...)."
 fi

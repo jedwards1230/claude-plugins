@@ -1,6 +1,6 @@
 ---
 name: repo-standards
-description: Preferred GitHub repository standards — repo settings baseline (wiki/projects off, auto-delete merged branches, SHA-pinned actions, Dependabot security updates), branch-ruleset classes, Dependabot version-updates config, the README/CONTRIBUTING/AGENTS.md/CLAUDE.md doc split, and a lightweight tier for content/asset/config repos, all audited/applied with `gh`. Use when asked to "standardize a repo", "set up branch protection", "apply repo rulesets", "audit repo settings", "protect main", "turn off the wiki/projects", "enable Dependabot", "add a dependabot.yml", "set up dependency updates", "add a CONTRIBUTING", "add an AGENTS.md", "should AGENTS.md or CLAUDE.md be canonical", "classify a repo as lightweight", or to classify a repo as public/private-infra/scratch.
+description: Preferred GitHub repository standards — repo settings baseline (wiki/projects off, auto-delete merged branches, SHA-pinned actions, Dependabot security updates), branch-ruleset classes, Dependabot version-updates config, the README/CONTRIBUTING/AGENTS.md/CLAUDE.md doc split, and a lightweight tier for content/asset/config repos, all audited/applied with `gh`. Use when asked to "standardize a repo", "set up branch protection", "apply repo rulesets", "audit repo settings", "protect main", "turn off the wiki/projects", "enable Dependabot", "add a dependabot.yml", "set up dependency updates", "check the dependabot labels exist", "why are Dependabot PRs unlabeled", "add a CONTRIBUTING", "add an AGENTS.md", "should AGENTS.md or CLAUDE.md be canonical", "classify a repo as lightweight", or to classify a repo as public/private-infra/scratch.
 ---
 
 # repo-standards
@@ -31,7 +31,7 @@ there anything to build, test, or version?** No → lightweight.
 
 | Still applies | Waived |
 |---|---|
-| Layer-1 settings baseline · Dependabot security · a Class-C-shaped `main` ruleset (block deletion + non-fast-forward, no PR) | Docs split (CONTRIBUTING.md + CLAUDE.md's import line(s)) · Knowledge base · Dependabot version updates (`dependabot.yml`) · SHA-pinning (moot — applies once CI exists) |
+| Layer-1 settings baseline · Dependabot security · a Class-C-shaped `main` ruleset (block deletion + non-fast-forward, no PR) | Docs split (CONTRIBUTING.md + CLAUDE.md's import line(s)) · Knowledge base · Dependabot version updates (`dependabot.yml` and its labels) · SHA-pinning (moot — applies once CI exists) |
 
 Lightweight is not a 4th ruleset class — it pairs with the existing **Class C** shape and
 additionally waives the docs split and version updates.
@@ -137,7 +137,8 @@ Dependabot is two things. **Security** updates (alerts + automated fixes) are al
 the Layer-1 baseline above — no downside, every repo. **Version** updates (the `.github/dependabot.yml`
 committed file) are **opt-in per repo**: they open routine PRs, so a repo with no dependency manifests
 has nothing to update and would only get noise. Add version updates when a repo has real manifests.
-Lightweight-tier repos are exempt outright — no `dependabot.yml` at all.
+Opting in is **two artifacts, one step**: the config file *and* the labels it names (see Apply below).
+Lightweight-tier repos are exempt outright — no `dependabot.yml`, and therefore no labels to create.
 
 Detect which ecosystems a repo has, then keep only those `updates:` entries:
 
@@ -153,29 +154,40 @@ Detect which ecosystems a repo has, then keep only those `updates:` entries:
 `templates/dependabot.yml` is the starting body. A sensible convention: one PR per ecosystem via
 `groups: {…: {patterns: ["*"]}}`, `open-pull-requests-limit: 5`, `labels: [dependency, chore]`, and
 a `deps(<ecosystem>)` commit prefix. Copy it, delete the ecosystem blocks that don't apply, and
-duplicate a block per extra subdirectory. Commit on a branch + PR; never merge directly.
+duplicate a block per extra subdirectory.
 
-### Required labels
+### Apply — labels first, then the config (one step, not two)
 
-**Every label named in `labels:` must already exist in the repo.** Dependabot does not create
-missing labels — it silently drops the ones it can't apply, so the PRs land unlabeled and any
-automation keyed on those labels (triage, auto-merge, release classification) never fires. Nothing
-in the PR or the Dependabot logs surfaces this as an error.
+> **Declaring `labels:` suppresses Dependabot's built-in defaults.** With no `labels:` key Dependabot
+> applies its own (`dependencies` plus the ecosystem name) and creates them as needed. Declare
+> `labels:` and *only* your list is used — and Dependabot never creates labels, it **silently drops**
+> the ones it can't apply. So a `labels:` list naming labels that don't exist yet produces PRs with
+> **no labels at all** — strictly worse than shipping no `labels:` key. Nothing in the PR, the checks,
+> or Dependabot's logs reports it, and any automation keyed on those labels never fires.
 
-With the template's convention that means **`dependency` and `chore`** — verify both before (or in
-the same pass as) landing `dependabot.yml`, and create whichever is missing:
+Creating the labels and landing the config are therefore **one indivisible step**, in this order —
+never land `dependabot.yml` and add the labels afterwards:
 
 ```bash
-gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name' \
-  | grep -xE 'dependency|chore'   # expect BOTH lines back
+OWNER=<your-org>; REPO=<repo>
 
+# 1. Create every label the config names (template convention: dependency + chore)
 gh label create dependency --repo "$OWNER/$REPO" --color 0366d6 --description "Dependency update" 2>/dev/null || true
 gh label create chore      --repo "$OWNER/$REPO" --color fef2c0 --description "Routine maintenance" 2>/dev/null || true
+
+# 2. Verify — expect BOTH lines back before going any further
+gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name' | grep -xE 'dependency|chore'
+
+# 3. Only now commit .github/dependabot.yml, on a branch + PR; never merge directly.
 ```
 
-If the repo's `labels:` list is customized away from the template's, the rule is the same for
-whatever it names: **every label in `labels:` must exist first**. Don't add labels beyond what
-`labels:` actually references.
+A customized `labels:` list follows the same rule for whatever it names: **every label in `labels:`
+must exist first**, and don't create labels beyond what `labels:` actually references. If a label
+can't be created, delete it from `labels:` rather than shipping a list that can't be applied.
+
+It drifts silently after the fact, too — a label deleted months later re-breaks it with no signal.
+The audit script's **`DEPLBL`** column re-checks conformance on every run (`ok` / `miss:a,b` /
+`n/a`); see [Audit](#audit--whats-live-vs-the-standard).
 
 ## Repo docs — README / CONTRIBUTING / AGENTS.md / CLAUDE.md
 
@@ -232,6 +244,12 @@ local git clone).
 wiki/projects, delete/update-branch, merge methods, rulesets) into one GraphQL query per
 ~20-repo chunk — no REST calls at all — so auditing a whole portfolio costs a handful of
 GraphQL requests.
+
+That includes the **`DEPLBL`** column, which enforces the Dependabot label rule above: it reads
+`.github/dependabot.yml` and the repo's label list as extra *fields* on the same batched query, so
+it adds no requests. `ok` = every declared label exists · `miss:a,b` = those declared labels don't
+exist and Dependabot is dropping them · `n/a` = no config, or none declared. (A repo with more than
+100 labels needs one paginated REST call to finish enumerating them — that repo only.)
 
 **`--deep` mode is comprehensive** — it covers the full ~83-lever settings catalog: repo
 metadata/features (template/archived/discussions/pages/forking/web-signoff), PR & merge

@@ -209,18 +209,31 @@ check the exit/status, not JSON content.)
    dimension `⏭️ N/A` (`⏭️ N/A (lightweight tier)` if the Tier check above
    classified the repo as lightweight), not `⚠️`.
 4. **Required labels.** If `dependabot.yml` exists, collect every label named in
-   any `labels:` list (the skill's template convention is `dependency` + `chore`)
-   and check each one exists in the repo:
+   any `labels:` list — across **all** `updates:` entries, and in either YAML form
+   (`labels: [a, b]` or a block sequence) — and check each one exists in the repo:
 
    ```bash
    gh label list --repo "$OWNER/$REPO" --limit 200 --json name --jq '.[].name'
    ```
 
-   A label referenced in `labels:` but absent from the repo is a **gap** —
-   Dependabot does not create labels, it silently drops the ones it can't apply,
-   so the PRs land unlabeled and nothing reports an error. Report one row per
-   referenced label. Skip this check entirely when there's no `dependabot.yml`;
-   do **not** flag labels the config never references.
+   Match case-insensitively (GitHub label names are case-insensitively unique).
+   A label referenced in `labels:` but absent from the repo is a **gap**, and a
+   high-severity one: declaring `labels:` *suppresses* Dependabot's built-in
+   defaults (`dependencies` + the ecosystem name), and Dependabot does not create
+   labels — it silently drops the ones it can't apply. So the PRs land with **no**
+   labels, which is worse than having no `labels:` key at all, and nothing in the
+   PR or Dependabot's logs reports it. Report one row per referenced label. Skip
+   this check entirely when there's no `dependabot.yml`; do **not** flag labels the
+   config never references.
+
+   The `repo-standards` skill's `scripts/repo-standards-audit.sh` reports the same
+   fact as its **`DEPLBL`** column (`ok` / `miss:a,b` / `n/a`) in both default and
+   `--deep` mode — use it to cross-check your finding, or as the fast path when
+   auditing many repos:
+
+   ```bash
+   repo-standards-audit.sh "$OWNER/$REPO" --json | jq '.[].dependabot_labels'
+   ```
 
 ### 3. Layer-2 branch ruleset (`main`)
 
@@ -445,7 +458,9 @@ Manifests detected: <list, or "none">
 | docker | ... | ... | |
 | github-actions | ... | ... | |
 
-Labels referenced by `dependabot.yml` (omit this table when there is no `dependabot.yml`):
+Labels referenced by `dependabot.yml` (omit this table when there is no `dependabot.yml`;
+one row per label the config actually names — the rows below are the template's
+convention, not a fixed list):
 
 | Label | Referenced in labels: | Exists in repo | Status |
 |---|---|---|---|
