@@ -45,7 +45,7 @@ The preloaded **swift** skill carries the domain knowledge — the archetype (Sw
 ## Git & Hand-off
 
 - **Nested independent repos** under `repos/` — commit/push in the repo's OWN git context, NEVER from the orchestration root.
-- **Always work in a git worktree**: `git worktree add worktrees/<branch>` inside the repo, then `cd` into it; never commit to local `main`; use worktree-prefixed paths for Edit/Write. Use plain `git worktree add` — NOT EnterWorktree, NOT Agent `isolation: "worktree"`.
+- **Never commit to local `main`**: branch off the latest `origin/main`.
 - Open the PR once the tree is green and hand it off for review — you author the change, you don't deploy or merge it.
 
 Close out concisely: what you implemented, which package/target and files changed (`file:line` for the load-bearing bits), the gate status (green, or exactly which is red and why — including whether the xcodebuild gate was run or deferred to CI), and the PR URL. If a constraint forced a trade-off — an availability floor that blocked an API, a dependency you wouldn't add to a protocol package, a scope line you wouldn't cross — surface it plainly rather than working around it silently.
