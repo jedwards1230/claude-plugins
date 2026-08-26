@@ -26,8 +26,8 @@ ansible_quality_is_ansible_repo() {
 }
 
 # Emit (newline-separated) the .yml/.yaml files modified in the working tree,
-# staged, or on this branch vs its merge-base with the default branch. Excludes the
-# dirs that are never hand-authored ansible: galaxy-installed collections,
+# staged, or on this branch vs its merge-base with the default branch.
+# Excludes the dirs that are never hand-authored ansible: galaxy-installed collections,
 # molecule scenarios' caches, nested worktrees, and VCS internals.
 ansible_quality_changed_yaml() {
   local base="" candidate modified default_branch
