@@ -19,7 +19,8 @@ three checks run against the Ansible YAML modified on the current branch:
 
 All gates are **diff-scoped**: they act only on `.yml` / `.yaml` files modified
 in the working tree, staged, or on the current branch vs. its merge-base with
-`main`/`master`. Galaxy-installed `collections/`, `.cache/`, and nested
+the default branch (`origin/HEAD`, falling back to `origin/main`/`origin/master`
+and then the local refs). Galaxy-installed `collections/`, `.cache/`, and nested
 `worktrees/` are excluded, and a `stop_hook_active` guard prevents infinite Stop
 loops. Diff-scoping is essential here — an Ansible repo typically carries
 pre-existing lint debt, so a repo-wide gate would false-block every turn.

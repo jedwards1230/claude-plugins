@@ -12,7 +12,8 @@ SubagentStop/TaskCompleted/TeammateIdle:
 
 All gates are **diff-based**: they act only on `.tf` / `.tofu` / `.tfvars` /
 `.tf.json` / `.tofu.json` files modified in the working tree, staged, or on the
-current branch vs. its merge-base with `main`/`master`. `.terraform/` caches and
+current branch vs. its merge-base with the default branch (`origin/HEAD`,
+falling back to `origin/main`/`origin/master` and then the local refs). `.terraform/` caches and
 nested `worktrees/` are excluded, and a `stop_hook_active` guard prevents
 infinite Stop loops.
 

@@ -8,7 +8,8 @@
 # config exists.
 #
 # Diff-scoped: lints only the Swift files modified on the current branch
-# (working tree, staged, and commits since the merge-base with main/master).
+# (working tree, staged, and commits since the merge-base with the default
+# branch).
 # SwiftLint exits non-zero on error-severity violations; warnings are shown
 # in the output but do not block on their own.
 set -euo pipefail
@@ -40,9 +41,13 @@ cd "$(git rev-parse --show-toplevel)"
 # Find merge base against the default branch. Try origin/HEAD first — forks
 # often use a non-main default (e.g. `fork`) while keeping an upstream `main`
 # whose merge-base would mis-scope the diff to the whole fork history.
+# Remote-tracking refs are preferred throughout: in a worktree-based workflow
+# the local `main` is never checked out, goes stale, and mis-scopes the diff
+# onto unrelated files. Local refs remain the last resort (e.g. no remote).
 DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
 BASE=""
-for candidate in $DEFAULT_BRANCH main master; do
+for candidate in "origin/${DEFAULT_BRANCH}" origin/main origin/master "$DEFAULT_BRANCH" main master; do
+  git rev-parse --verify --quiet "$candidate" >/dev/null || continue
   BASE=$(git merge-base HEAD "$candidate" 2>/dev/null || true)
   [ -n "$BASE" ] && break
 done
