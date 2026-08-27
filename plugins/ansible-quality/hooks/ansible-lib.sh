@@ -26,12 +26,17 @@ ansible_quality_is_ansible_repo() {
 }
 
 # Emit (newline-separated) the .yml/.yaml files modified in the working tree,
-# staged, or on this branch vs its merge-base with main/master. Excludes the
-# dirs that are never hand-authored ansible: galaxy-installed collections,
+# staged, or on this branch vs its merge-base with the default branch.
+# Excludes the dirs that are never hand-authored ansible: galaxy-installed collections,
 # molecule scenarios' caches, nested worktrees, and VCS internals.
 ansible_quality_changed_yaml() {
-  local base="" candidate modified
-  for candidate in main master; do
+  local base="" candidate modified default_branch
+  # Prefer remote-tracking refs: in a worktree-based workflow the local `main`
+  # is never checked out, goes stale, and mis-scopes the diff onto unrelated
+  # files. Local refs remain the last resort (e.g. no remote configured).
+  default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
+  for candidate in "origin/${default_branch}" origin/main origin/master "$default_branch" main master; do
+    git rev-parse --verify --quiet "$candidate" >/dev/null || continue
     base=$(git merge-base HEAD "$candidate" 2>/dev/null || true)
     [ -n "$base" ] && break
   done

@@ -29,8 +29,13 @@ fi
 cd "$(git rev-parse --show-toplevel)"
 
 # Find merge base against default branch
+# Prefer remote-tracking refs: in a worktree-based workflow the local `main`
+# is never checked out, goes stale, and mis-scopes the diff onto unrelated
+# files. Local refs remain the last resort (e.g. no remote configured).
+DEFAULT_BRANCH=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)
 BASE=""
-for candidate in main master; do
+for candidate in "origin/${DEFAULT_BRANCH}" origin/main origin/master "$DEFAULT_BRANCH" main master; do
+  git rev-parse --verify --quiet "$candidate" >/dev/null || continue
   BASE=$(git merge-base HEAD "$candidate" 2>/dev/null || true)
   [ -n "$BASE" ] && break
 done
