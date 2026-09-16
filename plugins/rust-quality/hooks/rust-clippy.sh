@@ -25,6 +25,12 @@ export PATH="${HOME}/.cargo/bin:${PATH}"
 . "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/quality-emit.sh" 2>/dev/null \
   || . "$(dirname "$0")/quality-emit.sh"
 
+# Missing-system-library detector (rust_missing_system_dep). Same resolution
+# order as the bounded-output helper above.
+# shellcheck source=/dev/null
+. "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/rust-system-deps.sh" 2>/dev/null \
+  || . "$(dirname "$0")/rust-system-deps.sh"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
@@ -135,9 +141,17 @@ while IFS= read -r crate_dir; do
   if $HAVE_CLIPPY; then
     # -D warnings promotes every clippy/compiler warning to an error.
     if ! (cd "$crate_dir" && cargo clippy --all-targets -- -D warnings) >"$CHECK_OUT" 2>&1; then
-      echo "cargo clippy issues in crate: $crate_dir" >&2
-      emit_bounded "clippy-$slug.log" "cargo clippy --all-targets -- -D warnings" < "$CHECK_OUT"
-      FAILED=1
+      # Same environment gap as in rust-test.sh: clippy still runs build
+      # scripts, so a missing -sys package fails it before a lint is reached.
+      if rust_missing_system_dep "$CHECK_OUT"; then
+        # Reported and skipped, not failed — but cargo audit below still runs,
+        # since it reads Cargo.lock and needs no build.
+        rust_report_missing_system_dep "cargo clippy" "$crate_dir" "$CHECK_OUT"
+      else
+        echo "cargo clippy issues in crate: $crate_dir" >&2
+        emit_bounded "clippy-$slug.log" "cargo clippy --all-targets -- -D warnings" < "$CHECK_OUT"
+        FAILED=1
+      fi
     fi
   fi
 

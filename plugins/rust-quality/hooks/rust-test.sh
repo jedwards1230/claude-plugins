@@ -19,6 +19,12 @@ export PATH="${HOME}/.cargo/bin:${PATH}"
 . "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/quality-emit.sh" 2>/dev/null \
   || . "$(dirname "$0")/quality-emit.sh"
 
+# Missing-system-library detector (rust_missing_system_dep). Same resolution
+# order as the bounded-output helper above.
+# shellcheck source=/dev/null
+. "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/hooks/rust-system-deps.sh" 2>/dev/null \
+  || . "$(dirname "$0")/rust-system-deps.sh"
+
 INPUT=$(cat)
 
 # Prevent infinite loops — guard against missing jq
@@ -94,7 +100,8 @@ fi
 # Use a temp file rather than process substitution / pipe-to-while so the
 # FAILED flag survives in the parent shell (bash 3.2 compatible).
 CRATE_LIST=$(mktemp)
-trap 'rm -f "$CRATE_LIST"' EXIT
+TEST_OUT=$(mktemp)
+trap 'rm -f "$CRATE_LIST" "$TEST_OUT"' EXIT
 printf '%s\n' "$CRATES_TO_CHECK" > "$CRATE_LIST"
 
 FAILED=0
@@ -102,9 +109,16 @@ while IFS= read -r crate_dir; do
   [ -z "$crate_dir" ] && continue
   # Per-crate log slug so a second failing crate doesn't overwrite the first's.
   slug=$(printf '%s' "$crate_dir" | tr -c 'A-Za-z0-9._-' '-')
-  if ! TEST_OUT=$( (cd "$crate_dir" && cargo test --all-targets) 2>&1 ); then
+  if ! (cd "$crate_dir" && cargo test --all-targets) >"$TEST_OUT" 2>&1; then
+    # A missing system development package fails the build before any project
+    # code compiles. That is an environment gap the author cannot fix by
+    # editing code, so it is reported and skipped rather than failing the hook.
+    if rust_missing_system_dep "$TEST_OUT"; then
+      rust_report_missing_system_dep "cargo test" "$crate_dir" "$TEST_OUT"
+      continue
+    fi
     echo "cargo test failed in crate: $crate_dir" >&2
-    printf '%s\n' "$TEST_OUT" | emit_bounded "test-$slug.log" "cargo test --all-targets"
+    emit_bounded "test-$slug.log" "cargo test --all-targets" < "$TEST_OUT"
     FAILED=1
   fi
 done < "$CRATE_LIST"
