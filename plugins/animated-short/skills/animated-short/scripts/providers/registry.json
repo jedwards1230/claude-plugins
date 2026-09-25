@@ -1,0 +1,297 @@
+{
+  "version": 1,
+  "checked": "2026-09-25",
+  "notes": "Per role, ordered candidates: the first candidate of a tier is its default and the rest are the fallback chain (used only on availability errors). Catalog prices are a snapshot from GET /api/v1/models?output_modalities=all (the bare /models hides audio and image models); preflight refreshes them. cost.usd is a conservative per-unit estimate used when a better one is unavailable. terms.commercial false or null is filtered out when film.json providers.commercial_safe is true. opt_in candidates are used only when named in providers.roles or with --model.",
+  "catalog_query": "/models?output_modalities=all",
+  "sticky": {
+    "tts": ["voice", "style"],
+    "image": []
+  },
+  "blocked": [
+    { "pattern": "^openai/sora", "reason": "Sora is shut down (2026-09-24) although the catalog may still list it" }
+  ],
+  "deprecations": [
+    "openai/whisper-1 retires 2027-02-26 and is the only OpenAI transcription model known to return word timestamps: keep a second aligner (local WhisperX, or the $0 energy aligner, which is coarse).",
+    "google/gemini-3.1-flash-tts-preview is a preview/legacy model: probe google/gemini-3.8-flash-tts first.",
+    "google/gemini-2.5-flash-image retires 2026-10-02 (opt-in only; skipped after that date).",
+    "The gpt-image-1 family retires 2026-12-01 and is not offered; Imagen 4 is shut down and is not offered."
+  ],
+  "roles": {
+    "tts": [
+      {
+        "id": "openrouter:google/gemini-3.8-flash-tts",
+        "provider": "openrouter", "model": "google/gemini-3.8-flash-tts", "endpoint": "/audio/speech", "modality": "speech",
+        "tiers": ["final", "draft"], "default": true, "opt_in": false, "probe_tier1": true,
+        "cost": { "unit": "take", "usd": 0.01, "min_usd": 0.002, "tokens_per_second": 32, "basis": "catalog tokens",
+                  "pricing": { "prompt": 0.0000005, "completion": 0.000009 } },
+        "params": { "response_format": "pcm", "sample_rate": 24000,
+                    "audition_voices": ["Sulafat", "Achird", "Aoede", "Puck", "Kore", "Charon", "Iapetus", "Vindemiatrix"] },
+        "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
+        "notes": "Stable Gemini TTS. Returned 402 on at least one key where the preview worked, so tier-1 preflight makes a real sub-cent call before planning."
+      },
+      {
+        "id": "openrouter:google/gemini-3.1-flash-tts-preview",
+        "provider": "openrouter", "model": "google/gemini-3.1-flash-tts-preview", "endpoint": "/audio/speech", "modality": "speech",
+        "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": true,
+        "cost": { "unit": "take", "usd": 0.01, "min_usd": 0.003, "tokens_per_second": 32, "basis": "catalog tokens; under 1 cent per take measured",
+                  "pricing": { "prompt": 0.000001, "completion": 0.00002 } },
+        "params": { "response_format": "pcm", "sample_rate": 24000,
+                    "audition_voices": ["Sulafat", "Achird", "Aoede", "Puck", "Kore", "Charon", "Iapetus", "Vindemiatrix"] },
+        "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
+        "notes": "Preview/legacy model, proven in a finished film (PCM 24 kHz s16le mono; style via provider.options.google-ai-studio.speech_metadata.style). Same voice names as 3.8."
+      },
+      {
+        "id": "openrouter:google/gemini-3.8-flash-lite-tts",
+        "provider": "openrouter", "model": "google/gemini-3.8-flash-lite-tts", "endpoint": "/audio/speech", "modality": "speech",
+        "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": true,
+        "cost": { "unit": "take", "usd": 0.008, "min_usd": 0.002, "tokens_per_second": 32, "basis": "catalog tokens",
+                  "pricing": { "prompt": 0.0000005, "completion": 0.000006 } },
+        "params": { "response_format": "pcm", "sample_rate": 24000,
+                    "audition_voices": ["Sulafat", "Achird", "Aoede", "Puck", "Kore", "Charon", "Iapetus", "Vindemiatrix"] },
+        "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
+        "notes": "Faster, cheaper member of the 3.8 TTS family; same voice names. Request shape assumed identical to 3.8 (not yet proven in a film)."
+      },
+      {
+        "id": "openrouter:hexgrad/kokoro-82m",
+        "provider": "openrouter", "model": "hexgrad/kokoro-82m", "endpoint": "/audio/speech", "modality": "speech",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "probe_tier1": true,
+        "cost": { "unit": "take", "usd": 0.005, "min_usd": 0.001, "basis": "catalog tokens (prompt only)",
+                  "pricing": { "prompt": 0.000004, "completion": 0 } },
+        "params": { "response_format": "pcm", "sample_rate": 24000, "style": false,
+                    "audition_voices": ["af_heart", "af_bella", "am_michael", "bf_emma", "bm_george"] },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "Apache-2.0 weights" },
+        "notes": "Opt-in: a different voice set (af_*, am_*, ...) and no style prompt, so it can never be a silent fallback for a Gemini voice."
+      }
+    ],
+    "align": [
+      {
+        "id": "openrouter:openai/whisper-1",
+        "provider": "openrouter", "model": "openai/whisper-1", "endpoint": "/audio/transcriptions", "modality": "transcription",
+        "tiers": ["final", "draft"], "default": true, "opt_in": false, "probe_tier1": true, "retires": "2027-02-26",
+        "cost": { "unit": "minute", "usd": 0.01, "min_usd": 0.001, "basis": "about $0.006 per audio minute; responses carry usage.cost" },
+        "params": { "response_format": "verbose_json", "timestamp_granularities": ["word"], "requires_words": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Word timestamps proven in a finished film; doubles as the pronunciation checker. Retires 2027-02-26."
+      },
+      {
+        "id": "openrouter:openai/whisper-large-v3",
+        "provider": "openrouter", "model": "openai/whisper-large-v3", "endpoint": "/audio/transcriptions", "modality": "transcription",
+        "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": true,
+        "cost": { "unit": "minute", "usd": 0.01, "min_usd": 0.001, "basis": "catalog tokens; responses carry usage.cost" },
+        "params": { "response_format": "verbose_json", "timestamp_granularities": ["word"], "requires_words": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Word timestamps unverified: a response without words counts as unavailable and the walker moves on."
+      },
+      {
+        "id": "local:whisperx",
+        "provider": "local", "model": "whisperx", "endpoint": "local:whisperx", "modality": "transcription",
+        "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "minute", "usd": 0, "basis": "local" },
+        "params": { "requires_words": true, "model_size": "small" },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "WhisperX BSD-2-Clause; Whisper weights MIT" },
+        "notes": "Used only when the whisperx package is importable (pip install whisperx). Forced alignment, runs on CPU or GPU."
+      },
+      {
+        "id": "local:energy",
+        "provider": "local", "model": "energy", "endpoint": "local:energy", "modality": "transcription",
+        "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "minute", "usd": 0, "basis": "local" },
+        "params": { "requires_words": true, "coarse": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "part of this plugin" },
+        "notes": "$0 last resort: spreads the script's words over voiced regions by syllable count. Output is flagged coarse; it cannot catch mispronunciations."
+      }
+    ],
+    "music": [
+      {
+        "id": "openrouter:google/lyria-3-pro-preview",
+        "provider": "openrouter", "model": "google/lyria-3-pro-preview", "endpoint": "/chat/completions", "modality": "audio",
+        "tiers": ["final"], "default": true, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "song", "usd": 0.08, "basis": "model description: $0.08 per song" },
+        "params": { "stream": true },
+        "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
+        "notes": "Streaming chat completion; audio arrives as choices[0].delta.audio.data chunks (MP3 in practice). Length is not controllable: beat-track and cut on downbeats."
+      },
+      {
+        "id": "openrouter:google/lyria-3-clip-preview",
+        "provider": "openrouter", "model": "google/lyria-3-clip-preview", "endpoint": "/chat/completions", "modality": "audio",
+        "tiers": ["draft", "final"], "default": true, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "song", "usd": 0.04, "basis": "model description: $0.04 per 30 s clip" },
+        "params": { "stream": true },
+        "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
+        "notes": "30-second clips: the draft default, and a final fallback for short films (music.py cut can loop whole bars)."
+      }
+    ],
+    "image": [
+      {
+        "id": "openrouter:google/gemini-3-pro-image-preview",
+        "provider": "openrouter", "model": "google/gemini-3-pro-image-preview", "endpoint": "/chat/completions", "modality": "image",
+        "tiers": ["final"], "default": true, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.3, "basis": "measured $0.245 per 4K sheet; catalog image_output $0.00012/token",
+                  "usd_by_size": { "1K": 0.08, "2K": 0.16, "4K": 0.3 }, "pricing": { "prompt": 0.000002, "image_output": 0.00012 } },
+        "params": { "image_size": "4K" },
+        "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
+        "notes": "Nano Banana Pro. 4K needs this -preview id. Chat with modalities [image, text] and image_config; reference images as data URLs."
+      },
+      {
+        "id": "openrouter:google/gemini-3-pro-image",
+        "provider": "openrouter", "model": "google/gemini-3-pro-image", "endpoint": "/chat/completions", "modality": "image",
+        "tiers": ["final"], "default": false, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.16, "basis": "catalog image_output $0.00012/token; about $0.134 per 2K image",
+                  "usd_by_size": { "1K": 0.08, "2K": 0.16 }, "pricing": { "prompt": 0.000002, "image_output": 0.00012 } },
+        "params": { "image_size": "2K" },
+        "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
+        "notes": "Non-preview Nano Banana Pro did not serve 4K when tried; asks for 2K."
+      },
+      {
+        "id": "openrouter:google/gemini-3.1-flash-image",
+        "provider": "openrouter", "model": "google/gemini-3.1-flash-image", "endpoint": "/chat/completions", "modality": "image",
+        "tiers": ["draft"], "default": true, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.08, "basis": "catalog image_output $0.00006/token; about $0.067 per 1K image",
+                  "usd_by_size": { "1K": 0.08, "2K": 0.16 }, "pricing": { "prompt": 0.0000005, "image_output": 0.00006 } },
+        "params": { "image_size": "1K" },
+        "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
+        "notes": "Nano Banana 2: the draft tier for animatic art."
+      },
+      {
+        "id": "openrouter:google/gemini-3.1-flash-image-preview",
+        "provider": "openrouter", "model": "google/gemini-3.1-flash-image-preview", "endpoint": "/chat/completions", "modality": "image",
+        "tiers": ["draft"], "default": false, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.08, "basis": "catalog image_output $0.00006/token",
+                  "usd_by_size": { "1K": 0.08, "2K": 0.16 }, "pricing": { "prompt": 0.0000005, "image_output": 0.00006 } },
+        "params": { "image_size": "1K" },
+        "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
+        "notes": "Preview id of Nano Banana 2."
+      },
+      {
+        "id": "openrouter:google/gemini-2.5-flash-image",
+        "provider": "openrouter", "model": "google/gemini-2.5-flash-image", "endpoint": "/chat/completions", "modality": "image",
+        "tiers": ["draft"], "default": false, "opt_in": true, "probe_tier1": false, "retires": "2026-10-02",
+        "cost": { "unit": "sheet", "usd": 0.05, "basis": "catalog image_output $0.00003/token", "pricing": { "prompt": 0.0000003, "image_output": 0.00003 } },
+        "params": { "image_size": "1K" },
+        "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
+        "notes": "Retiring 2026-10-02; opt-in until then."
+      },
+      {
+        "id": "openrouter:openai/gpt-image-2",
+        "provider": "openrouter", "model": "openai/gpt-image-2", "endpoint": "/images", "modality": "image",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.25, "basis": "catalog image_output $0.00003/token; responses carry usage.cost" },
+        "params": { "resolution": "2K", "background": "opaque", "output_format": "png" },
+        "terms": { "commercial": true, "watermark": "C2PA metadata", "consent_needed": false },
+        "notes": "Opt-in. Uses the dedicated POST /images endpoint (native transparency available); no reference images through this tool. Not proven in a film."
+      },
+      {
+        "id": "openrouter:recraft/recraft-v4.1",
+        "provider": "openrouter", "model": "recraft/recraft-v4.1", "endpoint": "/images", "modality": "image",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens; about 1K output" },
+        "params": { "resolution": "1K", "output_format": "png" },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Opt-in. About 1K output; strong for flat vector-like stickers. Not proven in a film."
+      },
+      {
+        "id": "openrouter:black-forest-labs/flux.2-pro",
+        "provider": "openrouter", "model": "black-forest-labs/flux.2-pro", "endpoint": "/images", "modality": "image",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens" },
+        "params": { "resolution": "2K", "output_format": "png" },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "hosted API" },
+        "notes": "Opt-in. Not proven in a film."
+      },
+      {
+        "id": "openrouter:black-forest-labs/flux.2-klein-4b",
+        "provider": "openrouter", "model": "black-forest-labs/flux.2-klein-4b", "endpoint": "/images", "modality": "image",
+        "tiers": ["draft"], "default": false, "opt_in": true, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.05, "basis": "catalog image_output tokens" },
+        "params": { "resolution": "1K", "output_format": "png" },
+        "terms": { "commercial": false, "watermark": false, "consent_needed": false, "license": "FLUX.2 klein weights are non-commercial" },
+        "notes": "Non-commercial weights: filtered out while commercial_safe is on."
+      },
+      {
+        "id": "openrouter:bytedance-seed/seedream-4.5",
+        "provider": "openrouter", "model": "bytedance-seed/seedream-4.5", "endpoint": "/images", "modality": "image",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "probe_tier1": false,
+        "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens" },
+        "params": { "resolution": "2K", "output_format": "png" },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Opt-in. Not proven in a film."
+      }
+    ],
+    "critic": [
+      {
+        "id": "openrouter:google/gemini-3.8-flash",
+        "provider": "openrouter", "model": "google/gemini-3.8-flash", "endpoint": "/chat/completions", "modality": "text",
+        "tiers": ["final", "draft"], "default": true, "opt_in": false, "probe_tier1": true,
+        "cost": { "unit": "review", "usd": 0.05, "min_usd": 0.002, "basis": "catalog tokens; about 1 cent per 90 s film",
+                  "pricing": { "prompt": 0.00000075, "completion": 0.00000375 } },
+        "params": { "video": true, "audio": true, "images": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Watches video with audio (video_url data URL) and listens (input_audio). A different model family from the builder. Invents some timestamps: confirm defects on stills."
+      },
+      {
+        "id": "openrouter:google/gemini-3.1-pro-preview",
+        "provider": "openrouter", "model": "google/gemini-3.1-pro-preview", "endpoint": "/chat/completions", "modality": "text",
+        "tiers": ["signoff", "final"], "default": true, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "review", "usd": 0.25, "min_usd": 0.01, "basis": "catalog tokens",
+                  "pricing": { "prompt": 0.000002, "completion": 0.000012 } },
+        "params": { "video": true, "audio": true, "images": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Sign-off escalation for the director pass; fallback critic."
+      },
+      {
+        "id": "openrouter:google/gemini-2.5-pro",
+        "provider": "openrouter", "model": "google/gemini-2.5-pro", "endpoint": "/chat/completions", "modality": "text",
+        "tiers": ["signoff", "final"], "default": false, "opt_in": false, "probe_tier1": false,
+        "cost": { "unit": "review", "usd": 0.2, "min_usd": 0.01, "basis": "catalog tokens",
+                  "pricing": { "prompt": 0.00000125, "completion": 0.00001 } },
+        "params": { "video": true, "audio": true, "images": true },
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false },
+        "notes": "Second sign-off option."
+      }
+    ],
+    "video": [
+      {
+        "id": "openrouter:google/veo-3.1-lite", "provider": "openrouter", "model": "google/veo-3.1-lite", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": true, "watermark": "SynthID", "consent_needed": false },
+        "notes": "Opt-in only, never default; no tool uses the video role yet. Clips are 4-8 s and slow."
+      },
+      {
+        "id": "openrouter:google/veo-3.1-fast", "provider": "openrouter", "model": "google/veo-3.1-fast", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": true, "watermark": "SynthID", "consent_needed": false },
+        "notes": "Opt-in only; not implemented."
+      },
+      {
+        "id": "openrouter:google/veo-3.1", "provider": "openrouter", "model": "google/veo-3.1", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": true, "watermark": "SynthID", "consent_needed": false },
+        "notes": "Opt-in only; not implemented."
+      },
+      {
+        "id": "openrouter:kwaivgi/kling-v3.0-std", "provider": "openrouter", "model": "kwaivgi/kling-v3.0-std", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final", "draft"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": null, "watermark": null, "consent_needed": false },
+        "notes": "Opt-in only; not implemented; output terms not verified (filtered while commercial_safe is on)."
+      },
+      {
+        "id": "openrouter:kwaivgi/kling-v3.0-pro", "provider": "openrouter", "model": "kwaivgi/kling-v3.0-pro", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": null, "watermark": null, "consent_needed": false },
+        "notes": "Opt-in only; not implemented; output terms not verified."
+      },
+      {
+        "id": "openrouter:kwaivgi/kling-video-o1", "provider": "openrouter", "model": "kwaivgi/kling-video-o1", "endpoint": "/videos", "modality": "video",
+        "tiers": ["final"], "default": false, "opt_in": true, "implemented": false,
+        "cost": { "unit": "clip", "usd": null, "basis": "the catalog shows no price" },
+        "terms": { "commercial": null, "watermark": null, "consent_needed": false },
+        "notes": "Opt-in only; not implemented; output terms not verified."
+      }
+    ]
+  }
+}

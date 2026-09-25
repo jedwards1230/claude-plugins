@@ -11,7 +11,8 @@ Plugins with personal or homelab-specific conventions are maintained separately 
 /plugin install <plugin-name>@jedwards1230-plugins
 ```
 
-Browse [`plugins/`](plugins/) for what's available.
+Browse [`plugins/`](plugins/) for what's available; for example, [`animated-short`](plugins/animated-short/)
+makes short narrated animated films (explainers, stories, promos) from one round of questions.
 
 ## Development
 

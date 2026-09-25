@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FilmReview",
+  "$comment": "The blueprint's review.schema.json, with additive extensions only: reviewer adds 'comparer' (judges one persona takeaway against the film's message) and 'originality'; optional top-level 'matches_message' (comparer verdict), 'banned_patterns_seen' (banned patterns the reviewer saw) and 'checks' (the technical reviewer's machine checks, as emitted by tools/qa.mjs check --json). Every document valid against the blueprint schema is valid here.",
+  "type": "object",
+  "required": ["reviewer", "cut", "scores", "defects", "verdict"],
+  "properties": {
+    "reviewer": { "enum": ["script_persona", "fact_checker", "frame_qa", "audio", "director", "persona", "technical", "comparer", "originality"] },
+    "cut": { "type": "string", "description": "Render id, e.g. r3" },
+    "persona": { "type": "string", "description": "Name and prior knowledge, for persona reviewers" },
+    "scores": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message_landed": { "$ref": "#/$defs/score" },
+        "new_knowledge":  { "$ref": "#/$defs/score" },
+        "story":          { "$ref": "#/$defs/score", "description": "Logline, motif payoff, echo ending" },
+        "originality":    { "$ref": "#/$defs/score" },
+        "mechanism":      { "$ref": "#/$defs/score", "description": "Shows how things work, not stock imagery" },
+        "character":      { "$ref": "#/$defs/score", "description": "Acting, expressions, continuity of cast" },
+        "reads":          { "$ref": "#/$defs/score", "description": "One read at a time, enough dwell" },
+        "accuracy":       { "$ref": "#/$defs/score" },
+        "sync":           { "$ref": "#/$defs/score" },
+        "audio":          { "$ref": "#/$defs/score" },
+        "visual_polish":  { "$ref": "#/$defs/score" },
+        "accessibility":  { "$ref": "#/$defs/score" },
+        "overall":        { "$ref": "#/$defs/score" }
+      }
+    },
+    "takeaway":   { "type": "string", "description": "One sentence, in the persona's words" },
+    "learned":    { "type": "array", "items": { "type": "string" } },
+    "quiz":       { "type": "array", "items": { "$ref": "#/$defs/answer" } },
+    "confusions": { "type": "array", "items": { "$ref": "#/$defs/moment" } },
+    "worries":    { "type": "array", "items": { "$ref": "#/$defs/moment" } },
+    "defects":    { "type": "array", "items": { "$ref": "#/$defs/defect" } },
+    "claims":     { "type": "array", "items": { "$ref": "#/$defs/claim" } },
+    "verdict":    { "enum": ["ship", "iterate", "rethink"] },
+    "matches_message": { "type": "boolean", "description": "Extension (comparer): true when the persona's takeaway says the same thing as the film's message" },
+    "banned_patterns_seen": { "type": "array", "items": { "type": "string" }, "description": "Extension (originality, director): banned patterns from film.json style.banned_patterns that appear in the cut" },
+    "checks": { "type": "array", "items": { "$ref": "#/$defs/check" }, "description": "Extension (technical): every machine check with its result, as emitted by tools/qa.mjs check --json" }
+  },
+  "$defs": {
+    "score":  { "type": "object", "required": ["value", "why"], "properties": { "value": { "type": "number", "minimum": 0, "maximum": 10 }, "why": { "type": "string" } } },
+    "moment": { "type": "object", "required": ["what"], "properties": { "at": { "$ref": "#/$defs/time" }, "what": { "type": "string" } } },
+    "time":   { "type": "string", "pattern": "^\\d{1,2}:\\d{2}(\\.\\d)?$" },
+    "answer": { "type": "object", "required": ["q", "a", "correct"], "properties": { "q": { "type": "string" }, "a": { "type": "string" }, "correct": { "type": "boolean" } } },
+    "defect": {
+      "type": "object",
+      "required": ["at", "severity", "check", "issue", "fix"],
+      "properties": {
+        "at":       { "$ref": "#/$defs/time" },
+        "severity": { "enum": ["blocking", "major", "minor", "nit"] },
+        "check":    { "type": "string", "description": "Checklist id, e.g. READ-2 or TEXT-1" },
+        "issue":    { "type": "string" },
+        "fix":      { "type": "string" },
+        "maybe_intentional": { "type": "boolean" }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "required": ["text", "where", "status"],
+      "properties": {
+        "text":   { "type": "string" },
+        "where":  { "type": "string", "description": "Line id or on-screen label" },
+        "source": { "type": "string", "description": "File, page or query, with date" },
+        "status": { "enum": ["verified", "stale", "conflict", "unsourced", "offscreen_violation"] }
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": ["id", "ok"],
+      "description": "Extension: one technical check (TECH-<n>) and its measured value",
+      "properties": {
+        "id":    { "type": "string" },
+        "name":  { "type": "string" },
+        "ok":    { "type": "boolean" },
+        "value": { "type": ["string", "number", "boolean", "null"] }
+      }
+    }
+  }
+}
