@@ -105,6 +105,10 @@ Rules:
 - An expression never snaps: swap stickers or `face` poses only through `take` / `takes`.
 - Squash and stretch pivot on the contact point (translate to the feet, scale, translate
   back), so a landing character stays planted.
+- Contact points belong in the manifest: give a sticker an anchor at its fingertip, feet or
+  handle end (`art.py cutout --anchors "hand_press=0.48,0.97"`;
+  `storyboard.md`, "Stickers and anchors"), then `D.sticker` places, turns and scales it about
+  that point. A re-cut keeps the anchor instead of breaking offsets hard-coded in the shot.
 - Give every character its own id for `boil`, `blink` seeds and `idle`; never share a seed
   between two characters, or they will blink and bob as twins.
 - Blinks: 2-4 s apart and irregular (the default). A character that never blinks reads as
@@ -134,10 +138,14 @@ FILM.shot('robin-cheer', function (ctx, t, api) {
   ctx.translate(bx, floor + by + hop.y);                 // pivot on the feet
   ctx.rotate(api.U.deg(idle.r + br));
   ctx.scale(hop.sx * face.sx * idle.sx, hop.sy * face.sy * idle.sy);
-  D.sticker(ctx, name, 0, -h / 2, { w, lift: Math.min(1, -hop.y / 110) });
+  api.sticker(ctx, name, 0, -h / 2, { w, lift: Math.min(1, -hop.y / 110), anchor: [0.5, 0.5] });
   ctx.restore();
 });
 ```
+
+(`api.sticker` draws the visible placeholder while a sticker is still missing, as in the
+animatic. With a manifest anchor at the feet, `[0.5, 1]`, drop the explicit `anchor` and draw
+at `0, 0`: the feet sit on the pivot.)
 
 Storyboard element: `{"id": "robin", "kind": "custom", "shot": "robin-cheer", "pos": [0.3, 0.6],
 "w": 500, "h": 600, "cues": {"cheer": "vo:l4.w2"}}`.

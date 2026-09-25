@@ -41,7 +41,14 @@ list (defaults below), checked by the originality gate.
 No webfont ships with the engine; renders fall back to system fonts, which differ between
 machines (generic `cursive` maps oddly on Linux). For a handwritten look, add an OFL (SIL Open
 Font License) or similarly licensed `.woff2` to `$FILM/web/fonts/` and declare it in
-film.json:
+film.json. Families that suit the collage look, all under the OFL (as of 2026-09): for the
+hand, Caveat (400-700), Kalam (300, 400, 700) or Patrick Hand (400 only); for print and
+labels, Andika (400, 700), Atkinson Hyperlegible (400, 700) or Nunito. Get them from the
+google/fonts repository on GitHub (`ofl/<family>/`, with its OFL.txt) or as `.woff2` from the
+Google Fonts CSS API (fonts.googleapis.com/css2?family=<Family>), and keep the license text
+with the film. The `heading` and `body` styles draw at weight 700: declare a single-weight
+face as `"weight": "400 700"` (so the browser uses it for bold instead of faking another
+font), or add the bold file as a second face:
 
 ```json
 "style": {
@@ -57,9 +64,10 @@ film.json:
 ```
 
 Then `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"` and
-`node "$FILM/tools/render.mjs" glyph --film "$FILM"` (every letter must advance). Fonts load
-from the film's own files; renders never fetch fonts from the network. Credit the font in
-film.json `credits`.
+`node "$FILM/tools/render.mjs" glyph --film "$FILM"`: every letter must advance, and every
+declared face must load (a wrong path or family name fails the test instead of silently
+falling back to another font). Fonts load from the film's own files; renders never fetch
+fonts from the network. Credit the font in film.json `credits`.
 
 ## Sticker sheets
 
@@ -68,12 +76,15 @@ file.
 
 1. Style block (automatic, from film.json): `STYLE: collage illustration, <style.texture>;
    hand-made, cut-paper look, confident slightly wobbly ink outlines; tone: <tone>.` plus
-   `Limited palette: ...` (when `style.palette` is a list), `Recurring motif: ...` and
-   `Avoid: <banned patterns>`. Pass `--no-style` when the prompt file carries the whole style.
-2. Format block (automatic): each item a separate die-cut sticker with a thick, clean, solid
-   WHITE border; a loose grid with lots of space; stickers never touch; ONE flat uniform grey
-   `#8C8C8C` background with no texture, gradient, vignette, shadows, text, letters, numbers,
-   logos, watermarks or frames; front-facing, flat even lighting.
+   `Limited palette: ...` (a list palette as is; an object palette's accent, ink, paper and
+   swatches), `Recurring motif: ...` and `Avoid: <banned patterns>`. Pass `--no-style` when
+   the prompt file carries the whole style.
+2. Format block (automatic): a flat digital sheet like a flat scan, not a photo (no table, no
+   perspective, no shadows, evenly lit); each item a separate die-cut sticker with a thick,
+   clean, solid WHITE border; a loose grid with lots of space, clear of the edges; stickers
+   never touch; ONE flat uniform grey `#8C8C8C` background with no texture, gradient, vignette,
+   lighter band, shadows, text, letters, numbers, logos, watermarks or frames; front-facing,
+   flat even lighting.
 3. `STICKERS ON THIS SHEET (draw each exactly once):` followed by the prompt file, then the
    reference wording when `--refs` is passed (match the reference sheet's style, line quality,
    palette and borders exactly, but draw only the new items) or `--likeness` (take only
@@ -106,8 +117,13 @@ Sheet rules:
 - Draft sheets (`--draft`, 1K) for the animatic use the same prompt files with a different
   `--name` (for example `cast-draft`) so the final cutouts replace them name for name.
 - After every cutout, read `work/qa/cutout-<sheet>.jpg` and `art.py contact`: a missing border,
-  a merged pair or a sticker with a grey halo is fixed with `--variant 1` (a fresh try) or
-  `--min-area` / `--allow-extra`, not ignored.
+  a merged pair or a sticker with a grey halo is fixed with `--variant 1` (a fresh try),
+  `--skip`, `--defringe` or `--min-area` / `--allow-extra`, not ignored. A model that draws
+  the sheet as a photo (a table, soft shadows, a lighter band) is keyed anyway: the cutout
+  evens out the ground and keys grey cast shadows with it.
+- The white die-cut border exists for the cutout. Once the alpha exists it can go:
+  `art.py cutout --strip-border` gives cut-paper pieces instead of stickers, which also avoids
+  the sticker-sheet look reviewers flag as a default.
 
 Emotion and pose sheet prompts: `acting-kit.md` section 1.
 
@@ -144,7 +160,12 @@ Procedure at creative direction:
 2. Spawn a fresh subagent with the creative-direction originality prompt from
    `review-prompts.md` and both files. It answers: could this be mistaken for another film,
    which banned patterns or default choices are present, and three concrete changes that would
-   make it unmistakably this film; it saves the answer to `work/direction/originality.md` with
-   the score alone on line 1.
+   make it unmistakably this film; it saves the answer to `work/direction/originality-v1.md`
+   with the score alone on line 1.
 3. Gate: originality score >= 7 (film.json `review.originality_min`) and no banned pattern
-   planned. Otherwise change the motif, palette, cast or structure and run it again.
+   planned; check N is `work/direction/originality-v<N>.md`. Otherwise change the motif,
+   palette, cast or structure, list what changed, and run the re-check prompt: a fresh
+   subagent reads the previous check and the changes, says which issues are fixed and lists
+   only new blocking ones, so the target does not move with every new reviewer. At most 3
+   re-checks; then go on with the best version and carry its open concern into the film-review
+   originality gate (`phases.md`, phase 4).

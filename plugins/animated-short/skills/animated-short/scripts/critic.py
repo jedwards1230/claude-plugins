@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Ask the critic model about a cut, a mix or stills: python3 critic.py ask --film <dir> --prompt-file P
-[--video cut.mp4] [--audio a.wav ...] [--images a.jpg ...] [--tier draft|final|signoff] [--model M]
-[--stage voice|animatic|assets|review]
+[--append F ...] [--video cut.mp4] [--audio a.wav ...] [--images a.jpg ...] [--tier draft|final|signoff]
+[--model M] [--stage voice|animatic|assets|review]
 
 The critic (a different model family from the builder) watches video with its audio track via a
 video_url data URL, listens via input_audio and looks via image_url. A video larger than --max-mib
 or taller than 720 lines is sent as a 720p H.264 proxy (ffmpeg) under the cap; the proxy used is
-recorded. The reply goes to stdout and to work/critic/<time>-<name>.json (+ .md).
+recorded. --append adds files' text after the prompt at call time (for example
+work/takes/check-summary.md, which every voice.py check rewrites), so measured numbers are never
+pasted by hand and never stale. The reply goes to stdout and to work/critic/<time>-<name>.json (+ .md).
 """
 
 import datetime
@@ -185,6 +187,10 @@ def cmd_ask(a):
     film = load_film(a.film)
     ctx = context(a, film)
     prompt = Path(a.prompt_file).read_text(encoding="utf-8")
+    for f in a.append or []:
+        if not Path(f).exists():
+            raise UsageError(f"--append {f}: no such file")
+        prompt = prompt.rstrip() + f"\n\n--- {Path(f).name} ---\n" + Path(f).read_text(encoding="utf-8").strip() + "\n"
     text, rec = ask(
         ctx,
         prompt,
@@ -201,7 +207,8 @@ def cmd_ask(a):
     print(text)
     cost = "cached" if rec["basis"] == "cache" else (usd(rec["usd"]) if rec["usd"] is not None else "estimated")
     proxy = f"; sent a proxy: {rec['proxies'][0]['sent']}" if rec["proxies"] else ""
-    print(f"\n[critic: {rec['model']}, {cost}{proxy}; saved {rec['saved']}]", file=sys.stderr)
+    after = "".join(f"; after {cid} failed ({why[:120]})" for cid, why in rec["fallbacks"])
+    print(f"\n[critic: {rec['model']}, {cost}{proxy}{after}; saved {rec['saved']}]", file=sys.stderr)
     return 0
 
 
@@ -212,6 +219,12 @@ def main(argv=None):
     add_film_arg(p)
     add_provider_args(p)
     p.add_argument("--prompt-file", required=True)
+    p.add_argument(
+        "--append",
+        nargs="*",
+        metavar="FILE",
+        help="text files added after the prompt at call time (e.g. work/takes/check-summary.md)",
+    )
     p.add_argument("--video", help="review cut (MP4); a 720p proxy is sent when it is too big")
     p.add_argument("--audio", nargs="*", help="audio files (wav, mp3)")
     p.add_argument("--images", nargs="*", help="stills or contact sheets (png, jpg, webp)")

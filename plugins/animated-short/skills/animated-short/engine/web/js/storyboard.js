@@ -511,14 +511,9 @@
       if (lab[i] != null && s.p > 0) d.text(ctx, String(lab[i]), x, base + fs * 1.2, { size: fs, font: 'print', weight: 400, c: 'pencil', t, seed: i + 3, p: clamp(s.p * n - i + 0.5), id: node.id + ':label' });
     }
   }
+  // a missing sticker draws D.placeholder (and warns once), so it is caught in stills, never silently dropped
   function drawSprite(ctx, node, s, name, w) {
-    const d = D();
-    if (d.stickers[name]) { d.sticker(ctx, name, 0, 0, { w, lift: s.lift, shadow: node.el.shadow }); return; }
-    // visible placeholder so a missing sticker is caught in stills, never silently dropped
-    if (!node.warned) { console.warn(`missing sticker "${name}" (element "${node.id}")`); node.warned = true; }
-    d.paperShape(ctx, 'rect', Math.round(w), Math.round(w * 0.7), 'paper', node.seed % 1000, { shadow: 0.6 });
-    d.ink(ctx, d.circlePts(0, 0, Math.round(w * 0.4), Math.round(w * 0.27), 3, 1.02), { w: 3, c: 'coral', dash: [10, 8] });
-    d.text(ctx, name, 0, 10, { size: Math.max(20, Math.round(w * 0.1)), font: 'print', weight: 400, c: 'coral', id: node.id + ':missing' });
+    D().sticker(ctx, name, 0, 0, { w, lift: s.lift, shadow: node.el.shadow, seed: node.seed % 1000, id: node.id });
   }
   SB.cueFor = function (node, name) {
     if (node && node.el.cues && node.el.cues[name] != null) return node.el.cues[name];
@@ -534,6 +529,9 @@
       scene: { id: scene.id, at: scene.at, until: scene.until },
       cue: (name) => SB.cueFor(node, name), color: d.color, palette: d.PAL,
       text: (c, str, x, y, o = {}) => d.text(c, str, x, y, Object.assign({ seed: node.seed % 1000, t, id: node.id }, o)),
+      // a sticker by name, its anchor at (x, y); a missing one draws the visible placeholder and warns
+      sticker: (c, name, x, y, o = {}) => d.sticker(c, name, x, y, Object.assign({ seed: node.seed % 1000, id: node.id }, o)),
+      anchor: d.anchor, aspect: d.aspect,
     };
   }
   function drawCustom(ctx, node, s, t) {
@@ -565,17 +563,21 @@
     D().currentId = prev;
     ctx.restore();
   }
+  // Draw order inside a scene: the elements in their listed order (a custom element sits where it is
+  // listed), then the scene's own custom shot on top, unless it is {"canvas": id, "layer": "under"}.
   function drawSceneContent(ctx, sc, t, ts) {
-    for (const n of sc._nodes) drawNode(ctx, n, t, ts);
-    const cid = sc.custom && (typeof sc.custom === 'string' ? sc.custom : sc.custom.canvas);
-    if (cid) {
-      const fn = FILM.shots[cid];
+    const cust = sc.custom && (typeof sc.custom === 'string' ? { canvas: sc.custom } : sc.custom);
+    const drawCustomScene = () => {
+      const cid = cust.canvas, fn = FILM.shots[cid];
       if (!fn) throw new Error(`scene "${sc.id}": shot "${cid}" is not registered (missing web/film/shots/${cid}.js?)`);
       const node = { id: sc.id, seed: FILM.ACT.seed(sc.id, S.sb.meta.seed), el: { params: sc.params || {}, cues: sc.cues } };
       const prev = D().currentId; D().currentId = sc.id;
       fn(ctx, t, shotApi(node, { alpha: 1, p: 1 }, t, S.g.box(sc), sc));
       D().currentId = prev;
-    }
+    };
+    if (cust && cust.layer === 'under') drawCustomScene();
+    for (const n of sc._nodes) drawNode(ctx, n, t, ts);
+    if (cust && cust.layer !== 'under') drawCustomScene();
   }
 
   // ---- board dressing

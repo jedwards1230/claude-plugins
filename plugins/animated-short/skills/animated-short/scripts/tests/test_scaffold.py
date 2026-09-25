@@ -87,6 +87,54 @@ class ScaffoldTest(TempDirTest):
         self.assertEqual(code, 0)
         self.assertTrue((d / "keep.txt").exists())
 
+    def test_a_directory_holding_only_its_film_json_is_scaffolded_in_place(self):
+        d = self.tmp / "inplace"
+        d.mkdir()
+        (d / "film.json").write_text(json.dumps({"topic": "t", "goal": "g", "message": "m", "duration": 45}))
+        code, out, err = run_tool(scaffold, ["new", str(d), "--film-json", str(d / "film.json")])
+        self.assertEqual(code, 0, err)
+        film = json.loads((d / "film.json").read_text())
+        self.assertEqual((film["duration"], film["art"]["sheets"], film["budget_usd"]), (45, 3, 10))  # defaults filled
+        self.assertTrue((d / "web" / "index.html").exists())
+        e = self.tmp / "busy2"
+        e.mkdir()
+        (e / "film.json").write_text((d / "film.json").read_text())
+        (e / "notes.txt").write_text("x")
+        code, _, err = run_tool(scaffold, ["new", str(e), "--film-json", str(e / "film.json")])
+        self.assertEqual(code, 2)
+        self.assertIn("only the film.json", err)
+
+    @unittest.skipUnless(audiolib.which("node"), "needs node")
+    def test_resolve_warns_when_narration_runs_into_the_end_card(self):
+        d = self.tmp / "card"
+        run_tool(scaffold, ["new", str(d), "--duration", "12"] + REQ)  # end card on: the last 2.5 s (from 9.5 s)
+        (d / "src" / "script.json").write_text(json.dumps({"lines": [{"id": "l1", "text": "Two words."}]}))
+        sb = json.loads((d / "src" / "storyboard.json").read_text())
+        sb["scenes"] = [{"id": "a", "elements": [], "custom": {"canvas": "a", "layer": "sideways"}}]
+        (d / "src" / "storyboard.json").write_text(json.dumps(sb))
+        (d / "web" / "film" / "shots").mkdir(parents=True, exist_ok=True)
+        (d / "web" / "film" / "shots" / "a.js").write_text("FILM.shot('a', function () {});\n")
+
+        def resolve(t, dur):
+            (d / "src" / "words.json").write_text(json.dumps({"l1": {"t": t, "d": dur}}))
+            r = subprocess.run(
+                ["node", str(d / "tools" / "resolve.mjs"), "--film", str(d)], capture_output=True, text=True
+            )
+            return r.returncode, r.stdout + r.stderr
+
+        code, out = resolve(0.6, 2.0)
+        self.assertEqual(code, 1)
+        self.assertIn('custom.layer: must be "over"', out)
+        sb["scenes"][0]["custom"]["layer"] = "under"
+        (d / "src" / "storyboard.json").write_text(json.dumps(sb))
+        code, out = resolve(0.6, 2.0)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("end card", out)
+        code, out = resolve(6.0, 3.4)  # ends at 9.4 s, 0.1 s before the card
+        self.assertIn("0.10 s before the end card starts at 9.50 s", out)
+        code, out = resolve(6.0, 4.0)
+        self.assertIn("0.50 s after the end card starts", out)
+
     def test_golden_matches_a_plain_copy(self):
         d = self.tmp / "golden"
         code, out, err = run_tool(scaffold, ["new", str(d), "--from-example", "golden"])

@@ -54,6 +54,25 @@ class CriticTest(TempDirTest):
         records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual([e["stage"] for e in records if e["op"] == "record"], ["voice"])
 
+    def test_append_adds_files_after_the_prompt_at_call_time(self):
+        film = new_film(self.tmp)
+        prompt = self.tmp / "takes.md"
+        prompt.write_text("Pick one take per line.")
+        summary = film / "work" / "takes" / "check-summary.md"
+        summary.parent.mkdir(parents=True, exist_ok=True)
+        summary.write_text("l1_0: wer 0.00  spoken 2.10 s of 2.6 s, 2.38 words/s  clean")
+        with FakeOpenRouter() as fake:
+            code, _, err = run_tool(
+                critic, ["ask", "--film", str(film), "--prompt-file", str(prompt), "--append", str(summary)]
+            )
+            self.assertEqual(code, 0, err)
+            text = fake.calls("/chat/completions")[0]["body"]["messages"][0]["content"][0]["text"]
+            missing = run_tool(
+                critic, ["ask", "--film", str(film), "--prompt-file", str(prompt), "--append", str(self.tmp / "nope")]
+            )
+        self.assertTrue(text.startswith("Pick one take per line.\n\n--- check-summary.md ---\nl1_0: wer 0.00"))
+        self.assertEqual(missing[0], 2)
+
     @unittest.skipUnless(audiolib.has_ffmpeg(), "needs ffmpeg")
     def test_big_video_is_sent_as_a_720p_proxy_under_the_cap(self):
         film = new_film(self.tmp)

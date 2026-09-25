@@ -3,14 +3,18 @@
 
 status     spent, open reservations, remaining budget, per role, per stage, per basis
 reconcile  compare the account's usage delta (GET /key, free) since the film's first paid call
-           with what the ledger recorded; warn on drift
+           with what the ledger recorded; warn on drift. It also stores a calibration factor for
+           the roles whose costs are estimates (TTS: the speech endpoint reports none) in
+           work/state.json "calibration": later estimates of those roles are multiplied by it
+           (never below 1.0, at most 3.0), so quotes and reservations follow what the account paid.
 release    close reservations left open by a crashed run (they hold budget until released)
 """
 
 import json
 import sys
 
-from common import add_film_arg, add_provider_args, context, load_film, parser, run_main, usd, write_json
+from common import add_film_arg, add_provider_args, context, load_film, now_iso, parser, run_main, usd, write_json
+from providers import Context
 from providers.ledger import Ledger
 
 
@@ -29,6 +33,9 @@ def cmd_status(a):
     for bucket in ("by_role", "by_stage", "by_basis"):
         if t[bucket]:
             print(f"  {bucket[3:]:6}", "  ".join(f"{k} {usd(v)}" for k, v in sorted(t[bucket].items())))
+    cal = Context(a.film, film).state().get("calibration") or {}
+    if cal:
+        print("  calibration " + "  ".join(f"{role} x{v.get('factor')}" for role, v in sorted(cal.items())))
     return 0
 
 
@@ -48,6 +55,19 @@ def cmd_reconcile(a):
         f"reconcile: account delta {usd(r['delta'])} vs ledger {usd(r['ledger_spent'])}  drift {r['drift']:+.4f}"
         f"  {'ok' if r['ok'] else 'WARN'}{(' - ' + r['note']) if r['note'] else ''}"
     )
+    cal = r.get("calibration")
+    if cal:
+        for role in cal["roles"]:
+            ctx.update_state(
+                "calibration",
+                role,
+                {"factor": cal["factor"], "since": now_iso(), "estimated_usd": cal["estimated_usd"]},
+            )
+        print(
+            f"  calibration x{cal['factor']} for estimated costs ({', '.join(cal['roles'])})"
+            f"{' (capped: check whether other work shares the key)' if cal['capped'] else ''}; "
+            "later quotes and reservations use it"
+        )
     return 0 if r["ok"] else 1
 
 

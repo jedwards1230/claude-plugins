@@ -200,6 +200,152 @@ class RoundTest(TempDirTest):
         g = review.compute_gates(common.load_film(film), film, 2)
         self.assertNotIn("claims", {x["id"] for x in g["gates"] if not x["pass"]})
 
+    def defect(self, at, severity, check, **kw):
+        return dict({"at": at, "severity": severity, "check": check, "issue": f"{check} issue", "fix": "fix it"}, **kw)
+
+    def frame_qa(self, cut, defects=(), previous=None):
+        doc = {"reviewer": "frame_qa", "cut": cut, "scores": {"reads": {"value": 8, "why": "clear"}},
+               "defects": list(defects), "verdict": "ship"}  # fmt: skip
+        if previous is not None:
+            doc["previous"] = previous
+        return doc
+
+    def test_accuracy_and_measured_blocking_defects_are_never_waved_through(self):
+        film = self.film()
+        d = self.ship_round(film)
+        fc = load("fact_checker.json")
+        fc["defects"] = [self.defect("0:05", "blocking", "ACC-1", maybe_intentional=True)]
+        (d / "fact_checker.json").write_text(json.dumps(fc))
+        qa = self.frame_qa(
+            "r1",
+            [
+                self.defect("0:06", "blocking", "VIS-1", maybe_intentional=True),
+                self.defect("0:08", "minor", "VIS-3", maybe_intentional=True),
+            ],
+        )
+        (d / "frame_qa.json").write_text(json.dumps(qa))
+        director = load("director.json")
+        director["defects"].append(self.defect("0:03", "minor", "ACC-2", maybe_intentional=True))
+        (d / "director.json").write_text(json.dumps(director))
+        g = review.compute_gates(common.load_film(film), film, 1)
+        why = {(c["review"], c["check"]): c["why"] for c in g["counted_defects"] + g["discounted_defects"]}
+        self.assertIn("measures", why[("fact_checker", "ACC-1")])  # an intent note cannot launder a false claim
+        self.assertIn("measures", why[("frame_qa", "VIS-1")])
+        self.assertEqual(why[("frame_qa", "VIS-3")], "maybe intentional")  # a minor style call may still be
+        self.assertTrue(why[("director", "ACC-2")].startswith("unconfirmed"))  # not discounted as intentional
+        self.assertFalse(self.gate(g, "blocking")["pass"])
+
+    def test_two_personas_do_not_confirm_each_other(self):
+        people = [{"name": "a baker", "knows": "recipes"}, {"name": "a chemist", "knows": "reactions"}]
+        film = self.film(audience=people)
+        d = self.ship_round(film)
+        for f in d.glob("*curious-non-expert.json"):
+            f.unlink()
+        for p in people:
+            s = common.slug(p["name"])
+            persona = load("persona-curious-non-expert.json")
+            persona.update(persona=p["name"], defects=[self.defect("0:11", "major", "TEXT-3")])
+            (d / f"persona-{s}.json").write_text(json.dumps(persona))
+            comp = load("comparer-curious-non-expert.json")
+            comp["persona"] = p["name"]
+            (d / f"comparer-{s}.json").write_text(json.dumps(comp))
+        code, out, _ = run_tool(review, ["gates", "--film", str(film), "--round", "1"])
+        g = json.loads((d / "gates.json").read_text())
+        self.assertFalse([c for c in g["counted_defects"] if c["check"] == "TEXT-3"])
+        self.assertEqual(
+            {(c["review"], c["check"]) for c in g["to_confirm"]},
+            {("persona-a-baker", "TEXT-3"), ("persona-a-chemist", "TEXT-3"), ("director", "SYNC-3")},
+        )
+        self.assertIn("TO CONFIRM (3 unconfirmed blocking or major critic defects)", out)
+        director = load("director.json")
+        director["defects"].append(self.defect("0:12", "major", "TEXT-3"))  # another kind of reviewer agrees
+        (d / "director.json").write_text(json.dumps(director))
+        g = review.compute_gates(common.load_film(film), film, 1)
+        self.assertEqual(
+            {c["review"] for c in g["counted_defects"] if c["check"] == "TEXT-3"},
+            {"persona-a-baker", "persona-a-chemist", "director"},
+        )
+
+    def fix_pass_round(self, signoff_status):
+        (self.tmp / signoff_status).mkdir()
+        film = new_film(self.tmp / signoff_status, review={"rounds": 1})
+        d = self.ship_round(film)
+        (d / "confirmed.json").write_text(json.dumps([{"check": "SYNC-3", "at": "0:09", "still": "t009.00.jpg"}]))
+        (d / "frame_qa.json").write_text(json.dumps(self.frame_qa("r1", [self.defect("0:06", "major", "VIS-2")])))
+        g = review.compute_gates(common.load_film(film), film, 1)
+        self.assertEqual(g["verdict"], "stop")  # the cap, with a confirmed blocking defect open
+        (d / "gates.json").write_text(json.dumps(g))
+        fix = film / "work" / "reviews" / "r1-fix"
+        fix.mkdir()
+        tech = load("technical.json")
+        tech["cut"] = "r1-fix"
+        (fix / "technical.json").write_text(json.dumps(tech))
+        qa = self.frame_qa("r1-fix", [], [{"check": "VIS-2", "at": "0:06", "status": "fixed", "note": "t006.00 clean"}])
+        (fix / "frame_qa.json").write_text(json.dumps(qa))
+        signoff = load("director.json")
+        signoff.update(cut="r1-fix", previous=[{"check": "SYNC-3", "at": "0:09", "status": signoff_status}])
+        signoff["scores"]["overall"]["value"] = 9.0
+        signoff["defects"] = [] if signoff_status == "fixed" else [self.defect("0:09", "blocking", "SYNC-3")]
+        (fix / "director-signoff.json").write_text(json.dumps(signoff))
+        return film, fix
+
+    def test_fix_pass_after_the_last_round(self):
+        film, fix = self.fix_pass_round("fixed")
+        code, out, err = run_tool(review, ["gates", "--film", str(film), "--round", "1-fix"])
+        self.assertEqual(code, 0, out + err)
+        g = json.loads((fix / "gates.json").read_text())
+        self.assertEqual((g["verdict"], g["round"], g["base_round"]), ("ship", "1-fix", 1))
+        self.assertEqual([(c["review"], c["check"]) for c in g["fixed_defects"]], [("director", "SYNC-3")])
+        self.assertFalse(any(c["check"] in ("SYNC-3", "VIS-2") for c in g["counted_defects"]))
+        self.assertIn("director-signoff 9.0", self.gate(g, "director")["evidence"])
+        import quote
+
+        self.assertEqual(quote.rounds_done(film), 1)  # the fix pass is not a review round
+        film, fix = self.fix_pass_round("still_present")
+        g = review.compute_gates(common.load_film(film), film, "1-fix")
+        self.assertEqual(g["verdict"], "stop")
+        self.assertFalse(g["fixed_defects"])
+        self.assertFalse(self.gate(g, "blocking")["pass"])
+        doc = self.frame_qa("r1-fix")
+        (self.tmp / "qa.json").write_text(json.dumps(doc))
+        code, _, _ = run_tool(
+            review, ["ingest", "--film", str(film), "--round", "1-fix", "--file", str(self.tmp / "qa.json"), "--force"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(run_tool(review, ["gates", "--film", str(film), "--round", "one"])[0], 2)
+
+    def test_previous_round_and_signoff_prompts(self):
+        film = self.film()
+        self.ship_round(film, 1)
+        prompt = self.tmp / "director.md"
+        prompt.write_text("You are the director.")
+        again = load("director.json")
+        again["cut"] = "r2"
+        again["previous"] = [{"check": "SYNC-3", "at": "0:09", "status": "fixed"}]
+        with FakeOpenRouter() as fake:
+            fake.replies = [json.dumps(again)]
+            args = ["run", "--film", str(film), "--round", "2", "--reviewer", "director", "--prompt-file", str(prompt)]
+            code, _, err = run_tool(review, args + ["--previous", "1"])
+            self.assertEqual(code, 0, err)
+            text = fake.calls("/chat/completions")[0]["body"]["messages"][0]["content"][0]["text"]
+            self.assertIn("## Your review of the previous cut (r1)", text)
+            self.assertIn("- 0:09 blocking SYNC-3", text)
+            self.assertIn("overall 8.8", text)
+            self.assertIn('report it in "previous"', text)
+            d2 = film / "work" / "reviews" / "r2"
+            (d2 / "gates.json").write_text(
+                json.dumps({"counted_defects": [dict(self.defect("0:04", "major", "READ-2"), review="frame_qa")]})
+            )
+            signoff = dict(again, previous=[{"check": "READ-2", "at": "0:04", "status": "fixed"}])
+            fake.replies = [json.dumps(signoff)]
+            code, _, err = run_tool(review, args + ["--tier", "signoff", "--no-cache"])
+            self.assertEqual(code, 0, err)
+            text = fake.calls("/chat/completions")[-1]["body"]["messages"][0]["content"][0]["text"]
+        self.assertIn("## Defects the round's reviewers found", text)
+        self.assertIn("- frame_qa 0:04 major READ-2: READ-2 issue", text)
+        saved = json.loads((film / "work" / "reviews" / "r2" / "director-signoff.json").read_text())
+        self.assertEqual(saved["previous"][0]["status"], "fixed")
+
     def test_ingest(self):
         film = self.film()
         good = self.tmp / "fc.json"

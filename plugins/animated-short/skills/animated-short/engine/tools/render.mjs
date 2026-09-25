@@ -19,7 +19,8 @@ Modes
   audio              the offline mix as 48 kHz 16-bit WAV -> <film>/work/mix.wav
   text <t,t,...>     JSON to stdout: every text drawn at each time
                      [{t, texts: [{id, text, px1080, bbox:[x,y,w,h], alpha, progress, inframe}]}]
-  glyph              JSON to stdout: write-on glyph test for every configured font; exit 1 on failure
+  glyph              JSON to stdout: write-on glyph test for every configured font, plus whether every
+                     face in config.fonts.faces loaded (document.fonts.check); exit 1 on failure
   purity             render sample frames in order and shuffled on a fresh page; compare SHA-256;
                      exit 1 on any mismatch
   serve              serve <film>/web on http://127.0.0.1:<port>/ to watch the live player (Ctrl-C stops)
@@ -169,7 +170,9 @@ async function main() {
     } else if (mode === 'glyph') {
       const r = await page.evaluate(() => window.__film.glyphTest());
       console.log(JSON.stringify(r, null, 1));
-      if (!r.ok) { log('glyph test FAILED: a letter does not advance the write-on in at least one font'); code = 1; }
+      const badFaces = (r.faces || []).filter((f) => !(f.loaded && f.check));
+      for (const f of badFaces) log(`glyph test: declared face "${f.family}" (${f.src}, weight ${f.weight}) did not load${f.error ? ': ' + f.error : ''}`);
+      if (!r.ok) { log(`glyph test FAILED: ${badFaces.length ? 'a declared font face did not load' : 'a letter does not advance the write-on in at least one font'}`); code = 1; }
     } else if (mode === 'audio') {
       const out = path.resolve(o.out || path.join(film, 'work/mix.wav')); fs.mkdirSync(path.dirname(out), { recursive: true });
       const t0 = Date.now(), data = await page.evaluate(() => window.__film.audio());

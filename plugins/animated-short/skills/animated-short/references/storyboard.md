@@ -25,8 +25,9 @@ node "$FILM/tools/resolve.mjs" --film "$FILM" --strict   # before builds and rev
 Errors (exit 1): bad shapes, unresolvable cues, unknown targets, missing shot files. Warnings:
 a write-on ending less than 0.3 s before its scene's camera move, a beat outside its scene,
 text under 28 px at zoom 1, reads shorter than 1.2 s each, overlapping pans, missing stickers,
-config/meta mismatches, unknown fields. `--json` prints the plan (scenes, vo, moves, shots,
-downgrades, warnings) for scripts.
+narration ending less than 0.3 s before the disclosure end card starts, config/meta
+mismatches, unknown fields. `--json` prints the plan (scenes, vo, moves, shots, downgrades,
+warnings) for scripts.
 
 ## Units
 
@@ -76,6 +77,10 @@ custom shot with `api.cue(name)`.
 - Overlay scenes (`"overlay": true`) draw in screen space above the camera from `at` to
   `until` (`hold` keeps them; `dim` darkens the picture behind): title cards, lower thirds.
 - Every scene except the first needs `at`. `until` defaults to the next scene's start.
+- Two looks apply to every layout: a slow hand-held camera drift (`layout.handheld`, default 1;
+  0 = locked off, also on a stage) and a vignette (`vignette` in `web/film/config.json`, the
+  edge darkening from 0 to 1, default 0.34; `sync-config` keeps the key). A locked-off style
+  bible sets both low.
 
 ## Elements
 
@@ -162,8 +167,11 @@ The mix is built outside the picture from the resolved storyboard (same code liv
 ## Custom shots
 
 A shot is one file, `web/film/shots/<id>.js`, used by a `custom` element (`"shot": "<id>"`) or
-a whole scene (`"custom": "<id>"`, drawn over the scene's elements in the scene box). The
-file registers a pure function of time:
+a whole scene (`"custom": "<id>"`, drawn in the scene box). Draw order inside a scene: the
+elements in their listed order (a custom element draws where it is listed), then the scene's
+own custom shot on top of them. Give the scene `"custom": {"canvas": "<id>", "layer": "under"}`
+to draw its shot beneath the elements instead (labels and arrows over a full-scene picture).
+The file registers a pure function of time:
 
 ```js
 // Shot "chainring": the chain wraps a large front ring and a small rear cog; one turn of the
@@ -193,7 +201,9 @@ time), `ts` (stop-motion time, 15 fps), `step`, `id`, `seed` (stable per element
 `params`, `state` (the element's beat state: `alpha`, `p`, ...), `box {w, h}`,
 `scene {id, at, until}`, `cue(name)` (element cues, then top-level cues, then any cue string
 such as `"vo:l2.w3"`), `color`, `palette`, `text(ctx, str, x, y, o)` (logged for the text
-checks).
+checks), `sticker(ctx, name, x, y, o)` (a sticker with its anchor at x, y; a missing one
+draws the visible placeholder and warns, as sprite elements do), `anchor(name)` and
+`aspect(name)`.
 
 Rules for shot code:
 
@@ -204,17 +214,56 @@ Rules for shot code:
 - JavaScript source is ASCII-only: write the escape `\u00b7` for a middle dot (`qa.mjs ascii`, TECH-13).
 - Draw all text through `api.text` or `D.text` so it reaches the size, dwell and repeat
   checks.
-- Keep one shot per file so parallel builders never edit the same file.
+- Keep one shot per file so parallel builders never edit the same file; shared drawing code
+  goes in a helper file (below).
 
 Drawing helpers most shots need (`D.*`, all in reference px): `text(ctx, str, x, y, {size,
 font, weight, c, align, p, t, seed, r, lh, id})` (write-on via `p`), `textWidth`, `wrap(ctx,
-str, maxW, size, font, weight)`, `sticker(ctx, name, x, y, {w, r, a, lift, sx, sy, shadow})`,
-`aspect(name)`, `paperShape(ctx, kind, w, h, color, seed, {lift, shadow, rim, amp, spikes,
-inner})`, `card(ctx, w, h, {bg, seed, tail, shadow})`, `tape(ctx, x, y, w, r, seed, h)`,
-`ink(ctx, pts, {w, c, p, seed, t, wob, dash, sharp})`, `arrow(ctx, pts, {..., head})`,
-`arcPts(x0, y0, x1, y1, bend, n)`, `circlePts(cx, cy, rx, ry, seed, turns)`, `check`,
-`sparkle`, `sparkleAt`, `heart`, `glow`, `ransom(ctx, str, x, y, {size, seed, t, t0, dt})`,
-`color(name)`, `alpha(color, a)`, `sh(a)` (paper shadow colour).
+str, maxW, size, font, weight)`, `sticker(ctx, name, x, y, {w, r, a, lift, sx, sy, shadow,
+anchor})`, `aspect(name)`, `anchor(name)`, `placeholder(ctx, name, w)`, `paperShape(ctx,
+kind, w, h, color, seed, {lift, shadow, rim, amp, spikes, inner})`, `card(ctx, w, h, {bg,
+seed, tail, shadow})`, `tape(ctx, x, y, w, r, seed, h)`, `ink(ctx, pts, {w, c, p, seed, t,
+wob, dash, sharp})`, `arrow(ctx, pts, {..., head})`, `arcPts(x0, y0, x1, y1, bend, n)`,
+`circlePts(cx, cy, rx, ry, seed, turns)`, `check`, `sparkle`, `sparkleAt`, `heart`, `glow`,
+`ransom(ctx, str, x, y, {size, seed, t, t0, dt})`, `color(name)`, `alpha(color, a)`, `sh(a)`
+(paper shadow colour).
+
+### Stickers and anchors
+
+`web/img/manifest.json` maps each sticker name to `[w, h]` (what `art.py cutout` writes) or to
+`{"file": "<file name>", "size": [w, h], "anchor": [ax, ay]}` (every key optional; `file`
+defaults to `<name>.webp`). `anchor` is the sticker's pivot as fractions of its width and
+height from the top left: `D.sticker` puts that point at (x, y) and turns and scales about it,
+for sprite elements too (their `pos` is then the anchor). Default: the centre. Set anchors
+with `art.py cutout --anchors "hand_press=0.48,0.97"` or by editing the manifest, so a
+fingertip lands on a button without hard-coded offsets in the shot; `D.sticker(..., {anchor:
+[0.5, 0.5]})` overrides it for one call. A sticker that is not loaded draws the visible
+placeholder (`D.placeholder`) and warns once, in shots and sprites alike.
+
+### Shared helpers
+
+Drawing code several shots use (a character, a prop, a texture) goes in one helper file that
+the main agent writes before the shots and lists in the storyboard's top-level `shots`. Files
+listed there load first, in that order, before every shot the elements and scenes use; a
+helper file registers no shot, it only defines functions on its own namespace:
+
+```js
+// web/film/shots/kit.js, listed in the storyboard as "shots": ["kit"]: helpers the film's shots
+// share. Pure functions of their arguments; caches hold geometry only, never time.
+(function () {
+  const FILM = window.FILM;
+  const K = (FILM.KIT = {});
+  const cache = new Map();
+  K.memo = (key, fn) => { if (!cache.has(key)) cache.set(key, fn()); return cache.get(key); };
+  // a jar outline of height h, reused by every shot that draws the jar
+  K.jarPts = (h) => K.memo('jar' + h, () => [[-0.3 * h, -0.5 * h], [0.3 * h, -0.5 * h], [0.35 * h, 0.5 * h], [-0.35 * h, 0.5 * h]]);
+  K.jar = (ctx, D, h, t, seed) => D.ink(ctx, K.jarPts(h).concat([K.jarPts(h)[0]]), { w: 6, t, seed, sharp: true });
+})();
+```
+
+A shot then calls `FILM.KIT.jar(ctx, api.D, 300, t, api.seed)`. Brief shot builders with the
+helper file's functions and tell them not to edit it; changing a helper is the main agent's
+job, followed by stills of every shot that uses it.
 
 ## A complete small storyboard
 

@@ -6,10 +6,14 @@
 
 run_role walks the role's candidates in registry order after the license filter (commercial_safe),
 opt-in, retirement and block-list filters; a film.json providers.roles override or --model goes
-first. For each candidate: cache lookup ($0, recorded as basis "cache"), ledger reservation
-(estimate x 1.2, refused over budget), the call, the recorded cost. Only AvailabilityError moves
-to the next candidate. A sticky role (tts voice, image model) that already has a choice in
-work/state.json uses exactly that choice; if it fails, run_role stops (StickyFailure).
+first, else the candidate preflight tier 1 found working for this key (work/state.json
+"preferred"). For each candidate: cache lookup ($0, recorded as basis "cache"), ledger reservation
+(estimate x the film's calibration factor x 1.2, refused over budget), the call, the recorded
+cost. Only AvailabilityError moves to the next candidate; a candidate refused for this key (HTTP
+400/401/402/403/404/422) is skipped for the rest of the command (Context.failed), while timeouts,
+429 and 5xx are tried again on the next job. A sticky role (tts voice, image model) that
+already has a choice in work/state.json uses exactly that choice; if it fails, run_role stops
+(StickyFailure).
 """
 
 import datetime
@@ -25,6 +29,9 @@ from .local import LOCAL_CLASSES
 from .openrouter import ROLE_CLASSES, OpenRouter, load_key
 
 HERE = Path(__file__).resolve().parent
+# availability failures that will repeat for this key (payment, auth, missing model, unsupported
+# parameter): run_role skips such a candidate for the rest of the command
+PERSISTENT = {400, 401, 402, 403, 404, 422}
 
 
 class Registry:
@@ -115,6 +122,7 @@ class Context:
         self.registry = registry or Registry.load()
         self.key_file, self.base_url, self.use_cache = key_file, base_url, use_cache
         self._key, self._key_loaded, self._client, self._catalog = None, False, None, None
+        self.failed = {}  # candidate id -> why: availability failures seen in this command
         # precedence: --account-ceiling, then env ANIMATED_SHORT_ACCOUNT_CEILING, then film.json account_ceiling_usd
         if account_ceiling is None:
             account_ceiling = os.environ.get("ANIMATED_SHORT_ACCOUNT_CEILING") or film.get("account_ceiling_usd")
@@ -162,17 +170,39 @@ class Context:
     def get_sticky(self, key):
         return self.state().get("sticky", {}).get(key)
 
-    def set_sticky(self, key, value):
+    def update_state(self, section, key, value, replace=True):
+        """Set work/state.json[section][key] under a lock (replace=False keeps an existing value)."""
         p = self._state_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         with file_lock(str(p)):
             st = json.loads(p.read_text()) if p.exists() else {}
-            st.setdefault("sticky", {})
-            if key not in st["sticky"]:
-                st["sticky"][key] = value
+            st.setdefault(section, {})
+            if replace or key not in st[section]:
+                st[section][key] = value
                 tmp = p.with_suffix(".tmp")
                 tmp.write_text(json.dumps(st, indent=1, sort_keys=True) + "\n")
                 os.replace(tmp, p)
+
+    def set_sticky(self, key, value):
+        self.update_state("sticky", key, value, replace=False)
+
+    # ---- cost calibration (ledger.py reconcile) and preferred candidates (preflight tier 1)
+    def calibration(self, role):
+        """Factor (>= 1.0) that estimated costs of this role are multiplied by: work/state.json
+        calibration.<role>.factor, written by ledger.py reconcile."""
+        entry = self.state().get("calibration", {}).get(role) or {}
+        try:
+            return max(1.0, float(entry.get("factor", 1.0)))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def estimate(self, prov, job):
+        """-> (calibrated estimate, raw estimate) of one run."""
+        raw = float(prov.estimate(**job))
+        return round(raw * self.calibration(prov.role), 6), raw
+
+    def preferred(self, role, tier):
+        return (self.state().get("preferred", {}).get(f"{role}/{tier}") or {}).get("candidate")
 
     # ---- providers
     def commercial_safe(self):
@@ -181,8 +211,15 @@ class Context:
     def override(self, role):
         return (self.film.get("providers", {}).get("roles") or {}).get(role)
 
-    def chain(self, role, tier="final", model=None):
-        return self.registry.chain(role, tier, self.commercial_safe(), model or self.override(role))
+    def chain(self, role, tier="final", model=None, prefer=True):
+        """Candidates in walking order. Without --model or a film.json override, the candidate that
+        preflight tier 1 found working for this key goes first (prefer=False: registry order)."""
+        chain, skipped = self.registry.chain(role, tier, self.commercial_safe(), model or self.override(role))
+        pid = self.preferred(role, tier) if prefer and not (model or self.override(role)) else None
+        if pid:
+            first = [c for c in chain if c["id"] == pid]
+            chain = first + [c for c in chain if c["id"] != pid]
+        return chain, skipped
 
     def provider(self, cand):
         if cand["provider"] == "local":
@@ -212,8 +249,9 @@ def _suffixes(files, stem):
     return out
 
 
-def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, use_cache=True):
-    """Run one job for a role through the fallback chain. -> Result (with .candidate, .fallbacks)."""
+def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, use_cache=True, prefer=True):
+    """Run one job for a role through the fallback chain. -> Result (with .candidate, .fallbacks).
+    prefer=False walks the registry order even when preflight recorded a preferred candidate."""
     fields = ctx.registry.sticky_fields(role) if sticky else None
     skey = f"{role}/{tier}" if fields is not None else None
     pinned = ctx.get_sticky(skey) if skey else None
@@ -237,7 +275,7 @@ def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, u
                 job[f] = pinned[f]
         chain = [cand]
     else:
-        chain, _skipped = ctx.chain(role, tier, model)
+        chain, _skipped = ctx.chain(role, tier, model, prefer=prefer)
     attempts = []
     out_dir, stem = job.get("out_dir"), job.get("stem", "out")
     for cand in chain:
@@ -247,6 +285,9 @@ def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, u
             if pinned:
                 raise StickyFailure(f"the pinned {role} choice {cand['id']} is unavailable ({why}); stop and report")
             attempts.append((cand["id"], why))
+            continue
+        if not pinned and cand["id"] in ctx.failed:
+            attempts.append((cand["id"], f"skipped: failed earlier in this command ({ctx.failed[cand['id']]})"))
             continue
         key = None
         if use_cache and ctx.use_cache and prov.cacheable:
@@ -270,9 +311,9 @@ def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, u
             if prov.local:
                 res = prov.run(**job)
             else:
-                est = prov.estimate(**job)
+                est, raw = ctx.estimate(prov, job)
                 ctx.ledger.ensure_anchor()
-                with ctx.ledger.reserve(role, stage, est, cand["provider"], cand["model"]) as rsv:
+                with ctx.ledger.reserve(role, stage, est, cand["provider"], cand["model"], raw_est=raw) as rsv:
                     try:
                         res = prov.run(**job)
                     except AvailabilityError as e:
@@ -291,6 +332,8 @@ def run_role(ctx, role, job, *, stage, tier="final", model=None, sticky=False, u
                     f"the pinned {role} choice {cand['id']} failed ({e}); stop and report: "
                     "switching mid-film is not allowed"
                 ) from None
+            if e.status in PERSISTENT:  # a refusal for this key, not a transient timeout or overload
+                ctx.failed[cand["id"]] = str(e)[:200]
             attempts.append((cand["id"], str(e)))
             continue
         if key:

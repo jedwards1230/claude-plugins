@@ -89,6 +89,26 @@ class BeatsAndCutTest(TempDirTest):
         self.assertGreaterEqual(edit["final_chord_film"], 17 - 0.05)
         self.assertLess(edit["final_chord_film"], 17 + 2.0 + 0.05)
 
+    def test_final_chord_is_never_a_re_attack_inside_the_fade(self):
+        import numpy as np
+
+        path, final_at = click_track(self.tmp / "clicks.wav", tail=8.0)
+        x, sr = audiolib.read_audio(path)
+        y = x[:, 0].astype(np.float64)
+        # the final chord rings into a long fade-out with two faint re-attacks on later downbeats
+        s, n = int(final_at * SR), int(7.5 * SR)
+        chord = sum(np.sin(2 * math.pi * f * np.arange(n) / SR) for f in (110.0, 138.6, 164.8))
+        y[s : s + n] += 0.3 * chord * np.linspace(1, 0, n) ** 2
+        for tb in (final_at + 4, final_at + 6):
+            b, m = int(tb * SR), int(0.3 * SR)
+            y[b : b + m] += 0.08 * np.exp(-np.arange(m) / (0.05 * SR)) * np.sin(2 * math.pi * 220 * np.arange(m) / SR)
+        bpm, beats = music.track_beats_numpy(y, SR)
+        phase, _ = music.downbeat_phase(y, SR, beats)
+        downs = music.extend_grid(beats[phase::4], len(y) / SR)
+        t, how = music.final_chord(y, SR, downs)
+        self.assertAlmostEqual(t, final_at, delta=0.06)
+        self.assertIn("within 12 dB", how)
+
     def test_splice_is_equal_power(self):
         import numpy as np
 
@@ -111,6 +131,16 @@ class GenTest(TempDirTest):
         self.assertEqual(sorted(p.name for p in (film / "work" / "music").glob("cand_*")), ["cand_0.wav", "cand_1.wav"])
         records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual({e["stage"] for e in records if e["op"] == "record"}, {"assets"})
+
+    def test_gen_says_why_it_fell_back(self):
+        film = new_film(self.tmp, music={"mode": "generated", "prompt": "a quiet solo piano"})
+        with FakeOpenRouter() as fake:
+            fake.plan["google/lyria-3-pro-preview"] = [402]
+            code, out, err = run_tool(music, ["gen", "--film", str(film), "--n", "2"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(len(fake.calls("/chat/completions", "google/lyria-3-pro-preview")), 1)  # remembered
+        self.assertIn("google/lyria-3-clip-preview", out)
+        self.assertIn("after openrouter:google/lyria-3-pro-preview failed: HTTP 402", out)
 
 
 if __name__ == "__main__":

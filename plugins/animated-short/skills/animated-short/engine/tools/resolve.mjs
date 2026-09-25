@@ -178,6 +178,7 @@ const ids = new Set(), sceneIds = new Set();
   if (T.str(sc.transition) && !SB.TRANSITIONS.includes(sc.transition)) err(`${p}.transition`, `must be one of ${SB.TRANSITIONS.join(', ')}`);
   if (isObj(sc.transition)) check(sc.transition, `${p}.transition`, { type: ['enum', SB.TRANSITIONS, 'req'], dur: 'num', dir: ['enum', ['left', 'right']] });
   if (isObj(sc.custom) && !T.str(sc.custom.canvas)) err(`${p}.custom.canvas`, 'must name the canvas shot id');
+  if (isObj(sc.custom) && sc.custom.layer !== undefined && !['over', 'under'].includes(sc.custom.layer)) err(`${p}.custom.layer`, 'must be "over" (default: on top of the elements) or "under"');
   (sc.elements || []).forEach((el, j) => checkElement(el, `${p}.elements[${j}]`, ids));
 });
 (src.scenes || []).forEach((sc, i) => (isObj(sc) && Array.isArray(sc.beats) ? sc.beats : []).forEach((b, j) => checkBeat(b, `scenes[${i}].beats[${j}]`, ids)));
@@ -335,6 +336,14 @@ const man = readJSON('web/img/manifest.json', true);
 if (man) SB.forEachElement(out, (el) => { const n = el.kind === 'clip' ? el.poster : el.kind === 'sprite' ? el.src : null; if (n && !(n in man)) warn(`sticker "${n}" (element "${el.id}") is not in web/img/manifest.json`); });
 for (let i = 1; i < vo.length; i++) if (vo[i].at < vo[i - 1].at + vo[i - 1].dur) warn(`voice lines "${vo[i - 1].id}" and "${vo[i].id}" overlap`);
 if (vo.length && vo[vo.length - 1].at + vo[vo.length - 1].dur > duration) warn(`the last voice line ends after the film (${duration} s)`);
+// the disclosure end card covers the last seconds (the engine's rule: disclosure.seconds, 1.6 s to 40% of
+// the film); narration must be over at least 0.3 s before it starts
+const dc = cfg.disclosure || {};
+if (dc.end_card === true && vo.length) {
+  const secs = Math.min(duration * 0.4, Math.max(Math.min(1.6, duration * 0.4), dc.seconds || 2.5)), cardAt = duration - secs;
+  const last = vo.reduce((a, v) => (v.at + v.dur > a.at + a.dur ? v : a)), end = last.at + last.dur;
+  if (end > cardAt - 0.3) warn(`narration ends at ${end.toFixed(2)} s (line "${last.id}"), ${end > cardAt ? `${(end - cardAt).toFixed(2)} s after` : `${(cardAt - end).toFixed(2)} s before`} the end card starts at ${cardAt.toFixed(2)} s (want >= 0.3 s before): shorten the narration or disclosure.seconds, then voice.py words`);
+}
 for (const s of out.sfx) if (s.at < 0 || s.at > duration) warn(`sfx ${s.type} at ${s.at} s is outside the film`);
 for (const k of ['size', 'fps', 'duration']) {
   if (cfg[k] != null && JSON.stringify(cfg[k]) !== JSON.stringify(meta[k])) warn(`web/film/config.json ${k} ${JSON.stringify(cfg[k])} differs from meta.${k} ${JSON.stringify(meta[k])}; the storyboard wins`);

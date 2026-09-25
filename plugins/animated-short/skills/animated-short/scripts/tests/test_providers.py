@@ -336,7 +336,7 @@ class WalkerTest(TempDirTest):
     def test_account_ceiling_from_env(self):
         film = new_film(self.tmp)
         with FakeOpenRouter() as fake:
-            fake.usage = 7.49
+            fake.usage = 7.499  # a probe-sized critic call reserves about $0.0024
             os.environ["ANIMATED_SHORT_ACCOUNT_CEILING"] = "7.5"
             try:
                 with self.assertRaises(BudgetRefused):
@@ -367,6 +367,57 @@ class WalkerTest(TempDirTest):
             self.assertEqual(m.files[0].suffix, ".wav")
             self.assertEqual(m.basis, "usage.cost")
             self.assertTrue(fake.calls("/chat/completions", "google/lyria-3-pro-preview")[0]["body"]["stream"])
+
+    def test_a_refusal_is_remembered_for_the_command_a_timeout_is_not(self):
+        film = new_film(self.tmp)
+        with FakeOpenRouter() as fake:
+            fake.plan["google/gemini-3.8-flash-tts"] = [402]
+            ctx = self.ctx(film)
+            run_role(ctx, "tts", self.tts_job(film, "a", take=0), stage="voice")
+            res = run_role(ctx, "tts", self.tts_job(film, "b", take=1), stage="voice")
+            self.assertEqual(len(fake.calls("/audio/speech", "google/gemini-3.8-flash-tts")), 1)  # not asked again
+            self.assertIn("failed earlier in this command", res.fallbacks[0][1])
+            self.assertIn("402", res.fallbacks[0][1])
+            self.assertEqual(len(self.ctx(film).failed), 0)  # the next command starts afresh
+            fake.plan["google/gemini-3.8-flash"] = [500, 500, 200]  # 5xx after its retry: transient
+            ctx = self.ctx(film)
+            first = run_role(ctx, "critic", {"prompt": "x"}, stage="review")
+            second = run_role(ctx, "critic", {"prompt": "y"}, stage="review")
+        self.assertEqual(first.candidate["model"], "google/gemini-3.1-pro-preview")
+        self.assertEqual(second.candidate["model"], "google/gemini-3.8-flash")  # tried again, and it worked
+
+    def test_the_preferred_candidate_from_preflight_goes_first(self):
+        film = new_film(self.tmp)
+        ctx = self.ctx(film)
+        ctx.update_state("preferred", "tts/final", {"candidate": "openrouter:google/gemini-3.1-flash-tts-preview"})
+        with FakeOpenRouter() as fake:
+            fake.plan["google/gemini-3.8-flash-tts"] = [402]
+            res = run_role(ctx, "tts", self.tts_job(film, take=0), stage="voice")
+            self.assertEqual(res.candidate["model"], "google/gemini-3.1-flash-tts-preview")
+            self.assertEqual(res.fallbacks, [])
+            self.assertEqual(fake.calls("/audio/speech", "google/gemini-3.8-flash-tts"), [])
+        chain, _ = ctx.chain("tts", prefer=False)
+        self.assertEqual(chain[0]["model"], "google/gemini-3.8-flash-tts")  # registry order for preflight tier 1
+        chain, _ = ctx.chain("tts", model="google/gemini-3.8-flash-lite-tts")
+        self.assertEqual(chain[0]["model"], "google/gemini-3.8-flash-lite-tts")  # --model still wins
+
+    def test_estimates_follow_token_prices_and_media_length(self):
+        film = new_film(self.tmp)
+        ctx = self.ctx(film)
+        tts = ctx.provider(ctx.registry.by_id("openrouter:google/gemini-3.1-flash-tts-preview"))
+        twelve = " ".join(["word"] * 12)
+        # (12 words / 2.4 + 0.4 s) x 50 audio tokens/s x $0.00002 + (59 characters / 4) x $0.000001
+        self.assertAlmostEqual(tts.estimate(text=twelve), 5.4 * 50 * 0.00002 + 59 / 4 * 0.000001, places=5)
+        crit = ctx.provider(ctx.registry.by_id("openrouter:google/gemini-3.8-flash"))
+        review = crit.estimate(prompt="x" * 6000, video=True, media_seconds=45)
+        # (1500 prompt + 45 s x 300 video tokens) x $0.00000075 + 2500 reply tokens x $0.00000375, x 1.5
+        self.assertAlmostEqual(review, ((1500 + 13500) * 0.00000075 + 2500 * 0.00000375) * 1.5, places=5)
+        self.assertLess(review, 0.04)  # was quoted near $0.05; the live API charged 1-4 cents for this
+        audio = crit.estimate(prompt="x" * 6000, audio=["mix"], media_seconds=45)
+        self.assertLess(audio, review)
+        self.assertEqual(crit.estimate(prompt="Reply with OK."), 0.002)  # a probe: short reply, the floor
+        signoff = ctx.provider(ctx.registry.by_id("openrouter:google/gemini-3.1-pro-preview"))
+        self.assertGreater(signoff.estimate(prompt="x" * 6000, video=True, media_seconds=45), 0.1)
 
     def test_align_without_words_falls_back(self):
         film = new_film(self.tmp)

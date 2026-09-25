@@ -31,7 +31,7 @@
       }
     },
     "scenes": { "type": "array", "items": { "$ref": "#/$defs/scene" } },
-    "shots": { "type": "array", "items": { "$ref": "#/$defs/id" }, "description": "Extra shot ids to load (web/film/shots/<id>.js). Shots used by custom elements and scenes are added automatically." },
+    "shots": { "type": "array", "items": { "$ref": "#/$defs/id" }, "description": "Extra shot ids to load (web/film/shots/<id>.js), first and in this order: shared helper files go here. Shots used by custom elements and scenes are added automatically after them." },
     "notes": { "type": "string" }
   },
   "$defs": {
@@ -184,10 +184,10 @@
         "elements": { "type": "array", "items": { "$ref": "#/$defs/element" } },
         "beats": { "type": "array", "items": { "$ref": "#/$defs/beat" } },
         "custom": {
-          "description": "Escape hatch: a shot drawn over the scene's elements. A string is the canvas shot id; an object maps engine -> code reference.",
+          "description": "Escape hatch: a shot drawn over the scene's elements. A string is the canvas shot id; an object maps engine -> code reference, and \"layer\": \"under\" draws the shot beneath the elements instead.",
           "oneOf": [
             { "$ref": "#/$defs/id" },
-            { "type": "object", "required": ["canvas"], "properties": { "canvas": { "$ref": "#/$defs/id" } }, "additionalProperties": { "type": "string" } }
+            { "type": "object", "required": ["canvas"], "properties": { "canvas": { "$ref": "#/$defs/id" }, "layer": { "enum": ["over", "under"], "description": "over (default): on top of the scene's elements; under: beneath them." } }, "additionalProperties": { "type": "string" } }
           ]
         },
         "params": { "type": "object", "description": "Passed to the scene's custom shot as api.params." },

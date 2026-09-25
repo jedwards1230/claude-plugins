@@ -38,11 +38,11 @@ error, 3 budget refusal, 4 provider unavailable after fallbacks (including a sti
 
 | Role | Default chain (in order) | Draft tier | Notes |
 | --- | --- | --- | --- |
-| `tts` | google/gemini-3.8-flash-tts, google/gemini-3.1-flash-tts-preview, google/gemini-3.8-flash-lite-tts | same | PCM 24 kHz converted to WAV; style prompt per take; SynthID watermark (inaudible). hexgrad/kokoro-82m is opt-in (different voices, no style prompt). Cost is always an estimate (the endpoint reports none). |
+| `tts` | google/gemini-3.8-flash-tts, google/gemini-3.1-flash-tts-preview, google/gemini-3.8-flash-lite-tts | same | PCM 24 kHz converted to WAV; style prompt per take; SynthID watermark (inaudible). One voice per film (sticky). hexgrad/kokoro-82m is opt-in (different voices, no style prompt). Cost is always an estimate (the endpoint reports none; reconcile calibrates it). |
 | `align` | openai/whisper-1 (until 2027-02-26), openai/whisper-large-v3, local WhisperX (if installed), local energy aligner | same | Word timestamps; doubles as the pronunciation check. A reply without word times counts as unavailable. The energy aligner is $0 and coarse: it cannot catch mispronunciations. |
 | `music` | google/lyria-3-pro-preview (~$0.08 per song) | google/lyria-3-clip-preview (~$0.04 per 30 s clip) | Length is not controllable: beat-track and cut on downbeats (`music.py cut`). |
 | `image` | google/gemini-3-pro-image-preview (4K, ~$0.25-0.30 per sheet), google/gemini-3-pro-image (2K) | google/gemini-3.1-flash-image (1K), -preview | No alpha: sheets use flat grey and are cut out. Opt-in: gpt-image-2, recraft-v4.1, flux.2-pro, flux.2-klein-4b (draft), seedream-4.5 (no reference images through these), gemini-2.5-flash-image (until 2026-10-02). |
-| `critic` | google/gemini-3.8-flash (~1 cent per 90 s film) | same | Watches video with audio, listens, looks at stills. A different model family from the builder. Sign-off tier: google/gemini-3.1-pro-preview, google/gemini-2.5-pro. |
+| `critic` | google/gemini-3.8-flash (1-4 cents per video review) | same | Watches video with audio, listens, looks at stills. A different model family from the builder. Sign-off tier: google/gemini-3.1-pro-preview, google/gemini-2.5-pro. |
 | `video` | none | none | Opt-in registry entries only (Veo 3.1, Kling 3.0); no tool uses the role. |
 | sound effects | synthesized in the engine | | 25 types from the storyboard's `sfx` list; $0. |
 
@@ -60,13 +60,22 @@ python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1 
 - Tier 0 (free): tools (Node 18+, npm, ffmpeg/ffprobe, Chromium via the film's glyph test,
   Python packages), the key and its remaining limit (GET /key), each candidate's catalog entry
   and output modality (GET /models?output_modalities=all), the license filter, the delivery
-  probe, and a quote. Without `--film` (before the film exists) it judges with default inputs,
-  skips the Chromium check and writes nothing; with `--film` on a directory that has no
-  film.json yet it writes nothing either, so `scaffold.py new` can still use it. Run it again
-  with `--film` after scaffolding and `npm install`.
+  probe, and a quote. It lists missing Python packages with the pip command for just those.
+  Without `--film` (before the film exists) it judges with default inputs, skips the Chromium
+  check and writes nothing; with `--film` on a directory that is not scaffolded yet (empty, or
+  holding only its film.json, which it then judges by) it writes nothing either, so
+  `scaffold.py new` can still use it. Run it again with `--film` after scaffolding and
+  `npm install`.
 - Tier 1 (a few cents at most, needs a scaffolded film): one real call each for tts, align and
-  critic through the normal fallback walker. Catalogs lie: a model can be listed and still
-  return 402 or 404 for a given key. Run it whenever `budget_usd > 0`, before planning.
+  critic through the normal fallback walker, in registry order. Catalogs lie: a model can be
+  listed and still return 402 or 404 for a given key. An HTTP 402 on an account with credit
+  usually means the key or the provider is not allowed that model, or holds no credit for it
+  (a per-model limit or a provider-side payment rule), not that the account is empty. Tier 1
+  records the candidate that worked for each role in `work/state.json` (`preferred`) and warns
+  about each one that did not: later commands start with the working one, so a TTS film whose
+  first choice refuses the key starts on the fallback, and its voice is pinned to that model at
+  the first take. Delete `preferred` (or run tier 1 again) to try the registry order anew. Run
+  tier 1 whenever `budget_usd > 0`, before planning.
 - Report: `work/preflight.json`; exit 1 when a role the film needs has no working provider or
   no requested delivery mode is available. A `budget_usd` of 0 needs no critic: every review
   is then a Claude subagent (`review.py ingest`).
@@ -79,6 +88,10 @@ python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1 
   after retries, 5xx, timeouts, unsupported-parameter replies, empty outputs. Anything else is
   a real failure and stops the tool; quality problems go to the review loop, not to a
   different model.
+- A candidate refused for this key (400 unsupported, 401, 402, 403, 404, 422) is skipped for
+  the rest of the command instead of being asked again on every take; a timeout, 429 or 5xx
+  is tried again on the next call. Every tool prints which model served a call and, after a
+  fallback, which one failed and why.
 - Sticky choices never switch mid-film: the TTS model, voice and style, and the image model per
   tier, are pinned in `work/state.json` on first success. If a pinned choice fails, the tool
   stops (exit 4) instead of silently changing voice or art style. Report it to the user. To
@@ -119,12 +132,19 @@ finished parts; `voice.py takes --n 5` after `--n 3` pays only for takes 3 and 4
 `$FILM/ledger.jsonl` is append-only and shared by every paid call:
 
 1. Reserve: estimate x 1.2 under a file lock; refused (exit 3) when spent + open reservations
-   + this reservation would pass `budget_usd`, or the account ceiling.
+   + this reservation would pass `budget_usd`, or the account ceiling. "Spent" is the larger of
+   the ledger's total and the account's usage since the anchor (GET /key, free, whenever a key
+   is available), so estimates that run low cannot overspend the film. Other work on the same
+   key counts against the film too: give the film its own key when that matters.
 2. Record: the actual cost from `usage.cost` when the response carries it, else the estimate
    tagged `basis: "estimate"`. A call that failed before reaching the model releases its
    reservation.
 3. Anchor: the account's usage at the film's first paid call; `ledger.py reconcile` compares
    the account's usage since then with what the ledger recorded (free call) and warns on drift.
+4. Calibrate: reconcile puts the drift on the calls recorded as estimates (TTS above all) and
+   stores `factor = (estimated spend + drift) / their uncalibrated estimates` in
+   `work/state.json` (`calibration`, per role; never below 1.0, capped at 3.0). Later estimates
+   of those roles, in quotes and reservations alike, are multiplied by it.
 
 ```bash
 python3 "$SKILL/scripts/ledger.py" status --film "$FILM"                       # spent / reserved / remaining, per role and stage
@@ -133,8 +153,9 @@ python3 "$SKILL/scripts/ledger.py" release --film "$FILM" --all-open --reason "c
 ```
 
 Reservations left open by a crash hold budget until released. Reconcile drift above the
-tolerance usually means TTS estimates were low (the speech endpoint reports no cost) or
-another job shares the key.
+tolerance usually means TTS estimates were low (the speech endpoint reports no cost; the next
+estimates follow the calibration) or another job shares the key (a calibration capped at 3.0
+says so).
 
 ## Quote before spending
 
@@ -144,19 +165,38 @@ python3 "$SKILL/scripts/quote.py" --film "$FILM" --stage voice   # preflight | v
 ```
 
 Counts come from film.json and `src/script.json` (without a script: duration x 2.5 words);
-prices from the registry, refined by the catalog once preflight has run. The quote includes
-the critic's judging calls (the audition pick and take picks under voice, the music pick under
-assets) and, for review, only the rounds still to run (`review.rounds` minus the
-`work/reviews/r<N>/` directories that exist). Its stages are the labels the tools write into
-`ledger.jsonl` (`critic.py ask --stage` sets one per call), so `ledger.py status` compares
-like with like. Exit 3 when the quote does not fit the remaining budget. Quote before voice,
-before the animatic, before final assets and before each review round; if a stage does not
-fit, cut scope (fewer sheets, fewer candidates, one persona) before asking the user for more
-budget.
+prices from the registry, refined by the catalog once preflight has run, times the film's
+calibration factor. The quote includes the critic's judging calls (the audition pick and take
+picks under voice, the music pick under assets) and, for review, only the rounds still to run
+(`review.rounds` minus the `work/reviews/r<N>/` directories that exist; a fix pass is not a
+round). Its stages are the labels the tools write into `ledger.jsonl` (`critic.py ask --stage`
+sets one per call), so `ledger.py status` compares like with like. Quote before voice, before
+the animatic, before final assets and before each review round.
 
-Typical spend for a 60-90 s film at defaults: 5-8 final sheets (~$1.50-2.40), 3 music
-candidates (~$0.24), 3 takes per line plus checks (~$0.30-0.60), 2-4 review rounds
-(~$0.20-0.60): about $2-4. Draft art for the animatic adds ~$0.08 per sheet.
+Exit 3 when the quote does not fit the remaining budget; the quote then lists what to change
+in film.json, least harmful first, each line with the total after it and the ones above:
+`art.draft_first` false (the animatic runs on the engine's placeholders), fewer music
+candidates, fewer final sheets (down to 3; more stickers per sheet), one music candidate, 2
+takes per line, 3 review rounds, 2 sheets, one persona. Apply the list down to the first line
+that fits, or ask the user for more budget.
+
+How the estimates are made (all conservative on purpose; the ledger records the real cost
+whenever the provider reports it):
+
+- TTS: audio seconds (words / 2.4 + 0.4 s of silence around each take) x 50 audio tokens per
+  second (registry `cost.tokens_per_second`) x the catalog completion price, plus the text and
+  style as prompt tokens (4 characters a token). The endpoint reports no cost; reconcile
+  calibrates it per film.
+- Critic: prompt characters / 4 + 300 tokens per video second (frames and sound) or 32 per
+  audio second + 1300 per image, x the catalog prompt price, plus the reply (registry
+  `cost.reply_tokens`: 2500 for the default critic, 6000 for the sign-off models, which think
+  at length; 200 for a one-line probe) x the completion price, all x 1.5.
+- Images and music: the catalog's per-image or per-song price.
+
+Typical quotes at the defaults: about $2.50 for a 45 s film with two personas, about $3.80 for
+90 s with one; real spend has run well under the quote. The default `art.sheets` follows the
+duration (duration / 15, rounded up, 2 to 8): final sheets are the largest single cost (about
+$0.25-0.30 each at 4K), and draft sheets for the animatic add about $0.08 each.
 
 ## Draft tier
 

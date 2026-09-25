@@ -107,16 +107,38 @@
     og.filter = 'blur(6px)'; og.drawImage(sil, 0, 0);
     return { canvas: out, k };
   }
-  D.addSticker = function (name, img) {
-    D.stickers[name] = { img, w: img.width, h: img.height, shadow: makeShadow(img) };
+  // meta: the sticker's web/img/manifest.json entry; meta.anchor = [ax, ay] (fractions of its width and
+  // height) is the point D.sticker places at (x, y) and turns and scales about. Default: the centre.
+  D.addSticker = function (name, img, meta = {}) {
+    const a = Array.isArray(meta.anchor) && meta.anchor.length === 2 ? meta.anchor.map(Number) : [0.5, 0.5];
+    D.stickers[name] = { img, w: img.width, h: img.height, shadow: makeShadow(img), anchor: a };
   };
-  // Draw a sticker centred at (x,y). o: w (display width), r (deg), a (alpha), lift (0..1), sx, sy, shadow
+  D.anchor = (name) => { const s = D.stickers[name]; return s ? s.anchor.slice() : [0.5, 0.5]; };
+  // A missing sticker: a paper card with a dashed ring and the sticker's name, w wide, centred on 0,0.
+  // Visible on purpose, so stills and contact sheets catch it (never ship one: VIS-6).
+  D.placeholder = function (ctx, name, w, seed = 3, id = null) {
+    D.paperShape(ctx, 'rect', Math.round(w), Math.round(w * 0.7), 'paper', seed, { shadow: 0.6 });
+    D.ink(ctx, D.circlePts(0, 0, Math.round(w * 0.4), Math.round(w * 0.27), 3, 1.02), { w: 3, c: 'coral', dash: [10, 8] });
+    D.text(ctx, name, 0, 10, { size: Math.max(20, Math.round(w * 0.1)), font: 'print', weight: 400, c: 'coral', id: (id || D.currentId || name) + ':missing' });
+  };
+  const warned = new Set();
+  // Draw a sticker with its anchor (default: the centre) at (x,y). o: w (display width), r (deg),
+  // a (alpha), lift (0..1), sx, sy, shadow, anchor ([ax, ay] overrides the manifest's), seed and id
+  // (for the placeholder). A missing sticker draws the placeholder and warns once.
   D.sticker = function (ctx, name, x, y, o = {}) {
     const s = D.stickers[name];
     const alpha = o.a == null ? 1 : o.a;
-    if (!s || alpha <= 0.002) return;
+    if (alpha <= 0.002) return;
+    if (!s) {
+      if (!warned.has(name)) { console.warn(`missing sticker "${name}"${D.currentId ? ` (element "${D.currentId}")` : ''}`); warned.add(name); }
+      ctx.save(); ctx.translate(x, y); if (o.r) ctx.rotate(deg(o.r)); ctx.globalAlpha *= alpha;
+      D.placeholder(ctx, name, o.w || 240, o.seed == null ? 3 : o.seed, o.id);
+      ctx.restore();
+      return;
+    }
     const w = o.w || s.w, sc = w / s.w;
-    const lift = o.lift || 0;
+    const lift = o.lift || 0, [ax, ay] = Array.isArray(o.anchor) ? o.anchor : s.anchor;
+    const cx = (0.5 - ax) * s.w, cy = (0.5 - ay) * s.h; // the image centre relative to the anchor
     ctx.save();
     ctx.translate(x, y);
     if (o.r) ctx.rotate(deg(o.r));
@@ -124,9 +146,9 @@
     const sh = s.shadow, iw = sh.canvas.width / sh.k, ih = sh.canvas.height / sh.k;
     const off = (6 + lift * 34) / sc, grow = 1 + lift * 0.05, base = ctx.globalAlpha;
     ctx.globalAlpha = base * alpha * (0.4 - 0.17 * lift) * (o.shadow == null ? 1 : o.shadow);
-    ctx.drawImage(sh.canvas, -iw * grow / 2 + off * 0.4, -ih * grow / 2 + off, iw * grow, ih * grow);
+    ctx.drawImage(sh.canvas, cx - iw * grow / 2 + off * 0.4, cy - ih * grow / 2 + off, iw * grow, ih * grow);
     ctx.globalAlpha = base * alpha;
-    ctx.drawImage(s.img, -s.w / 2, -s.h / 2);
+    ctx.drawImage(s.img, cx - s.w / 2, cy - s.h / 2);
     ctx.restore();
   };
   D.aspect = (name) => { const s = D.stickers[name]; return s ? s.h / s.w : 1; };

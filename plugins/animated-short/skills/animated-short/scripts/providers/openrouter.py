@@ -385,17 +385,28 @@ class OpenRouterProvider(Provider):
         return {"ok": True, "reason": "in the catalog" + (f"; expires {exp}" if exp else ""), "usd": 0.0}
 
 
+TTS_WORDS_PER_SECOND = 2.4  # a little slower than the 2.5 words/s planning rate: estimates stay high
+TTS_PAD_SECONDS = 0.4  # leading and trailing silence in every take
+
+
 class TTS(OpenRouterProvider):
     """job: text, voice, style, out_dir, stem -> <stem>.wav (PCM 24 kHz s16le mono converted in Python)."""
 
-    def estimate(self, text="", **job):
+    def estimate(self, text="", style=None, **job):
+        """Audio seconds (words / 2.4 + 0.4) x the audio tokens per second (registry
+        cost.tokens_per_second) x the catalog completion price, plus the text and style as prompt
+        tokens (4 characters a token). The speech endpoint reports no cost, so ledger.py reconcile
+        calibrates this per film."""
         cost = self.cand.get("cost", {})
         pr = self.pricing()
+        if not pr:
+            return float(cost.get("usd") or 0.01)
         words = len(str(text).split())
-        seconds = max(1.0, words / 2.5)
-        tps = cost.get("tokens_per_second", 32)
-        est = seconds * tps * float(pr.get("completion") or 0) + len(str(text)) / 4 * float(pr.get("prompt") or 0)
-        return round(max(est, cost.get("min_usd", 0.0)) if pr else float(cost.get("usd") or 0.01), 6)
+        seconds = max(1.0, words / TTS_WORDS_PER_SECOND + TTS_PAD_SECONDS)
+        tps = float(cost.get("tokens_per_second", 50))
+        chars = len(str(text)) + len(str(style or ""))
+        est = seconds * tps * float(pr.get("completion") or 0) + chars / 4 * float(pr.get("prompt") or 0)
+        return round(max(est, cost.get("min_usd", 0.0)), 6)
 
     def run(self, text, voice, style=None, out_dir=".", stem="take", **job):
         style = style if self.params.get("style", True) else None
@@ -529,20 +540,35 @@ class Image(OpenRouterProvider):
         )
 
 
+MEDIA_TOKENS = {"video_per_s": 300, "audio_per_s": 32, "image": 1300}  # when the registry names none
+SHORT_PROMPT = 200  # characters: a probe or a one-word question gets a short reply
+SAFETY = 1.5
+
+
 class Critic(OpenRouterProvider):
     """job: prompt (text), video (Path), audio [Path], images [Path], media_seconds -> data {text}."""
 
     def estimate(self, prompt="", video=None, audio=(), images=(), media_seconds=None, **job):
+        """Input tokens (prompt characters / 4, video or audio seconds x the registry's media token
+        rates, a fixed count per image) x the catalog prompt price, plus the expected reply
+        (registry cost.reply_tokens, thinking included) x the completion price, x 1.5 for safety."""
         cost = self.cand.get("cost", {})
         pr = self.pricing()
         if not pr:
             return float(cost.get("usd") or 0.05)
+        rates = dict(MEDIA_TOKENS, **(cost.get("media_tokens") or {}))
         secs = float(media_seconds or (90 if video else 0))
-        tokens_in = len(str(prompt)) / 4 + (300 * secs if video else 0) + 32 * secs * (1 if audio and not video else 0)
-        tokens_in += 1300 * len(images or ())
-        tokens_out = 6000
+        tokens_in = len(str(prompt)) / 4 + len(images or ()) * rates["image"]
+        if video:
+            tokens_in += secs * rates["video_per_s"]
+        elif audio:
+            tokens_in += secs * rates["audio_per_s"]
+        media = bool(video or audio or images)
+        tokens_out = float(cost.get("reply_tokens", 2500))
+        if not media and len(str(prompt)) < SHORT_PROMPT:
+            tokens_out = min(tokens_out, 200)
         est = tokens_in * float(pr.get("prompt") or 0) + tokens_out * float(pr.get("completion") or 0)
-        return round(max(est * 1.5, cost.get("min_usd", 0.0)), 6)
+        return round(max(est * SAFETY, cost.get("min_usd", 0.0)), 6)
 
     def run(self, prompt, video=None, audio=(), images=(), **job):
         content = [{"type": "text", "text": prompt}]

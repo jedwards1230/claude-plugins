@@ -8,11 +8,15 @@ rounds still to run: review.rounds minus the work/reviews/r<N>/ directories that
 director, personas, audio, comparers, originality per round, plus one sign-off pass), preflight (tier-1
 probes), all. Counts come from film.json and src/script.json (the word count sets the take lengths;
 without a script, duration x 2.5 words). Unit prices come from the registry, refined by catalog prices
-when preflight has run. A film with budget_usd 0 quotes no critic calls (its reviews are Claude
-subagents). Prints a table, writes work/quote.json, and exits 3 when the quote does not fit the film's
-remaining budget.
+when preflight has run, times the film's calibration factor once ledger.py reconcile has set one. A
+film with budget_usd 0 quotes no critic calls (its reviews are Claude subagents). Prints a table,
+writes work/quote.json, and exits 3 when the quote does not fit the film's remaining budget; it then
+also prints what to change to fit: film.json knobs in order of least harm (draft art, music
+candidates, sticker sheets, takes, review rounds, personas), each with the total after that change and
+the ones above it.
 """
 
+import copy
 import json
 import math
 import re
@@ -24,6 +28,19 @@ from providers.base import EXIT_BUDGET
 
 STAGES = ("preflight", "voice", "animatic", "assets", "review")
 TAKE_PICK_LINES = 4  # lines judged per take-pick critic call (phases.md, phase 6)
+REVIEW_PROMPT_CHARS = 6000  # a rubric prompt: template, film context, intent notes and the schema
+JUDGE_PROMPT_CHARS = 1500  # a judging prompt for critic.py ask (audition, take picks, music, animatic)
+# film.json knobs the "to fit" list may turn, least harmful first: (path, floor, label)
+FIT_STEPS = (
+    (("art", "draft_first"), False, "animatic on the engine's placeholders instead of draft art"),
+    (("music", "candidates"), 2, "fewer music candidates"),
+    (("art", "sheets"), 3, "fewer final sticker sheets (more stickers per sheet)"),
+    (("music", "candidates"), 1, "one music candidate"),
+    (("voice", "takes"), 2, "fewer takes per line"),
+    (("review", "rounds"), 3, "fewer review rounds"),
+    (("art", "sheets"), 2, "fewer final sticker sheets"),
+    (("audience",), 1, "one persona"),
+)
 
 
 def rounds_done(film_dir):
@@ -55,7 +72,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             notes.append(f"{item}: no {role} candidate passes the filters")
             return
         if unit is None:
-            unit = ctx.provider(cand).estimate(**job)
+            unit, _raw = ctx.estimate(ctx.provider(cand), job)
         items.append(
             {
                 "stage": st,
@@ -97,6 +114,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
                     "critic",
                     "final",
                     1,
+                    prompt="x" * JUDGE_PROMPT_CHARS,
                     audio=["takes"],
                     media_seconds=auditions * line_seconds,
                 )
@@ -118,6 +136,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
                 "critic",
                 "final",
                 calls,
+                prompt="x" * JUDGE_PROMPT_CHARS,
                 audio=["takes"],
                 media_seconds=min(n_lines, TAKE_PICK_LINES) * n_takes * line_seconds,
             )
@@ -129,7 +148,16 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             add("animatic", f"draft sheets ({art['sheets']} at 1K)", "image", "draft", art["sheets"])
         add("assets", f"final sheets ({art['sheets']})", "image", "final", art["sheets"])
     if critic:
-        add("animatic", "animatic critic pass", "critic", "draft", 1, video=True, media_seconds=film["duration"])
+        add(
+            "animatic",
+            "animatic critic pass",
+            "critic",
+            "draft",
+            1,
+            prompt="x" * JUDGE_PROMPT_CHARS,
+            video=True,
+            media_seconds=film["duration"],
+        )
     if film["music"]["mode"] == "generated":
         n_music = film["music"]["candidates"]
         add("assets", f"music candidates ({n_music})", "music", "final", n_music)
@@ -140,6 +168,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
                 "critic",
                 "final",
                 1,
+                prompt="x" * JUDGE_PROMPT_CHARS,
                 audio=["candidates"],
                 media_seconds=n_music * film["duration"],
             )
@@ -152,6 +181,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             "critic",
             "final",
             rounds * reviewers_video,
+            prompt="x" * REVIEW_PROMPT_CHARS,
             video=True,
             media_seconds=film["duration"],
         )
@@ -161,6 +191,7 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             "critic",
             "final",
             rounds,
+            prompt="x" * REVIEW_PROMPT_CHARS,
             audio=["mix"],
             media_seconds=film["duration"],
         )
@@ -170,9 +201,18 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             "critic",
             "final",
             rounds * reviewers_text,
-            prompt="x" * 4000,
+            prompt="x" * REVIEW_PROMPT_CHARS,
         )
-        add("review", "sign-off director pass", "critic", "signoff", 1, video=True, media_seconds=film["duration"])
+        add(
+            "review",
+            "sign-off director pass",
+            "critic",
+            "signoff",
+            1,
+            prompt="x" * REVIEW_PROMPT_CHARS,
+            video=True,
+            media_seconds=film["duration"],
+        )
 
     chosen = [i for i in items if stage == "all" or i["stage"] == stage]
     total = round(sum(i["usd"] for i in chosen), 4)
@@ -198,6 +238,60 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
     }
 
 
+def _knob(film, path):
+    if path == ("audience",):
+        return len(film["audience"])
+    return film[path[0]].get(path[1])
+
+
+def _turn(film, path, value):
+    out = copy.deepcopy(film)
+    if path == ("audience",):
+        out["audience"] = out["audience"][:value]
+    else:
+        out[path[0]][path[1]] = value
+    return out
+
+
+def fit_plan(film, film_dir, ctx=None, stage="all"):
+    """What to change so the quote fits: FIT_STEPS in order, each applied on top of the ones before,
+    a numeric knob lowered only as far as needed. -> [{change, from, to, why, saves, total, fits}]."""
+    ctx = ctx or Context(Path(film_dir), film)
+    first = build_quote(film, film_dir, ctx, stage)
+    remaining, base, cur, steps = first["remaining"], first["total"], film, []
+    if first["fits"]:
+        return steps
+    for path, floor, why in FIT_STEPS:
+        before = _knob(cur, path)
+        if before is None or (before is floor if isinstance(floor, bool) else before <= floor):
+            continue
+        values = [floor] if isinstance(floor, bool) else list(range(before - 1, floor - 1, -1))
+        best = None
+        for v in values:  # the smallest change that fits, else the floor
+            q = build_quote(_turn(cur, path, v), film_dir, ctx, stage)
+            best = (v, q["total"])
+            if q["total"] <= remaining + 1e-9:
+                break
+        v, total = best
+        if total >= base - 1e-9:
+            continue  # this knob costs nothing in this stage
+        steps.append(
+            {
+                "change": "audience" if path == ("audience",) else ".".join(path),
+                "from": before,
+                "to": v,
+                "why": why,
+                "saves": round(base - total, 4),
+                "total": total,
+                "fits": total <= remaining + 1e-9,
+            }
+        )
+        cur, base = _turn(cur, path, v), total
+        if steps[-1]["fits"]:
+            break
+    return steps
+
+
 def print_quote(q):
     s = q["assumptions"]
     print(
@@ -214,6 +308,18 @@ def print_quote(q):
         f"  total {usd(q['total'])}  budget {usd(q['budget'])}  spent {usd(q['spent'])}  "
         f"remaining {usd(q['remaining'])}  -> {'fits' if q['fits'] else 'DOES NOT FIT'}"
     )
+    if q.get("to_fit") is not None:
+        if not q["to_fit"]:
+            print("  to fit: no film.json knob is left to turn; raise budget_usd or cut the film (art.mode code)")
+            return
+        print(f"  to fit {usd(q['remaining'])}, change in film.json (least harm first; totals include the ones above):")
+        for k, s_ in enumerate(q["to_fit"], 1):
+            print(
+                f"    {k}. {s_['change']} {s_['from']} -> {s_['to']}  ({s_['why']})  saves {usd(s_['saves'])}  "
+                f"-> {usd(s_['total'])}{'  fits' if s_['fits'] else ''}"
+            )
+        if not q["to_fit"][-1]["fits"]:
+            print("    still over: raise budget_usd, or make the art in code (art.mode code, $0)")
 
 
 def main(argv=None):
@@ -226,6 +332,8 @@ def main(argv=None):
     if film is None:
         film, _ = validate_film({"topic": "-", "goal": "-", "message": "-"})
     q = build_quote(film, a.film, stage=a.stage)
+    if not q["fits"]:
+        q["to_fit"] = fit_plan(film, a.film, stage=a.stage)
     if Path(a.film).is_dir():
         write_json(Path(a.film) / "work" / "quote.json", q)
     if a.json:

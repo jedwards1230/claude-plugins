@@ -48,7 +48,9 @@ directory and a report.
     print, echo, log or commit it, never guess or hard-code a key path.
 11. Verify reviewers with stills. Critics invent timestamps and flag deliberate style: send
     intent notes with every prompt and count a defect only under the defect rule
-    (`references/review-prompts.md`). The critic is a different model family from the builder.
+    (`references/review-prompts.md`: a still, a measuring reviewer, or a reviewer of another
+    kind; an intent note never excuses a false claim). The critic is a different model family
+    from the builder.
 12. Frames are pure functions of time (no `Math.random`, clock or carried state), JavaScript
     is ASCII-only, and each shot lives in its own file with one writer.
 13. Respect the inputs the user set: the offscreen list, the hard-truths and jargon policies,
@@ -63,23 +65,25 @@ Details, exact commands and failure handling for every phase: `references/phases
 | 1 | Preflight (no film yet): tools, key, credit, providers per role, delivery modes | every needed role has a working provider; a delivery mode exists |
 | 2 | Intake: one batched question round, film.json, scaffold, full preflight with the glyph test, quote | topic, goal, message set; glyph test ok; quote fits the budget |
 | 3 | Research: claims ledger (fact, source, date, local time, conflicts, sensitivity); fiction skips | every planned fact sourced; hard truths decided per policy |
-| 4 | Creative direction: logline, escalating motif, echo ending, style bible, cast and emotion-sheet descriptions, banned patterns, intent notes | originality >= 7 and no banned pattern planned |
-| 5 | Script and reads sheet: ~2.5 words/s, a mechanism per beat, quiz drafted | persona script gate (takeaway = message, enough concrete learnings, quiz answerable) |
+| 4 | Creative direction: logline, escalating motif, echo ending, style bible, cast and emotion-sheet descriptions, banned patterns, intent notes | originality >= 7 and no banned pattern planned (at most 3 re-checks) |
+| 5 | Script and reads sheet: a word budget (~2.5 words/s, then the chosen voice's measured pace), a mechanism per beat, quiz drafted | persona script gate (takeaway = message, enough concrete learnings, quiz answerable) |
 | 6 | Voice first: audition, takes per line, transcript check, picks, processing, word timings | a verified clean take per line; narration fits the duration |
 | 7 | Animatic: keyframes + voice as a page, draft art | critic GO; user approval only if autonomy asks for it |
 | 8 | Assets: final sticker sheets, music cut on downbeats, sound-effect list | clean cutouts; the music's final chord lands after the last word |
 | 9 | Build: storyboard, one file per custom shot, cues on words and beats | `resolve --strict`, purity, ASCII and glyph checks clean |
-| 10 | Frame QA: contact sheets, strips, crops, text-at-time assertions | text-check clean; no blocking or major frame defect left |
-| 11 | Film review: technical, director, personas + quiz, comparer, originality, audio, fact-checker, frame QA | every ship gate, then the stronger-model director sign-off; at most `review.rounds` (4) rounds |
-| 12 | Deliver: page, MP4s, captions, transcript, credits, report, editable sources | technical check ships; report lists every open decision |
+| 10 | Frame QA: contact sheets, strips, crops, text-at-time assertions | text-check clean; no blocking frame defect left; majors fixed when possible |
+| 11 | Film review: technical, director, personas + quiz, comparer, originality, audio, fact-checker, frame QA | every ship gate, then the stronger-model director sign-off; at most `review.rounds` (4) rounds, plus a $0 fix pass |
+| 12 | Deliver: page, MP4s, captions, transcript, credits, report (`report.py`), editable sources | technical check ships; report lists every open decision |
 
 Ship gates, in short: the director's overall score, no counted blocking defect, every persona's
 takeaway matching the message, the quiz and concrete learnings (explainers), originality, the
 claims, and the round's technical review (reads, text size, narration repeats, duration,
 loudness, true peak, captions, transcript). `review.py gates` computes them from the round's
 reviews with the thresholds in film.json `review`; the authoritative table is "Ship gates" in
-`references/review-prompts.md`. After `review.rounds` rounds without passing, stop and report the
-open gates.
+`references/review-prompts.md`. Only counted blocking defects block; counted majors are fixed
+when possible, through a $0 fix pass (`--round N-fix`) that is also the one change allowed
+after the last round. After `review.rounds` rounds without passing, stop and report the open
+gates.
 
 ## Intake
 
@@ -87,9 +91,11 @@ Skip it when the user supplies a film.json with `topic`, `goal` and `message`. O
 run the free preflight without a film (phase 1), state the full question list one line each,
 then ask it through AskUserQuestion in back-to-back calls of at most 4 questions (2-4 options
 each), with one follow-up call only for answers that need one (the key's location, source
-paths, a named voice, a track). Write film.json, scaffold, and continue without further
-questions unless `autonomy` or the `ask` hard-truths policy says otherwise. The questions, their
-options, the follow-ups and what empty answers default to: `references/intake.md`.
+paths, a named voice, a track). Write `$FILM/film.json`, scaffold it in place, and continue
+without further questions unless `autonomy` or the `ask` hard-truths policy says otherwise;
+when nobody can be asked, `ask` falls back to leaving hard truths out and reporting them. The
+questions, their options, the follow-ups and what empty answers default to:
+`references/intake.md`.
 
 ## Spend and keys
 
@@ -97,18 +103,20 @@ options, the follow-ups and what empty answers default to: `references/intake.md
   file of `KEY=VALUE` lines or just the key). Ask the user for the path; pass paths, never
   values.
 - Caps: film.json `budget_usd` (default 10; a hard cap across all providers, enforced by
-  `ledger.jsonl`: estimate x 1.2 reserved before each call). Optional account ceiling: a paid
+  `ledger.jsonl`: estimate x 1.2 reserved before each call, against the larger of the ledger
+  and the account's usage since the film began). Optional account ceiling: a paid
   call is refused when the account's reported usage would pass it; set it once in film.json
   `account_ceiling_usd`, or per command with `--account-ceiling <usd>` or env
   `ANIMATED_SHORT_ACCOUNT_CEILING` (flag, then env, then film.json).
 - Before voice, the animatic, final assets and each review round:
   `python3 "$SKILL/scripts/quote.py" --film "$FILM" --stage <voice|animatic|assets|review>`.
-  If it does not fit, cut scope (fewer sheets, candidates, takes, personas) before asking.
+  If it does not fit, it lists what to change, least harmful first: apply that before asking.
 - Draft tier for the animatic (`--draft` sticker sheets, `--tier draft` critic, the engine's
   synthesized music bed); final 4K art only for the build.
-- After each stage: `python3 "$SKILL/scripts/ledger.py" reconcile --film "$FILM" [--key-file <path>]` (free).
-- A typical 60-90 s film costs $2-4 at defaults. Provider details, fallbacks, licenses and
-  deprecations: `references/providers.md`.
+- After each stage: `python3 "$SKILL/scripts/ledger.py" reconcile --film "$FILM" [--key-file <path>]`
+  (free; it also calibrates estimated costs such as TTS).
+- A typical 45-90 s film quotes $2.50-4 at defaults and spends less. Provider details,
+  fallbacks, licenses and deprecations: `references/providers.md`.
 
 ### $0 films
 
@@ -133,18 +141,19 @@ and also takes `--help`):
 | `scaffold.py` | `new <dir> [--film-json F] [--from-example golden]`, `sync-config --film D` |
 | `preflight.py` | `[--film D] [--tier 0/1]` (free / sub-cent; without `--film` before the film exists) |
 | `quote.py`, `ledger.py` | cost quote per stage (`--stage`); `status`, `reconcile`, `release` |
-| `voice.py` | `audition`, `takes`, `check`, `pick`, `process`, `tighten`, `words`, `export` |
+| `voice.py` | `audition`, `takes`, `check` (spans, words/s, `check-summary.md`), `pick`, `process`, `tighten`, `words`, `export` |
 | `music.py` | `gen`, `beats`, `cut` |
-| `art.py` | `sheet`, `cutout`, `contact` |
-| `critic.py` | `ask` (a free-form question to the critic with video, audio or images; `--stage` labels its spend) |
-| `review.py` | `run` (critic reviews), `ingest` (Claude reviews; `--force` replaces), `technical`, `gates` |
+| `art.py` | `sheet`, `cutout` (`--skip`, `--strip-border`, `--defringe`, `--anchors`), `contact` |
+| `critic.py` | `ask` (a free-form question to the critic with video, audio or images; `--stage` labels its spend; `--append` adds files) |
+| `review.py` | `run` (critic reviews; `--previous`), `ingest` (Claude reviews; `--force` replaces), `technical`, `gates`; rounds `N` or `N-fix` |
+| `report.py` | writes `out/report.md` from the film's records (plus `work/report-notes.json`) |
 | `schema.py` | `validate`, `defaults` (for film, storyboard and rubric JSON) |
 | `test-golden.sh` | the $0 end-to-end conformance run |
 
 Film tools, copied into every film (`node "$FILM/tools/<tool>.mjs" --help`; run
 `npm install --prefix "$FILM"` first): `resolve.mjs` (cues to seconds, checks), `render.mjs`
 (`stills`, `video`, `audio`, `text`, `glyph`, `purity`, `serve`), `qa.mjs` (`contact`, `strip`,
-`crop`, `text-check`, `ascii`, `check`), `export.mjs` (every delivery mode; `--probe`).
+`crop`, `text-check`, `ascii`, `null`, `check`), `export.mjs` (every delivery mode; `--probe`).
 
 Film directory: `film.json`, `src/` (script, words, beats, source storyboard), `web/` (the
 page: `film/config.json`, `film/storyboard.json` resolved, `film/shots/*.js`, `img/`, `audio/`,
@@ -162,9 +171,10 @@ critic), `cache/`, `ledger.jsonl`, `out/` (deliverables).
 The gates read only the review names `review.py` writes into `work/reviews/r<N>/`, so a
 subagent never writes there. Prompt templates, the checklist ids defects must cite, the
 intent-notes block, the quiz format, the per-round order and the gate table:
-`references/review-prompts.md` and `references/phases.md` (phase 11). Before shipping, re-run
-the director with `--tier signoff` (a stronger model) and compute the gates again; a failed
-sign-off means another round.
+`references/review-prompts.md` and `references/phases.md` (phase 11). From round 2 on, every
+`review.py run` gets `--previous <N-1>`. Before shipping, re-run the director with
+`--tier signoff` (a stronger model; it confirms the round's counted defects) and compute the
+gates again; a failed sign-off means another round.
 
 ## Briefing build subagents
 
@@ -173,7 +183,9 @@ Parallel subagents speed up research, custom shots and reviews. The main agent o
 ledger; a subagent never edits them. Brief every build subagent with:
 
 - The film: title, message, audience, and the path of `work/direction/style-bible.md`
-  (palette, textures, cast, camera grammar, banned patterns) and the concept.
+  (palette, textures, cast, camera grammar, banned patterns) and the concept, plus the shared
+  helper file the main agent wrote for drawing code several shots use (listed first in the
+  storyboard's `shots`; read-only for them).
 - Its one file: `$FILM/web/film/shots/<id>.js`, the element entry that uses it (box `w x h`,
   `pos`, `params`, `cues`), the words it is keyed to (`src/words.json`), and what the shot must
   show (the read and the mechanism, second by second).
@@ -181,8 +193,9 @@ ledger; a subagent never edits them. Brief every build subagent with:
 - The constraints, restated in full: the frame is a pure function of `t` (no `Math.random`,
   `Date`, `performance.now` or state kept between frames); animate acting on `api.ts`;
   ASCII-only source (`\u` escapes); all text through `api.text` or `D.text`, at least 28 px;
-  never a narration sentence on screen; characters act (anticipation, squash, takes); write
-  only its own file; no network, no new dependencies.
+  never a narration sentence on screen; characters act (anticipation, squash, takes); stickers
+  through `api.sticker` (anchors from the manifest, placeholders while missing); write only its
+  own file; no network, no new dependencies, no scratch files outside `$FILM/work/`.
 - The check before reporting back: `node "$FILM/tools/resolve.mjs" --film "$FILM" --strict`,
   `node "$FILM/tools/render.mjs" stills <t,t,...> --film "$FILM"`, `node "$FILM/tools/qa.mjs" strip <t> --film "$FILM"` around each action,
   `node "$FILM/tools/render.mjs" purity --film "$FILM"`, `node "$FILM/tools/qa.mjs" ascii --film "$FILM"`,
@@ -190,9 +203,9 @@ ledger; a subagent never edits them. Brief every build subagent with:
 
 Run one writer per file at a time. Review subagents get the templates in
 `references/review-prompts.md`, are always fresh (never the agent that built the cut) and write
-only to `$FILM/work/reviews/incoming/`. Research subagents get read-only access to the sources
-and each writes only its own `$FILM/work/research/claims-<k>.json`; the main agent merges them
-into `claims.json`.
+only to `$FILM/work/reviews/incoming/`. Research subagents get read-only access to the sources,
+fetch pages to stdout (no scratch files in `/tmp` or elsewhere) and each writes only its own
+`$FILM/work/research/claims-<k>.json`; the main agent merges them into `claims.json`.
 
 ## References
 

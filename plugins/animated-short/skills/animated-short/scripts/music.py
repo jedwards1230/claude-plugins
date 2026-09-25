@@ -8,9 +8,12 @@ beats <file> [--out F]
       tracker; downbeats = the beat phase with the strongest low-band onsets, 4/4 assumed)
 cut --file F --end-at T [--to S] [--final-at R] [--at A] [--format mp3|wav]
       remove (or repeat) whole bars between two downbeats, with a 60 ms equal-power crossfade, so the
-      track's final chord lands just after film time T (the last word's end plus a little pad);
-      --to ends the music at film time S (trimmed with a fade, or padded). Writes web/audio/music.<fmt>,
-      src/beats.json (the edited grid) and work/music/edit.json.
+      track's final chord lands just after film time T (the last word's end plus a little pad). The
+      final chord is the last strong onset that still sounds within 12 dB of the track's loud part (a
+      re-attack inside the fade-out tail never counts); --final-at R names it in raw-track seconds.
+      --at A starts the music at film time A (storyboard music.at; a late A puts music only under the
+      ending); --to ends it at film time S (trimmed with a fade, or padded). Writes
+      web/audio/music.<fmt>, src/beats.json (the edited grid) and work/music/edit.json.
 """
 
 import math
@@ -47,7 +50,8 @@ def cmd_gen(a):
         except UsageError:
             secs = "? s (install ffmpeg to decode)"
         cost = "cached" if res.basis == "cache" else (usd(res.usd) if res.usd is not None else "estimated")
-        print(f"  {f.relative_to(Path(a.film))}: {secs}  {res.candidate['model']}  {cost}")
+        after = "".join(f" (after {cid} failed: {why[:120]})" for cid, why in res.fallbacks)
+        print(f"  {f.relative_to(Path(a.film))}: {secs}  {res.candidate['model']}  {cost}{after}")
     print("  next: judge the candidates (critic.py ask --audio ...), then music.py beats <file>")
     return 0
 
@@ -185,17 +189,43 @@ def cmd_beats(a):
 
 
 # ---------------------------------------------------------------- cut
+LEVEL_WINDOW = 0.4  # seconds of level measured just after an onset
+LEVEL_DROP_DB = 12.0  # an onset this far below the track's loud part is inside the fade-out tail
+ONSET_FLOOR = 0.3  # a strong onset reaches this fraction of the track's 99th-percentile onset strength
+SNAP = 0.15  # seconds: an onset this close to a downbeat is that downbeat
+
+
 def final_chord(x, sr, downbeats):
-    """The last downbeat that still carries a real attack (>= 30% of the median downbeat onset)."""
+    """The final chord: the last strong onset that still sounds within LEVEL_DROP_DB of the track's loud
+    part (a re-attack inside the fade-out tail never counts), snapped to a downbeat within SNAP seconds.
+    Falls back to the last downbeat with a real attack. -> (time, how it was found)."""
     np = audiolib.need("numpy", "music cut")
+    x = np.asarray(x, dtype=np.float64)
     env = onset_strength(x, sr)
-    hop = HOP
-    vals = [float(env[max(0, int(d * sr / hop) - 4) : int(d * sr / hop) + 5].max()) for d in downbeats]
+    k = np.arange(len(env)) * HOP
+    sq = np.concatenate([[0.0], np.cumsum(x * x)])
+    a, b = np.clip(k, 0, len(x)), np.clip(k + int(LEVEL_WINDOW * sr), 0, len(x))
+    level = 10 * np.log10((sq[b] - sq[a]) / np.maximum(1, b - a) + 1e-12)
+    sounding = level[level > -90]
+    loud = float(np.percentile(sounding, 95)) if len(sounding) else 0.0
+    floor = ONSET_FLOOR * float(np.percentile(env, 99))
+    peaks = [
+        i
+        for i in range(1, len(env) - 1)
+        if env[i] >= floor and env[i] >= env[i - 1] and env[i] >= env[i + 1] and level[i] >= loud - LEVEL_DROP_DB
+    ]
+    if peaks:
+        t = peaks[-1] * HOP / sr
+        near = min(downbeats, key=lambda d: abs(d - t)) if downbeats else None
+        if near is not None and abs(near - t) <= SNAP:
+            return near, f"last strong onset within {LEVEL_DROP_DB:g} dB of the loud part, on a downbeat"
+        return round(t, 3), f"last strong onset within {LEVEL_DROP_DB:g} dB of the loud part (between downbeats)"
+    vals = [float(env[max(0, int(d * sr / HOP) - 4) : int(d * sr / HOP) + 5].max()) for d in downbeats]
     med = float(np.median(vals)) if vals else 0.0
     for d, v in zip(reversed(downbeats), reversed(vals), strict=True):
         if v >= 0.3 * med:
-            return d
-    return downbeats[-1]
+            return d, "last downbeat with an attack (no onset stood out from the level)"
+    return downbeats[-1], "last downbeat"
 
 
 def extend_grid(times, duration):
@@ -291,7 +321,10 @@ def cmd_cut(a):
     duration = len(x) / sr
     downs = extend_grid(info["downbeats"], duration)  # trackers often drop the last, decaying bars
     info = dict(info, beats=extend_grid(info["beats"], duration))
-    final_raw = a.final_at if a.final_at is not None else final_chord(x.mean(axis=1), sr, downs)
+    if a.final_at is not None:
+        final_raw, found = a.final_at, "given with --final-at"
+    else:
+        final_raw, found = final_chord(x.mean(axis=1), sr, downs)
     plan = plan_cut(downs, final_raw, a.end_at - a.at)
 
     def sa(t):
@@ -335,6 +368,7 @@ def cmd_cut(a):
     edit = {
         "source": str(src),
         "final_chord_raw": round(final_raw, 3),
+        "final_chord_found": found,
         "final_chord_film": round(final_new + a.at, 3),
         "end_at": a.end_at,
         "what": what,
@@ -346,7 +380,7 @@ def cmd_cut(a):
     write_json(film_dir / "work" / "music" / "edit.json", edit)
     late = final_new + a.at - a.end_at
     print(
-        f"cut: {what}; final chord {final_raw:.2f} s -> {final_new + a.at:.2f} s in the film "
+        f"cut: {what}; final chord {final_raw:.2f} s ({found}) -> {final_new + a.at:.2f} s in the film "
         f"({late:+.2f} s after {a.end_at:.2f}); {length:.2f} s -> {edit['output']}"
     )
     print(

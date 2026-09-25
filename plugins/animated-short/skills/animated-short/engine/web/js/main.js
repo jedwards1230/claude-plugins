@@ -32,11 +32,15 @@
     if (sb.meta.duration == null) sb.meta.duration = 5;
     D.configure(cfg);
     const faces = (cfg.fonts && cfg.fonts.faces) || [];
-    await Promise.all(faces.map(async (f) => {
+    // every declared face and whether it loaded (the glyph test fails on one that did not)
+    R.faces = await Promise.all(faces.map(async (f) => {
+      const rec = { family: f.family, src: f.src, weight: String(f.weight || '400'), style: f.style || 'normal', loaded: false, error: '' };
       try {
-        const face = new FontFace(f.family, `url(${f.src})`, { weight: String(f.weight || '400'), style: f.style || 'normal', display: 'block' });
+        const face = new FontFace(f.family, `url(${f.src})`, { weight: rec.weight, style: rec.style, display: 'block' });
         document.fonts.add(await face.load());
-      } catch (e) { console.warn(`font ${f.family} (${f.src}) failed to load: ${e.message}`); }
+        rec.loaded = true;
+      } catch (e) { rec.error = e.message || String(e); console.warn(`font ${f.family} (${f.src}) failed to load: ${rec.error}`); }
+      return rec;
     }));
     if (document.fonts) {
       const stacks = [D.HAND, D.PRINT].concat(D.RANSOM_FONTS);
@@ -44,9 +48,11 @@
     }
     const man = await getJSON('img/manifest.json', true);
     if (man) {
+      // an entry is [w, h] or {file?, size?, anchor?}: anchor [ax, ay] is the sticker's pivot
       await Promise.all(Object.entries(man).map(async ([n, v]) => {
-        const im = new Image(); im.src = 'img/' + ((v && v.file) || n + '.webp');
-        try { await im.decode(); D.addSticker(n, im); } catch (e) { console.warn(`sticker ${n} failed to load`); }
+        const meta = v && !Array.isArray(v) && typeof v === 'object' ? v : {};
+        const im = new Image(); im.src = 'img/' + (meta.file || n + '.webp');
+        try { await im.decode(); D.addSticker(n, im, meta); } catch (e) { console.warn(`sticker ${n} failed to load`); }
       }));
     }
     for (const src of sb.shots || []) await loadScript(src);
@@ -183,7 +189,17 @@
         frame: (t, q) => frame(t).toDataURL('image/jpeg', q || 0.95),
         png: (t) => frame(t).toDataURL('image/png'),
         text(t) { D.textLog = []; try { frame(t); return D.textLog; } finally { D.textLog = null; } },
-        glyphTest: () => D.glyphTest(ctx),
+        // letters advance in every font stack, and every face declared in config.fonts.faces loaded
+        // (a stack whose face failed falls back to another font and would still pass the letter test)
+        glyphTest: () => {
+          const r = D.glyphTest(ctx);
+          r.faces = (R.faces || []).map((f) => {
+            const w = String(f.weight).split(/\s+/)[0];
+            return Object.assign({}, f, { check: f.loaded && document.fonts.check(`${f.style} ${w} 48px "${f.family}"`) });
+          });
+          r.ok = r.ok && r.faces.every((f) => f.loaded && f.check);
+          return r;
+        },
         moves: () => SB.state().moves,
         async audio() {
           const wav = await A.renderOffline(await A.fetchAll(''));

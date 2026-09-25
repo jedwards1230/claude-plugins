@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # End-to-end conformance run of the golden example, at $0: copy the engine and examples/golden
 # into a fresh film directory, npm install, then resolve, glyph test, purity, stills, text checks,
-# frame QA images, the delivery probe, an export and the technical check. Prints a PASS/FAIL
-# table and exits non-zero on any failure. No provider calls; the only network use is npm install.
+# frame QA images, the engine self-test (scripts/tests/engine_selftest.mjs: sticker placeholder and
+# anchors, a font face that fails to load), the delivery probe, an export and the technical check
+# (which includes the audio null test). Prints a PASS/FAIL table and exits non-zero on any
+# failure. No provider calls; the only network use is npm install.
 # --no-ffmpeg runs everything with ffmpeg and ffprobe hidden from PATH (shadow directories that
 # link every other program; nothing is deleted) and forces the in-browser WebCodecs export.
 set -uo pipefail
@@ -130,6 +132,7 @@ step 'qa contact sheet' node_film qa.mjs contact --film "$FILM"
 step 'qa strip' node_film qa.mjs strip 4.3 --film "$FILM"
 step 'qa crop' node_film qa.mjs crop 5.5 60,40,760,260 --film "$FILM"
 step 'ascii' node_film qa.mjs ascii --film "$FILM"
+step 'engine self-test' node "$SKILL_DIR/scripts/tests/engine_selftest.mjs" "$FILM"
 step 'delivery probe' node_film export.mjs --probe --film "$FILM"
 PROBE_LOG=$LAST_LOG
 MODE=auto

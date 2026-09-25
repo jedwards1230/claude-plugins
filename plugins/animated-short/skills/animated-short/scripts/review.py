@@ -2,9 +2,12 @@
 """Review runner: every reviewer returns JSON valid against references/rubric.schema.json.
 
   run --round N --reviewer R --prompt-file P [--persona NAME] [--video F] [--audio F ...] [--images F ...]
-      [--tier final|signoff]
+      [--tier final|signoff] [--previous M]
         ask the critic (film context, intent notes and the schema are appended to the prompt), extract the
-        first JSON object, validate it, retry once with the errors, save work/reviews/r<N>/<name>.json
+        first JSON object, validate it, retry once with the errors, save work/reviews/r<N>/<name>.json.
+        --previous M appends the same reviewer's defects from round M and asks for each: fixed or still
+        present (the "previous" field), then new defects. A sign-off (--tier signoff) always gets the
+        round's counted defects (r<N>/gates.json) to confirm the same way.
   ingest --round N --file F [--persona NAME] [--force]
         validate and store a review written elsewhere (Claude subagents: fact_checker, frame_qa,
         script_persona, ...)
@@ -13,16 +16,24 @@
   gates --round N
         merge the round and compute every ship gate -> work/reviews/r<N>/gates.json; exit 0 ship, 1 iterate
 
+Rounds are numbers; "<N>-fix" (work/reviews/r<N>-fix/) is the $0 fix pass after round N: it holds the new
+technical review, frame QA of the changed frames and the sign-off; its gates read round N with those reviews
+in place, and a counted defect of round N that a fix-pass review reports as fixed (and none as still
+present) no longer counts.
+
 Review names: <reviewer>[-<persona slug>][-signoff]. The gates read only files named that way in
 work/reviews/r<N>/ (other files there are reported and ignored): Claude subagents write their JSON to
-work/reviews/incoming/ and review.py ingest stores it under its name. A defect counts only when
-maybe_intentional is not true and either a still confirms it (work/reviews/r<N>/confirmed.json:
-[{check, at?, still, note?}]), two different reviews of the round cite the same check id within 2 s, or it
-comes from a measuring reviewer (technical, frame_qa, fact_checker). Claims can be accepted by the user in
-work/reviews/r<N>/accepted_claims.json (a list of claim texts). Explainer quiz scores are out of the questions
-in work/direction/quiz.json. The technical gate needs the round's technical review to ship.
+work/reviews/incoming/ and review.py ingest stores it under its name. A defect counts when it comes from a
+measuring reviewer (technical, frame_qa, fact_checker), a still confirms it (work/reviews/r<N>/confirmed.json:
+[{check, at?, still, note?}]), or a review of a different kind (not two personas) cites the same check id
+within 2 s. maybe_intentional discounts a defect, except an ACC-* defect or a blocking one from a measuring
+reviewer. The gates list unconfirmed blocking and major critic defects under to_confirm. Claims can be
+accepted by the user in work/reviews/r<N>/accepted_claims.json (a list of claim texts). Explainer quiz scores
+are out of the questions in work/direction/quiz.json. The technical gate needs the round's technical review
+to ship.
 """
 
+import argparse
 import json
 import re
 import subprocess
@@ -49,7 +60,8 @@ from common import (
 from providers.base import EXIT_GATE, UsageError
 
 PERSONA_REVIEWERS = {"persona", "script_persona", "comparer"}
-SELF_CONFIRMING = {"technical", "frame_qa", "fact_checker"}
+SELF_CONFIRMING = {"technical", "frame_qa", "fact_checker"}  # measuring reviewers: stills, text logs, sources
+ROUND = re.compile(r"^([0-9]+)(-fix)?$")
 TECH_GATES = [
     ("TECH-10", "every read held >= 1.2 s"),
     ("TECH-9", "text >= 28 px at 1080p"),
@@ -61,6 +73,20 @@ TECH_GATES = [
     ("TECH-6", "transcript with every line"),
 ]
 SPECIAL = {"gates.json", "confirmed.json", "accepted_claims.json"}
+
+
+def round_label(value):
+    """argparse type: "3" or "3-fix" (the fix pass after round 3) -> the label used in r<label>/."""
+    m = ROUND.match(str(value).strip())
+    if not m:
+        raise argparse.ArgumentTypeError(f"{value!r}: a round number, or <N>-fix for the fix pass after round N")
+    return f"{int(m.group(1))}{m.group(2) or ''}"
+
+
+def round_parts(label):
+    """-> (round number, is the fix pass)."""
+    m = ROUND.match(str(label))
+    return int(m.group(1)), bool(m.group(2))
 
 
 def round_dir(film_dir, n):
@@ -156,7 +182,53 @@ def secs(at):
 
 
 # ---------------------------------------------------------------- run
-def build_prompt(film, film_dir, n, reviewer, base, persona=None, intent_file=None):
+def fmt_defect(d, who=True):
+    head = f"{d.get('review')} " if who and d.get("review") else ""
+    return f"- {head}{d.get('at', '0:00')} {d.get('severity', '')} {d['check']}: {d.get('issue', '')}".rstrip()
+
+
+ASK_PREVIOUS = (
+    'For each one, look at the same moment in this cut and report it in "previous" as {"check", "at", '
+    '"status": "fixed" or "still_present", "note"}. List every still-present one again in defects (same check '
+    "id), then any NEW defect."
+)
+
+
+def previous_block(film, film_dir, n, reviewer, persona, tier, previous):
+    """The same reviewer's defects (and scores) from round `previous`, to judge as fixed or still present."""
+    names = [review_name(film, reviewer, persona, tier), review_name(film, reviewer, persona, "final")]
+    d = round_dir(film_dir, previous)
+    f = next((d / f"{x}.json" for x in names if (d / f"{x}.json").exists()), None)
+    if f is None:
+        print(f"review: no r{previous}/{names[-1]}.json to compare with; running without --previous", file=sys.stderr)
+        return []
+    doc = read_json(f)
+    scores = ", ".join(f"{k} {v['value']}" for k, v in doc.get("scores", {}).items())
+    defects = doc.get("defects") or []
+    return [
+        f"## Your review of the previous cut (r{previous})",
+        f"Scores then: {scores or 'none'}. Score this cut on its own merits; keep the scale comparable.",
+        "Defects you found then:" if defects else "You found no defects then.",
+        *[fmt_defect(d, who=False) for d in defects],
+        ASK_PREVIOUS if defects else "",
+    ]
+
+
+def signoff_block(film_dir, n):
+    """The round's counted defects (r<N>/gates.json of the base round) for the sign-off director to confirm."""
+    base, _fix = round_parts(n)
+    g = read_json(round_dir(film_dir, base) / "gates.json", default={})
+    counted = g.get("counted_defects") or []
+    if not counted:
+        return []
+    return [
+        "## Defects the round's reviewers found (counted after checking)",
+        *[fmt_defect(d) for d in counted],
+        ASK_PREVIOUS,
+    ]
+
+
+def build_prompt(film, film_dir, n, reviewer, base, persona=None, intent_file=None, previous=None, tier="final"):
     parts = [
         base.strip(),
         "## Film",
@@ -186,12 +258,18 @@ def build_prompt(film, film_dir, n, reviewer, base, persona=None, intent_file=No
             "## Intent notes (deliberate choices; do not report them as defects)",
             intent.read_text(encoding="utf-8").strip(),
         ]
+    if previous is not None:
+        parts += previous_block(film, film_dir, n, reviewer, persona, tier, previous)
+    if tier == "signoff":
+        parts += signoff_block(film_dir, n)
+    parts = [p for p in parts if p]
     who = f', "persona": "{persona}"' if persona else ""
     parts += [
         "## Output",
         f'Return ONLY one JSON object, no prose before or after, valid against the JSON Schema below. Set "reviewer": '
         f'"{reviewer}" and "cut": "r{n}"{who}. Times are "m:ss" or "m:ss.s". Cite checklist ids in defects[].check. '
-        "Mark a defect maybe_intentional when it could be a deliberate style choice.",
+        "Mark a defect maybe_intentional when it could be a deliberate style choice, never when something shown "
+        "or said is false.",
         json.dumps(load_schema("rubric.schema.json"), separators=(",", ":")),
     ]
     return "\n\n".join(parts)
@@ -204,7 +282,15 @@ def cmd_run(a):
         raise UsageError(f"--persona is required for {a.reviewer}")
     cut = f"r{a.round}"
     prompt = build_prompt(
-        film, a.film, a.round, a.reviewer, Path(a.prompt_file).read_text(encoding="utf-8"), a.persona, a.intent_file
+        film,
+        a.film,
+        a.round,
+        a.reviewer,
+        Path(a.prompt_file).read_text(encoding="utf-8"),
+        a.persona,
+        a.intent_file,
+        a.previous,
+        a.tier,
     )
     name = review_name(film, a.reviewer, a.persona, a.tier)
     d = round_dir(a.film, a.round)
@@ -423,14 +509,19 @@ def load_round(film, film_dir, n):
     return reviews, invalid, ignored
 
 
+def never_intentional(reviewer, d):
+    """An accuracy defect, or a blocking one from a measuring reviewer, is never waved through as a
+    deliberate choice: an intent note must not launder a false claim or a broken frame."""
+    return str(d["check"]).upper().startswith("ACC") or (reviewer in SELF_CONFIRMING and d["severity"] == "blocking")
+
+
 def judge_defects(reviews, confirmed):
     counted, discounted = [], []
     flat = [(name, doc["reviewer"], d) for name, doc in reviews.items() for d in doc.get("defects", [])]
-    # a second review is any other review pass of the round (another reviewer, persona or tier)
     for name, reviewer, d in flat:
         item = dict(d, review=name)
         t = secs(d.get("at"))
-        if d.get("maybe_intentional") is True:
+        if d.get("maybe_intentional") is True and not never_intentional(reviewer, d):
             discounted.append(dict(item, why="maybe intentional"))
             continue
         if reviewer in SELF_CONFIRMING:
@@ -448,11 +539,13 @@ def judge_defects(reviews, confirmed):
         if still:
             counted.append(dict(item, why=f"confirmed by still {still.get('still', '')}".strip()))
             continue
+        # a second opinion must come from another kind of reviewer: two personas (or a director and its
+        # sign-off) watching the same cut share the same blind spots
         twin = next(
             (
                 o
-                for o, _, od in flat
-                if o != name
+                for o, orev, od in flat
+                if orev != reviewer
                 and od["check"] == d["check"]
                 and (t is None or secs(od.get("at")) is None or abs(secs(od.get("at")) - t) <= 2)
             ),
@@ -461,8 +554,36 @@ def judge_defects(reviews, confirmed):
         if twin:
             counted.append(dict(item, why=f"also reported by {twin}"))
             continue
-        discounted.append(dict(item, why="unconfirmed: needs a still (confirmed.json) or a second reviewer"))
+        discounted.append(dict(item, why="unconfirmed: needs a still (confirmed.json) or a reviewer of another kind"))
     return counted, discounted
+
+
+def to_confirm(discounted):
+    """Unconfirmed blocking and major critic defects: each needs a still (confirmed.json) or a dismissal."""
+    return [
+        {k: d.get(k) for k in ("review", "at", "severity", "check", "issue")}
+        for d in discounted
+        if d["why"].startswith("unconfirmed") and d["severity"] in ("blocking", "major")
+    ]
+
+
+def fixed_in_pass(counted, fix_reviews):
+    """Split round N's counted defects by the fix pass's verdicts: -> (still counted, fixed). A defect is
+    fixed when a fix-pass review reports it fixed (same check, within 2 s) and none reports it present."""
+    marks = [(name, p) for name, doc in fix_reviews.items() for p in doc.get("previous") or []]
+
+    def match(p, d):
+        t, pt = secs(d.get("at")), secs(p.get("at"))
+        return p["check"] == d["check"] and (t is None or pt is None or abs(t - pt) <= 2)
+
+    still, fixed = [], []
+    for d in counted:
+        hits = [(name, p) for name, p in marks if match(p, d)]
+        if hits and all(p["status"] == "fixed" for _, p in hits):
+            fixed.append(dict(d, why=f"fixed in the fix pass ({', '.join(sorted({n for n, _ in hits}))})"))
+        else:
+            still.append(d)
+    return still, fixed
 
 
 def quiz_questions(film_dir):
@@ -480,17 +601,34 @@ def quiz_questions(film_dir):
     return len(questions)
 
 
-def compute_gates(film, film_dir, n):
-    reviews, invalid, ignored = load_round(film, film_dir, n)
-    d = round_dir(film_dir, n)
+def round_extras(d):
+    """confirmed.json and accepted_claims.json of one round directory, checked."""
     confirmed = read_json(d / "confirmed.json", default=[])
     accepted = read_json(d / "accepted_claims.json", default=[])
     if not (isinstance(confirmed, list) and all(isinstance(c, dict) and c.get("check") for c in confirmed)):
         raise UsageError(f"{d / 'confirmed.json'} must be a list of {{check, at?, still, note?}}")
     if not (isinstance(accepted, list) and all(isinstance(t, str) for t in accepted)):
         raise UsageError(f"{d / 'accepted_claims.json'} must be a list of claim texts")
+    return confirmed, accepted
+
+
+def compute_gates(film, film_dir, n):
+    base_n, fix = round_parts(n)
+    reviews, invalid, ignored = load_round(film, film_dir, n)
+    confirmed, accepted = round_extras(round_dir(film_dir, n))
+    fix_reviews = {}
+    if fix:  # the fix pass: round N's reviews, with the pass's own reviews in place of theirs
+        base, base_invalid, base_ignored = load_round(film, film_dir, base_n)
+        fix_reviews, reviews = reviews, dict(base, **reviews)
+        invalid, ignored = base_invalid + invalid, base_ignored + ignored
+        more_confirmed, more_accepted = round_extras(round_dir(film_dir, base_n))
+        confirmed, accepted = more_confirmed + confirmed, more_accepted + accepted
     accepted = set(accepted)
     counted, discounted = judge_defects(reviews, confirmed)
+    fixed = []
+    if fix:
+        still, fixed = fixed_in_pass([c for c in counted if c["review"] not in fix_reviews], fix_reviews)
+        counted = still + [c for c in counted if c["review"] in fix_reviews]
     gates = []
 
     def gate(gid, name, ok, evidence):
@@ -592,9 +730,9 @@ def compute_gates(film, film_dir, n):
             else (f"{c.get('value')}" if c else "check missing"),
         )
     ship = all(g["pass"] for g in gates) and not invalid
-    last = n >= rv["rounds"]
-    return {
-        "round": n,
+    last = base_n >= rv["rounds"]
+    out = {
+        "round": n if fix else base_n,
         "verdict": "ship" if ship else ("stop" if last else "iterate"),
         "gates": gates,
         "reviews": sorted(reviews),
@@ -602,9 +740,13 @@ def compute_gates(film, film_dir, n):
         "ignored": ignored,
         "counted_defects": counted,
         "discounted_defects": discounted,
+        "to_confirm": to_confirm(discounted),
         "max_rounds_reached": last and not ship,
         "note": ("max review rounds reached: stop and report the open gates to the user" if last and not ship else ""),
     }
+    if fix:
+        out.update(base_round=base_n, fixed_defects=fixed, fix_pass_reviews=sorted(fix_reviews))
+    return out
 
 
 def cmd_gates(a):
@@ -620,6 +762,21 @@ def cmd_gates(a):
             print(f"  INVALID {i['file']}: {'; '.join(i['errors'])}")
         for name in res["ignored"]:
             print(f"  IGNORED {name} (not a review name)")
+        if res.get("fixed_defects"):
+            print(f"  fixed in the fix pass ({len(res['fixed_defects'])}):")
+            for d in res["fixed_defects"]:
+                print("    " + fmt_defect(d))
+        if res["counted_defects"]:
+            print(f"  counted defects ({len(res['counted_defects'])}): fix the blocking ones; fix majors when you can")
+            for d in res["counted_defects"]:
+                print("    " + fmt_defect(d))
+        if res["to_confirm"]:
+            print(
+                f"  TO CONFIRM ({len(res['to_confirm'])} unconfirmed blocking or major critic defects): render the "
+                "moment and add it to confirmed.json with its still, or dismiss it in the intent notes"
+            )
+            for d in res["to_confirm"]:
+                print("    " + fmt_defect(d))
         print(
             f"gates r{a.round}: {res['verdict'].upper()} ({len(res['counted_defects'])} counted defects, "
             f"{len(res['discounted_defects'])} discounted){(' - ' + res['note']) if res['note'] else ''}"
@@ -630,10 +787,11 @@ def cmd_gates(a):
 def main(argv=None):
     ap = parser("review.py", __doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    rnd = {"type": round_label, "required": True, "help": "round number, or <N>-fix for the fix pass after round N"}
     r = sub.add_parser("run", help="run one critic review and validate it")
     add_film_arg(r)
     add_provider_args(r)
-    r.add_argument("--round", type=int, required=True)
+    r.add_argument("--round", **rnd)
     r.add_argument(
         "--reviewer",
         required=True,
@@ -658,21 +816,27 @@ def main(argv=None):
     )
     r.add_argument("--model")
     r.add_argument("--intent-file", help="intent notes (default: work/direction/intent-notes.md)")
+    r.add_argument(
+        "--previous",
+        type=round_label,
+        help="a round whose review by the same reviewer is appended: each earlier defect is judged fixed or still "
+        "present, then new ones are listed (use the last round from round 2 on)",
+    )
     r.add_argument("--max-mib", type=float, default=20.0)
     i = sub.add_parser("ingest", help="validate and store a review JSON produced elsewhere")
     add_film_arg(i)
-    i.add_argument("--round", type=int, required=True)
+    i.add_argument("--round", **rnd)
     i.add_argument("--file", required=True)
     i.add_argument("--persona")
     i.add_argument("--tier", default="final", choices=("final", "signoff"))
     i.add_argument("--force", action="store_true")
     t = sub.add_parser("technical", help="run the technical checks as a rubric review")
     add_film_arg(t)
-    t.add_argument("--round", type=int, required=True)
+    t.add_argument("--round", **rnd)
     t.add_argument("--from", dest="from_dir", help="deliverables directory (default: the film's output dir)")
     g = sub.add_parser("gates", help="compute the ship gates for a round")
     add_film_arg(g)
-    g.add_argument("--round", type=int, required=True)
+    g.add_argument("--round", **rnd)
     g.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     return {"run": cmd_run, "ingest": cmd_ingest, "technical": cmd_technical, "gates": cmd_gates}[a.cmd](a)

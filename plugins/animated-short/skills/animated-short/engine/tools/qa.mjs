@@ -4,8 +4,10 @@
 //   text-check               machine checks on every text drawn: size at 1080p, read dwell,
 //                            on-screen text repeating the narration, write-ons ending before a move
 //   ascii                    film JavaScript must be ASCII-only
-//   check                    the technical reviewer: deliverables, loudness, captions, purity,
-//                            glyphs and the text checks, as rubric JSON (reviewer "technical")
+//   null                     the audio null test: render the mix twice and compare sample by sample
+//   check                    the technical reviewer: deliverables, loudness, captions, purity (frames
+//                            and mix), glyphs and the text checks, as rubric JSON (reviewer "technical")
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,6 +31,10 @@ Commands
                      or >= 80% of a 5+ word sentence), write-ons ending >= 0.3 s before a camera
                      move or cut. Exit 1 on any finding.
   ascii              fail on any non-ASCII byte in web/js/*.js and web/film/**/*.js
+  null [--limit -60] [--json]
+                     render the offline mix twice and compare sample by sample; passes when the
+                     peak difference is under --limit dBFS (render-to-render float noise, far
+                     below hearing, is expected; a real difference means audio depends on state)
   check [--json] [--from <dir>] [--cut <id>] [--step 0.1]
                      the technical gate over the deliverables in <dir> (default <film>/out);
                      --json prints rubric JSON (reviewer "technical"). Exit 1 unless it ships.
@@ -41,7 +47,7 @@ Options
 
 Check ids (defects cite them)
   TECH-1 duration +-1 s      TECH-6 transcript           TECH-11 narration repeat
-  TECH-2 loudness +-0.5 LU   TECH-7 frame purity         TECH-12 write-on before move
+  TECH-2 loudness +-0.5 LU   TECH-7 frame + mix purity   TECH-12 write-on before move
   TECH-3 true peak <= -1     TECH-8 glyph test           TECH-13 ASCII-only JS
   TECH-4 phone < 30 MiB      TECH-9 text size            TECH-14 streams and frame size
   TECH-5 captions            TECH-10 read dwell          TECH-15 hostable page`;
@@ -252,6 +258,34 @@ function asciiCheck(f) {
   return { files: files.length, bad };
 }
 
+// ---------------------------------------------------------------- audio null test
+// nullTest(f, o) -> {ok, peak_dbfs, rms_dbfs, identical, limit_dbfs, sha256: [a, b]} or {ok: false, error}.
+// The mix is a pure function of the storyboard and its assets, but floating-point processing in the
+// browser's OfflineAudioContext may differ in the last bits between renders (around -90 dBFS): that
+// is expected and inaudible. A difference above the limit means some sound depends on state or time.
+export function nullTest(f, o = {}) {
+  const limit = num(o.limit, -60), dir = path.join(f.film, 'work', 'qa');
+  fs.mkdirSync(dir, { recursive: true });
+  const files = ['null-a.wav', 'null-b.wav'].map((n) => path.join(dir, n));
+  for (const file of files) {
+    const r = spawnSync(process.execPath, [path.join(here, 'render.mjs'), 'audio', '--film', f.film, '--out', file].concat(o.chromium ? ['--chromium', o.chromium] : []), { encoding: 'utf8' });
+    if (r.status !== 0) return { ok: false, error: `render.mjs audio failed: ${(r.stderr || '').trim().split('\n').slice(-2).join(' | ')}` };
+  }
+  const L = loudness(), bytes = files.map((file) => fs.readFileSync(file)), [a, b] = bytes.map((x) => L.wavDecode(x));
+  const sha256 = bytes.map((x) => crypto.createHash('sha256').update(x).digest('hex'));
+  if (a.chans.length !== b.chans.length || a.chans[0].length !== b.chans[0].length) return { ok: false, error: 'the two renders differ in length or channel count', sha256 };
+  let peak = 0, sum = 0, n = 0;
+  for (let c = 0; c < a.chans.length; c++) {
+    const x = a.chans[c], y = b.chans[c];
+    for (let i = 0; i < x.length; i++) { const d = x[i] - y[i], m = Math.abs(d); if (m > peak) peak = m; sum += d * d; n++; }
+  }
+  const db = (v) => (v > 0 ? +(20 * Math.log10(v)).toFixed(1) : null);
+  const ok = peak === 0 || db(peak) < limit;
+  if (ok) for (const file of files) fs.rmSync(file, { force: true });
+  return { ok, identical: sha256[0] === sha256[1], peak_dbfs: db(peak), rms_dbfs: db(Math.sqrt(sum / Math.max(1, n))), limit_dbfs: limit, sha256 };
+}
+const nullText = (nt) => (nt.error ? nt.error : nt.identical ? 'mix renders identical' : `mix null peak ${nt.peak_dbfs} dBFS (rms ${nt.rms_dbfs})`);
+
 // ---------------------------------------------------------------- check (technical reviewer)
 function parseCues(text) {
   return text.split(/\r?\n\r?\n/).map((b) => /(\d+):(\d\d):(\d\d)[,.](\d{3}) --> (\d+):(\d\d):(\d\d)[,.](\d{3})/.exec(b)).filter(Boolean)
@@ -317,13 +351,17 @@ export async function check(f, o = {}) {
   add('TECH-6', 'transcript with every narration line', tr != null && !missing.length, tr == null ? 'missing' : `${f.vo.length - missing.length}/${f.vo.length} lines`,
     tr == null ? [{ severity: B, issue: 'transcript.md is missing', fix: 'run tools/export.mjs' }] : missing.map((v) => ({ severity: B, issue: `transcript.md lacks line ${v.id}`, fix: 'export again' })));
   // purity and glyphs (tools/render.mjs)
-  const pur = renderTool(f, o, 'purity');
-  add('TECH-7', 'frames are a pure function of time', pur.ok, pur.json ? `${pur.json.samples} samples, ${pur.json.mismatches.length} mismatches` : pur.stderr,
-    pur.json && pur.json.mismatches.length ? pur.json.mismatches.map((t) => ({ severity: B, at: fmtT(t), issue: `the frame at ${t} s depends on render order or page state`, fix: 'remove Math.random, Date, performance.now and state carried between frames from shot code' }))
-      : [{ severity: B, issue: `purity check failed: ${pur.stderr}`, fix: 'run node tools/render.mjs purity and fix the page errors' }]);
+  const pur = renderTool(f, o, 'purity'), nt = nullTest(f, o);
+  const frameDefects = pur.ok ? [] : pur.json && pur.json.mismatches.length ? pur.json.mismatches.map((t) => ({ severity: B, at: fmtT(t), issue: `the frame at ${t} s depends on render order or page state`, fix: 'remove Math.random, Date, performance.now and state carried between frames from shot code' }))
+    : [{ severity: B, issue: `purity check failed: ${pur.stderr}`, fix: 'run node tools/render.mjs purity and fix the page errors' }];
+  const mixDefects = nt.ok ? [] : [{ severity: B, issue: nt.error || `two renders of the mix differ by up to ${nt.peak_dbfs} dBFS (limit ${nt.limit_dbfs})`, fix: 'look for Math.random, Date or state carried between calls in audio or sfx code; run node tools/qa.mjs null' }];
+  add('TECH-7', 'frames and the audio mix are pure functions of time', pur.ok && nt.ok,
+    `${pur.json ? `${pur.json.samples} samples, ${pur.json.mismatches.length} mismatches` : pur.stderr}; ${nullText(nt)}`, frameDefects.concat(mixDefects));
   const gl = renderTool(f, o, 'glyph');
-  add('TECH-8', 'every font advances every letter of a write-on', gl.ok, gl.json ? `${gl.json.details.length} checks` : gl.stderr,
+  const faces = (gl.json && gl.json.faces) || [];
+  add('TECH-8', 'every font advances every letter; every declared face loads', gl.ok, gl.json ? `${gl.json.details.length} checks, ${faces.length} faces` : gl.stderr,
     gl.json ? gl.json.details.filter((d) => !d.ok).map((d) => ({ severity: B, issue: `font ${d.font} swallows letters in "${d.text}" (min advance ${d.minAdvance})`, fix: 'use another font or ship the font file via config.fonts.faces' }))
+      .concat(faces.filter((x) => !(x.loaded && x.check)).map((x) => ({ severity: B, issue: `font face "${x.family}" (${x.src}) did not load${x.error ? ': ' + x.error : ''}`, fix: 'fix the path or the file under web/fonts/, or the family name in film.json style.fonts' })))
       : [{ severity: B, issue: `glyph test failed: ${gl.stderr}`, fix: 'run node tools/render.mjs glyph' }]);
   // text checks
   const F = await openFilm(f, o);
@@ -377,6 +415,12 @@ async function main() {
     for (const b of r.bad) console.log(`${b.file}:${b.line}:${b.col}: non-ASCII byte`);
     console.log(`ascii: ${r.files} files, ${r.bad.length} non-ASCII ${r.bad.length === 1 ? 'run' : 'runs'}`);
     return r.bad.length ? 1 : 0;
+  }
+  if (cmd === 'null') {
+    const r = nullTest(f, o);
+    if (o.json) console.log(JSON.stringify(r, null, 1));
+    else console.log(`audio null test: ${r.ok ? 'ok' : 'FAIL'} - ${nullText(r)}${r.ok ? '' : ` (limit ${r.limit_dbfs} dBFS)`}`);
+    return r.ok ? 0 : 1;
   }
   if (cmd === 'text-check') {
     const F = await openFilm(f, o);

@@ -1,11 +1,13 @@
 """Append-only spend ledger for one film (<film>/ledger.jsonl), shared by every provider.
 
 Before a paid call: reserve(est) books est x 1.2 under a file lock and refuses when the film's
-budget_usd (or the optional account ceiling) would be exceeded. After it: record the actual cost
-(usage.cost when the provider reported it, else the estimate tagged basis "estimate"), or release
-the reservation when the call failed before reaching the model. Cache hits are recorded at $0.
-Entries: reserve | record | release | anchor (account usage at the film's first paid call) |
-reconcile (account usage delta vs the ledger).
+budget_usd (or the optional account ceiling) would be exceeded. The budget check counts the larger
+of the ledger's spend and the account's usage since the film's anchor (GET /key, when a key is
+available), so estimates that run low cannot overspend the film. After the call: record the actual
+cost (usage.cost when the provider reported it, else the estimate tagged basis "estimate"), or
+release the reservation when the call failed before reaching the model. Cache hits are recorded at
+$0. Entries: reserve | record | release | anchor (account usage at the film's first paid call) |
+reconcile (account usage delta vs the ledger, plus the calibration factor for estimated costs).
 """
 
 import contextlib
@@ -19,6 +21,8 @@ from .base import BudgetRefused
 
 RESERVE_FACTOR = 1.2
 EPS = 1e-9
+CALIBRATION_MAX = 3.0  # a larger drift is more likely other work sharing the key than a bad estimate
+CALIBRATION_MIN_USD = 0.01  # estimated spend needed before a calibration factor means anything
 
 
 def _now():
@@ -117,6 +121,8 @@ class Reservation:
             "basis": basis,
             "reserved": self.entry["usd"],
         }
+        if basis == "estimate" and "raw_est" in self.entry:
+            e["raw_est"] = self.entry["raw_est"]  # the estimate before the film's calibration factor
         e.update(extra)
         self.ledger.append(e)
         self.done = True
@@ -185,41 +191,56 @@ class Ledger:
     def status(self):
         return totals(self.entries(), self.budget)
 
-    def reserve(self, role, stage, est, provider, model, note=""):
+    def _usage(self):
+        """(account usage in USD or None, why it is None)."""
+        if self.usage_fn is None:
+            return None, "no usage source"
+        try:
+            return float(self.usage_fn()), ""
+        except Exception as e:  # noqa: BLE001 -- a missing key or a network error: the caller decides
+            return None, e.__class__.__name__
+
+    def reserve(self, role, stage, est, provider, model, note="", raw_est=None):
+        """Book est x 1.2. raw_est is the estimate before the film's calibration factor (kept for
+        reconcile, which derives the factor from it)."""
         amount = round(max(0.0, float(est)) * RESERVE_FACTOR, 6)
         with file_lock(self.path):
-            t = totals(self.entries(), self.budget)
-            if t["spent"] + t["reserved"] + amount > self.budget + EPS:
+            entries = self.entries()
+            t = totals(entries, self.budget)
+            anchor = next((e for e in entries if e.get("op") == "anchor"), None)
+            usage, why = (None, "") if anchor is None and self.ceiling is None else self._usage()
+            spent, basis = t["spent"], "ledger"
+            if anchor is not None and usage is not None and usage - anchor["account_usage"] > spent:
+                spent, basis = round(usage - anchor["account_usage"], 6), "account usage since the anchor"
+            if spent + t["reserved"] + amount > self.budget + EPS:
                 raise BudgetRefused(
                     f"budget refused: {role} via {model} needs ${amount:.4f} (estimate ${est:.4f} x {RESERVE_FACTOR}); "
-                    f"spent ${t['spent']:.4f} + reserved ${t['reserved']:.4f} of the film's ${self.budget:.2f}"
+                    f"spent ${spent:.4f} ({basis}) + reserved ${t['reserved']:.4f} of the film's ${self.budget:.2f}"
                 )
             if self.ceiling is not None:
-                try:
-                    usage = float(self.usage_fn())
-                except Exception as e:  # noqa: BLE001 -- any failure means we cannot prove headroom
+                if usage is None:  # cannot prove headroom
                     raise BudgetRefused(
-                        f"account ceiling set but account usage is unreadable ({e.__class__.__name__}); "
-                        "refusing the paid call"
-                    ) from None
+                        f"account ceiling set but account usage is unreadable ({why}); refusing the paid call"
+                    )
                 if usage + t["reserved"] + amount > self.ceiling + EPS:
                     raise BudgetRefused(
                         f"account ceiling refused: usage ${usage:.4f} + reserved ${t['reserved']:.4f} + ${amount:.4f} "
                         f"> ceiling ${self.ceiling:.2f}"
                     )
-            entry = self._write(
-                {
-                    "op": "reserve",
-                    "id": uuid.uuid4().hex[:12],
-                    "role": role,
-                    "stage": stage,
-                    "provider": provider,
-                    "model": model,
-                    "est": round(float(est), 6),
-                    "usd": amount,
-                    "note": note,
-                }
-            )
+            entry = {
+                "op": "reserve",
+                "id": uuid.uuid4().hex[:12],
+                "role": role,
+                "stage": stage,
+                "provider": provider,
+                "model": model,
+                "est": round(float(est), 6),
+                "usd": amount,
+                "note": note,
+            }
+            if raw_est is not None and abs(float(raw_est) - float(est)) > EPS:
+                entry["raw_est"] = round(float(raw_est), 6)
+            entry = self._write(entry)
         return Reservation(self, entry)
 
     def cache_hit(self, role, stage, provider, model, key):
@@ -253,9 +274,14 @@ class Ledger:
                 self._write({"op": "anchor", "account_usage": usage})
 
     def reconcile(self, usage_now=None):
-        """Compare the account usage delta since the anchor with what the ledger recorded."""
-        anchor = self.anchor()
-        t = self.status()
+        """Compare the account usage delta since the anchor with what the ledger recorded, and derive
+        the calibration factor for estimated costs: every call recorded with basis "estimate" (TTS
+        above all: the speech endpoint reports no cost) is assumed to carry the whole drift, so
+        factor = (estimated spend + drift) / the same calls' uncalibrated estimates, clamped to
+        1.0..CALIBRATION_MAX (never below 1.0: over-estimates stay as they are)."""
+        entries = self.entries()
+        anchor = next((e for e in entries if e.get("op") == "anchor"), None)
+        t = totals(entries, self.budget)
         if usage_now is None:
             usage_now = float(self.usage_fn())
         res = {
@@ -266,6 +292,7 @@ class Ledger:
             "drift": None,
             "ok": True,
             "note": "",
+            "calibration": None,
         }
         if anchor is None:
             res["note"] = "no anchor yet (no paid call has run); nothing to compare"
@@ -280,5 +307,17 @@ class Ledger:
                 )
             elif drift < -tol:
                 res["note"] = "the ledger recorded more than the account spent (estimates were conservative)"
+            est = [e for e in entries if e.get("op") == "record" and e.get("basis") == "estimate"]
+            recorded = sum(float(e.get("usd") or 0) for e in est)
+            raw = sum(float(e.get("raw_est", e.get("usd")) or 0) for e in est)
+            if recorded >= CALIBRATION_MIN_USD and raw > 0:
+                factor = min(CALIBRATION_MAX, max(1.0, (recorded + drift) / raw))
+                res["calibration"] = {
+                    "factor": round(factor, 3),
+                    "roles": sorted({e.get("role") or "-" for e in est}),
+                    "estimated_usd": round(recorded, 6),
+                    "uncalibrated_usd": round(raw, 6),
+                    "capped": (recorded + drift) / raw > CALIBRATION_MAX,
+                }
         self.append(dict({"op": "reconcile"}, **{k: v for k, v in res.items() if k != "ok"}, ok=res["ok"]))
         return res

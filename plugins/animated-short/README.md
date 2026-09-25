@@ -60,10 +60,12 @@ asked to approve the animatic or each phase.
 
 Every paid call goes through one spend ledger per film: it reserves an estimate before each
 call, records the provider's reported cost, and refuses anything that would pass the film's
-`budget_usd` (default $10) or an optional account ceiling. The skill quotes each stage before
-spending. A typical 60-90 s film at the defaults costs about $2-4 (sticker sheets are most of
-it); a draft tier keeps the animatic cheap; results are cached so retries are free. A film
-with `budget_usd: 0` makes no paid calls at all.
+`budget_usd` (default $10) or an optional account ceiling; the budget check also counts the
+account's reported usage when that is higher than the ledger. The skill quotes each stage
+before spending, and when a quote does not fit it lists what to change, least harmful first. A
+typical 45-90 s film quotes about $2.50-4 at the defaults and spends less (sticker sheets are
+most of it); a draft tier keeps the animatic cheap; results are cached so retries are free. A
+film with `budget_usd: 0` makes no paid calls at all.
 
 ## Providers and licensing
 
@@ -100,8 +102,9 @@ bash plugins/animated-short/skills/animated-short/scripts/test-golden.sh --scaff
 ```
 
 Each run builds a fresh film from `examples/golden`, then resolves, renders stills, checks
-glyphs, frame purity and text rules, makes QA images, exports every deliverable and runs the
-technical gate; it prints a PASS/FAIL table. The Python tools have offline unit tests (a fake
+glyphs, frame purity and text rules, makes QA images, runs an engine self-test (sticker
+placeholders and anchors, a font face that fails to load), exports every deliverable and runs
+the technical gate (with the audio null test); it prints a PASS/FAIL table. The Python tools have offline unit tests (a fake
 provider server, $0); CI runs them through this script:
 
 ```bash
@@ -117,6 +120,7 @@ skills/animated-short/
   references/              intake, inputs, phases, storyboard, acting kit, style preset, reviews,
                            providers, engines, delivery, pitfalls, JSON schemas
   engine/                  the film template: player page, canvas engine, render/export/QA tools
-  scripts/                 scaffold, preflight, quote, ledger, voice, music, art, critic, review
+  scripts/                 scaffold, preflight, quote, ledger, voice, music, art, critic, review,
+                           report
   examples/golden/         the 10-second conformance film
 ```

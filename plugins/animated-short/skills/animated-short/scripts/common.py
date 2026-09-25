@@ -8,6 +8,7 @@ Every tool is `python3 scripts/<tool>.py <subcommand> --film <dir> [...]` and ex
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -54,6 +55,11 @@ def load_schema(name):
     return read_json(REFS / name)
 
 
+def default_sheets(duration):
+    """Final sticker sheets for a film of this length: duration / 15 s, rounded up, 2..8."""
+    return max(2, min(8, math.ceil(float(duration) / 15)))
+
+
 def validate_film(raw):
     """-> (film with defaults, errors)."""
     sch = load_schema("film.schema.json")
@@ -61,6 +67,7 @@ def validate_film(raw):
     film = schema.apply_defaults(sch, raw) if not errors else raw
     if not errors:
         film.setdefault("title", film["topic"])
+        film["art"].setdefault("sheets", default_sheets(film["duration"]))
         if film["voice"]["mode"] == "named" and not film["voice"].get("name"):
             errors.append("voice.name: required when voice.mode is named")
         if film["music"]["mode"] == "file" and not film["music"].get("file"):

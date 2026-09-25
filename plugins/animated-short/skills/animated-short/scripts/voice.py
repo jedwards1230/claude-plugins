@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Narration: auditions, takes, transcript checks, picks, processing, timing and export.
 
-audition --voices a,b,c --line <id>   one take per voice of one line -> work/takes/audition/<voice>.wav
+audition --voices a,b,c --line <id>   one take per voice of one line -> work/takes/audition/<voice>.wav; prints
+                                      each voice's spoken span, words/s and the script's word budget at that pace
 takes --n 3 [ids...]                  N takes per line (the line's `tts` spelling when present, film.json
                                       pronunciations applied) -> work/takes/<id>_<k>.wav; pins the voice
 check [ids...] [--max-wer w]          align every take and compare it with the intended words -> work/takes/check.json
                                       (with ids, only those lines are replaced); lines served only by the coarse
-                                      aligner are listed as unverified
+                                      aligner are listed as unverified. Prints each take's spoken span and words/s
+                                      and writes work/takes/check-summary.md (every take, stale ones marked) for
+                                      the take-picks prompt (critic.py ask --append)
 pick <id>=<k> ...                     copy chosen takes to work/vo/<id>.wav
 process [ids...]                      trim, high-pass, gentle EQ, compression, loudness -16 LUFS per line
                                       -> work/vo/<id>_final.wav (ffmpeg two-pass loudnorm; numpy fallback)
@@ -54,6 +57,38 @@ def ending_seconds(film):
     return round(d["seconds"] + 0.5, 3) if d["end_card"] else PLAIN_ENDING
 
 
+def speech_window(film):
+    """Seconds the narration may fill: duration - lead-in - the ending."""
+    return film["duration"] - film["voice"]["lead_in"] - ending_seconds(film)
+
+
+def word_budget(film, n_lines, wps):
+    """Words that fit: (speech window - (lines - 1) x gap) x the voice's measured words/s."""
+    return max(0, int((speech_window(film) - max(0, n_lines - 1) * film["voice"]["gap"]) * wps))
+
+
+def energy_span(wav):
+    """Spoken span of a take from its level (first to last voiced moment), seconds; 0 when silent."""
+    from providers.local import voiced_regions
+
+    samples, sr = audiolib.read_wav_mono(wav)
+    env = audiolib.envelope_db(samples, sr)
+    regions = voiced_regions(env)
+    if regions:
+        return round(regions[-1][1] - regions[0][0], 2)
+    return round(len(samples) / sr, 2) if env and max(env) > -60 else 0.0  # sound with no pause in it
+
+
+def words_span(words):
+    """Spoken span from aligner words (first start to last end), seconds, or None."""
+    times = [(w["start"], w["end"]) for w in words or [] if "start" in w and "end" in w]
+    return round(times[-1][1] - times[0][0], 2) if times else None
+
+
+def pace(n_words, span):
+    return round(n_words / span, 2) if span and span > 0 else None
+
+
 def _lines(film_dir, ids):
     lines = script_lines(film_dir)
     if not lines:
@@ -80,7 +115,7 @@ def _vo_file(vo_dir, lid):
 
 
 def _say(res, label):
-    extra = f" (after {', '.join(i for i, _ in res.fallbacks)} failed)" if res.fallbacks else ""
+    extra = "".join(f" (after {cid} failed: {why[:120]})" for cid, why in res.fallbacks)
     cost = "cached" if res.basis == "cache" else (usd(res.usd) if res.usd is not None else "estimated")
     print(f"  {label}: {res.data.get('seconds', '-')} s  {res.candidate['model']}  {cost}{extra}")
 
@@ -98,22 +133,34 @@ def cmd_audition(a):
         raise UsageError("no voices to audition: pass --voices a,b,c")
     takes_dir, _ = _paths(a.film)
     style = a.style or film["voice"].get("style")
-    print(f"audition: line {line['id']} with {len(voices)} voices")
+    text = tts_text(line, film["pronunciations"])
+    n_words, n_lines = len(norm_words(text)), len(script_lines(a.film))
+    print(f"audition: line {line['id']} ({n_words} words) with {len(voices)} voices")
+    paces = {}
     for v in voices:
         res = run_role(
             ctx,
             "tts",
-            {
-                "text": tts_text(line, film["pronunciations"]),
-                "voice": v,
-                "style": style,
-                "out_dir": takes_dir / "audition",
-                "stem": v,
-            },
+            {"text": text, "voice": v, "style": style, "out_dir": takes_dir / "audition", "stem": v},
             stage="voice",
             model=a.model,
         )
         _say(res, v)
+        span = energy_span(res.files[0])
+        wps = pace(n_words, span)
+        paces[v] = {"file": res.files[0].name, "spoken": span, "words_per_second": wps}
+        if wps:
+            paces[v]["budget_words"] = word_budget(film, n_lines, wps)
+            print(
+                f"    spoken {span:.2f} s, {wps:.2f} words/s -> the {n_lines}-line script fits about "
+                f"{paces[v]['budget_words']} words at this pace"
+            )
+    write_json(takes_dir / "audition" / "spans.json", {"line": line["id"], "words": n_words, "voices": paces})
+    gaps = max(0, n_lines - 1) * film["voice"]["gap"]
+    print(
+        f"  word budget = (speech window {speech_window(film):.2f} s - {max(0, n_lines - 1)} gaps x "
+        f"{film['voice']['gap']} s = {gaps:.2f} s) x the chosen voice's words/s"
+    )
     print(f"  -> {takes_dir / 'audition'} (judge with critic.py ask --audio ...)")
     return 0
 
@@ -164,19 +211,71 @@ def cmd_takes(a):
 
 
 # ---------------------------------------------------------------- check / pick
+def take_line(r):
+    """One take's check result as text: WER, lengths, pace and the differences."""
+    issues = [f"missing {' '.join(r['missing'])}"] if r["missing"] else []
+    issues += [f"heard '{h}' for '{e}'" for e, h in r["subs"]]
+    issues += [f"extra {' '.join(r['extra'])}"] if r["extra"] else []
+    joined = f"  (joins, not errors: {', '.join(f'{h!r}' for _, h in r.get('joins') or [])})" if r.get("joins") else ""
+    spoken = f"spoken {r['spoken']:.2f} s of {r['seconds']} s" if r.get("spoken") else f"{r['seconds']} s"
+    wps = f", {r['words_per_second']:.2f} words/s" if r.get("words_per_second") else ""
+    return f"wer {r['wer']:.2f}  {spoken}{wps}  {'; '.join(issues) or 'clean'}{joined}"
+
+
+def write_summary(takes_dir, report):
+    """work/takes/check-summary.md: every checked take of every line, for the take-picks prompt. A take
+    whose file changed after its check is marked STALE, a take never checked is listed as such."""
+    out = [
+        "Transcript check of every take (voice.py check). Spoken: first word start to last word end as the",
+        "aligner heard it (from the level for the coarse aligner); words/s: the line's words over that span.",
+        "",
+    ]
+    for lid, r in report["lines"].items():
+        out.append(
+            f'{lid} "{r.get("expected", "")}"' + (f" (best by transcript: {r['best']})" if r.get("best") else "")
+        )
+        takes = r.get("takes") or {}
+        on_disk = sorted(p.stem for p in takes_dir.glob(f"{lid}_*.wav") if p.stem[len(lid) + 1 :].isdigit())
+        for stem in sorted(set(takes) | set(on_disk)):
+            f = takes_dir / f"{stem}.wav"
+            row = takes.get(stem)
+            if row is None:
+                out.append(f"  {stem}: not checked yet (run voice.py check {lid})")
+            elif not f.exists():
+                out.append(f"  {stem}: file removed since the check")
+            elif row.get("file_mtime") is not None and f.stat().st_mtime > row["file_mtime"] + 1e-6:
+                out.append(f"  {stem}: STALE (re-made after its check; run voice.py check {lid})")
+            else:
+                out.append(f"  {stem}: {take_line(row)}")
+        out.append("")
+    p = takes_dir / "check-summary.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(out), encoding="utf-8")
+    return p
+
+
 def compare(expected, heard):
-    """Word lists -> {wer, missing, extra, subs}."""
+    """Word lists -> {wer, missing, extra, subs, joins}. Words the aligner joined or split without
+    changing a letter ("the secret: salt" heard as "secretsalt", "every one" as "everyone") are joins, not
+    errors."""
     sm = difflib.SequenceMatcher(None, expected, heard, autojunk=False)
-    missing, extra, subs = [], [], []
+    missing, extra, subs, joins = [], [], [], []
     for op, i1, i2, j1, j2 in sm.get_opcodes():
         if op == "delete":
             missing += expected[i1:i2]
         elif op == "insert":
             extra += heard[j1:j2]
         elif op == "replace":
-            subs.append([" ".join(expected[i1:i2]), " ".join(heard[j1:j2])])
+            pair = [" ".join(expected[i1:i2]), " ".join(heard[j1:j2])]
+            (joins if "".join(expected[i1:i2]) == "".join(heard[j1:j2]) else subs).append(pair)
     errors = len(missing) + len(extra) + sum(max(len(s[0].split()), len(s[1].split())) for s in subs)
-    return {"wer": round(errors / max(1, len(expected)), 3), "missing": missing, "extra": extra, "subs": subs}
+    return {
+        "wer": round(errors / max(1, len(expected)), 3),
+        "missing": missing,
+        "extra": extra,
+        "subs": subs,
+        "joins": joins,
+    }
 
 
 def cmd_check(a):
@@ -199,12 +298,16 @@ def cmd_check(a):
             heard_words = [w["word"] for w in res.data.get("words", [])]
             cmp = compare(expected, [n for n in (norm_word(w) for w in heard_words) if n])
             coarse = bool(res.data.get("coarse"))
+            span = words_span(res.data.get("words")) or energy_span(f)
             rows[f.stem] = dict(
                 cmp,
                 heard=res.data.get("text") or " ".join(heard_words),
                 coarse=coarse,
                 seconds=round(audiolib.wav_duration(f), 2),
+                spoken=span,
+                words_per_second=pace(len(expected), span),
                 model=res.candidate["model"],
+                file_mtime=f.stat().st_mtime,
             )
             write_json(f.with_suffix(".words.json"), res.data)
         best = min(rows, key=lambda k: (rows[k]["wer"], k))
@@ -221,10 +324,7 @@ def cmd_check(a):
         flag = "" if clean else ("  UNVERIFIED (coarse aligner)" if unverified else "  NO CLEAN TAKE")
         print(f"{line['id']}: best {best} (wer {rows[best]['wer']}){flag}")
         for k, r in sorted(rows.items()):
-            issues = [f"missing {' '.join(r['missing'])}"] if r["missing"] else []
-            issues += [f"heard '{h}' for '{e}'" for e, h in r["subs"]]
-            issues += [f"extra {' '.join(r['extra'])}"] if r["extra"] else []
-            print(f"   {k}: wer {r['wer']:.2f}  {r['seconds']} s  {'; '.join(issues) or 'clean'}")
+            print(f"   {k}: {take_line(r)}")
     # a partial re-run (line ids given) replaces only those lines in check.json and keeps the others;
     # lines no longer in the script are dropped, lines never checked need work
     prev = (read_json(takes_dir / "check.json", default={}).get("lines") or {}) if a.ids else {}
@@ -234,10 +334,9 @@ def cmd_check(a):
         lines[ln["id"]] = report.get(ln["id"]) or prev.get(ln["id"]) or dict(unchecked, note="not checked yet")
     needs_work = [lid for lid, r in lines.items() if not r.get("clean")]
     unverified = [lid for lid in needs_work if lines[lid].get("unverified")]
-    write_json(
-        takes_dir / "check.json",
-        {"max_wer": a.max_wer, "lines": lines, "needs_work": needs_work, "unverified": unverified},
-    )
+    full = {"max_wer": a.max_wer, "lines": lines, "needs_work": needs_work, "unverified": unverified}
+    write_json(takes_dir / "check.json", full)
+    print(f"check: every take's result for the take-picks prompt -> {write_summary(takes_dir, full)}")
     now = [lid for lid in needs_work if lid in report]  # the exit code judges the lines checked in this run
     if [lid for lid in now if lid in unverified]:
         print(

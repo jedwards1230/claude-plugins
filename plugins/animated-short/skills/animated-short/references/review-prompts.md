@@ -20,7 +20,11 @@ from this file. `$SKILL` is the skill's base directory and `$FILM` the film dire
 
 `review.py run` appends the film context (title, form, duration, aspect, goal, message), the
 persona and what they know, the banned patterns (director, originality), the persona's
-takeaway (comparer), the intent notes and the output schema to the prompt file. Write only
+takeaway (comparer), the intent notes and the output schema to the prompt file. With
+`--previous <M>` (every round from 2 on) it also appends the same reviewer's scores and defects
+from round M and asks for each defect: fixed or still present (the `previous` field; a
+still-present one is listed again in `defects`), then any new defect. A sign-off
+(`--tier signoff`) gets the round's counted defects from `gates.json` the same way. Write only
 the reviewer-specific part (the templates below). Claude subagents get no such appendix: their
 templates include the context, and the main agent passes file paths.
 
@@ -39,7 +43,9 @@ viewers should repeat): <message>. <Persona: <name>. Already knows: <knows>.> <B
 (director, originality): <list>.> <Persona takeaway to judge (comparer): <takeaway>.>
 You cannot watch the video: judge it from these images and files: <contact sheets, strips,
 crops, transcript, out/export.json>. Intent notes (deliberate choices, not defects):
-<work/direction/intent-notes.md>.
+<work/direction/intent-notes.md>. <From round 2 on: this reviewer's defects from the last
+round: <list>. For each, report it in "previous" as {"check", "at", "status": "fixed" or
+"still_present", "note"}; list every still-present one again in defects, then new ones.>
 Write ONLY one JSON object valid against $SKILL/references/rubric.schema.json to
 $FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json, with "reviewer":
 "<director|persona|comparer|originality|audio>", "cut": "r<N>" and, for persona and comparer,
@@ -52,29 +58,39 @@ $FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json, with "reviewer":
 | --- | --- |
 | `work/direction/intent-notes.md` | Deliberate choices; appended to every `review.py run` prompt (template below). |
 | `work/direction/quiz.json` | `{"questions": [{"q": "...", "a": "...", "accept": ["..."]}]}`: drafted at script time; at least 5 questions for explainers. The answer key: the quiz gate is scored out of its questions. Answers never go to the personas. |
-| `work/direction/originality.md` | The creative-direction originality check: the score alone on line 1, then the answer. |
+| `work/direction/originality-v<N>.md` | Creative-direction originality check N (`originality-v1.md` first, at most 4): the score alone on line 1, then the answer. |
 | `work/reviews/prompts/<reviewer>.md` | The filled prompt templates passed as `--prompt-file`. |
 | `work/reviews/incoming/<reviewer>[-<persona-slug>].json` | Where Claude subagents write; `review.py ingest --file` reads from here. |
 | `work/reviews/r<N>/<reviewer>[-<persona-slug>][-signoff].json` | Stored reviews (`review.py` names them; the slug is the persona's film.json name in lower case with every run of other characters turned into one hyphen, e.g. `persona-a-home-baker.json`). Pass `--persona` the film.json name (an exact match wins; otherwise a unique part of it). Round 0 holds pre-production reviews. |
 | `work/reviews/r<N>/confirmed.json` | `[{"check": "TEXT-3", "at": "0:41.5", "still": "work/qa/stills/t041.50.jpg", "note": "..."}]`: defects confirmed on a still. |
 | `work/reviews/r<N>/accepted_claims.json` | `["claim text", ...]`: claims the user accepted as they are. |
 | `work/reviews/r<N>/raw/` | Raw critic replies and validation errors. |
-| `work/reviews/r<N>/gates.json` | `review.py gates` output. |
+| `work/reviews/r<N>/gates.json` | `review.py gates` output: the gates, counted and discounted defects, `to_confirm`. |
+| `work/reviews/r<N>-fix/` | The fix pass after round N: its technical review, frame QA of the changed frames, the sign-off, and its `gates.json` (with `fixed_defects`). |
 
 ## The defect rule
 
 Critics perceive well and invent details: timestamps drift, write-on text gets called a
-truncation, deliberate darkness gets called a bug. A defect counts (`review.py gates`) only
-when `maybe_intentional` is not true AND one of these holds:
+truncation, deliberate darkness gets called a bug. A defect counts (`review.py gates`) when one
+of these holds:
 
-1. A still confirms it: render the moment (`node "$FILM/tools/render.mjs" stills 41.5 --film "$FILM"`
+1. It comes from a measuring reviewer: `technical`, `frame_qa`, `fact_checker`.
+2. A still confirms it: render the moment (`node "$FILM/tools/render.mjs" stills 41.5 --film "$FILM"`
    or a strip), look at it, and add an entry to `confirmed.json` with the same check id and a
    time within 2 s.
-2. Another review in the same round cites the same check id within 2 s.
-3. It comes from a measuring reviewer: `technical`, `frame_qa`, `fact_checker`.
+3. A review of another kind in the same round cites the same check id within 2 s. Two personas
+   (or a director and its own sign-off) watching the same cut do not confirm each other: they
+   share the same blind spots.
 
-Check every blocking and major defect against a still before acting on it; fix what is real,
-and add a line to the intent notes for each false positive so the next round does not repeat it.
+`maybe_intentional: true` discounts a defect, except an accuracy defect (any `ACC-*`) and a
+blocking defect from a measuring reviewer: an intent note may explain a picture choice, never
+launder a false claim or a broken frame.
+
+`review.py gates` lists every unconfirmed blocking or major critic defect under `to_confirm`
+(and prints them as TO CONFIRM): check each against a still before acting on it; add the real
+ones to `confirmed.json`, fix them, and add a line to the intent notes for each false positive
+so the next round does not repeat it. Only counted blocking defects block shipping; fix counted
+majors when you can.
 
 ## Checklist
 
@@ -145,8 +161,8 @@ notice; `minor` = a careful viewer notices; `nit` = polish.
 | TECH-4 | Phone copy under 30 MiB. |
 | TECH-5 | Captions: SRT and VTT (a missing soft track is minor). |
 | TECH-6 | Transcript has every narration line. |
-| TECH-7 | Frames are a pure function of time. |
-| TECH-8 | Every font advances every letter of a write-on. |
+| TECH-7 | Frames and the audio mix are pure functions of time (the mix rendered twice differs by less than -60 dBFS). |
+| TECH-8 | Every font advances every letter of a write-on, and every declared font face loads. |
 | TECH-9 | Text at least 28 px at 1080p. |
 | TECH-10 | Every text readable for at least 1.2 s. |
 | TECH-11 | No on-screen text repeating the narration. |
@@ -356,7 +372,9 @@ Write one JSON object valid against $SKILL/references/rubric.schema.json to
 $FILM/work/reviews/incoming/fact_checker.json: reviewer "fact_checker", cut "r<N>",
 scores.accuracy (0-10 with why), claims [{text, where (line id or label id), source (with
 date), status}], defects with checklist ids ACC-1..6 (time of the line or label, severity
-blocking for anything false or off-screen), and a verdict.
+blocking for anything false or off-screen), and a verdict. Never set maybe_intentional on a
+factual error, even when the intent notes describe the picture as deliberate: a deliberate
+picture that says something false is still false.
 ```
 
 ### frame_qa
@@ -379,6 +397,11 @@ one JSON object valid against $SKILL/references/rubric.schema.json to
 $FILM/work/reviews/incoming/frame_qa.json: reviewer "frame_qa", cut "r<N>", scores reads,
 visual_polish, character and accessibility (0-10 with why), defects, verdict. Intent notes (not
 defects): <paste work/direction/intent-notes.md>.
+<Fix pass only (cut "r<N>-fix"): the images show the frames changed to fix these counted
+defects of round N: <paste counted_defects from work/reviews/r<N>/gates.json>. For each, report
+it in "previous" as {"check", "at", "status": "fixed" or "still_present", "note" naming the
+image}; list every still-present one again in defects, then anything new the changed frames
+show.>
 ```
 
 ### quiz grader (after each persona review)
@@ -399,6 +422,8 @@ Then store it over the ungraded one:
 
 ### originality (creative direction, before any art)
 
+First check (`N` = 1):
+
 ```text
 Read $FILM/work/direction/concept.md and $FILM/work/direction/style-bible.md. Short animated
 explainers made by AI agents have converged on one look: cut-paper collage with image-model
@@ -407,16 +432,31 @@ generated music bed. Could the film these files describe be mistaken for another
 of these banned patterns does it plan to use: <film.json style.banned_patterns>? What default
 choices does it lean on? Give a score from 0 to 10 (7 = a viewer would remember it as itself)
 and three concrete changes to the motif, palette, cast, structure or sound that would make it
-unmistakably its own. Write the answer in plain text to $FILM/work/direction/originality.md,
-with the score alone (a number) on line 1.
+unmistakably its own. Score the plan as written, not a different film it could be. Write the
+answer in plain text to $FILM/work/direction/originality-v1.md, with the score alone (a
+number) on line 1.
+```
+
+Re-check (`N` = 2 to 4, a fresh subagent each time):
+
+```text
+Read $FILM/work/direction/concept.md and $FILM/work/direction/style-bible.md (revised), the
+previous check $FILM/work/direction/originality-v<N-1>.md, and what changed since then:
+<the list of changes>. For each issue the previous check raised, say whether the revision fixed
+it. Then list only NEW blocking issues: a banned pattern the plan now uses, or a default look it
+leans on that the previous check did not raise; do not re-litigate taste the previous check
+accepted. Banned patterns: <film.json style.banned_patterns>. Give a score from 0 to 10 (7 = a
+viewer would remember it as itself) on the same scale as the previous check. Write the answer
+in plain text to $FILM/work/direction/originality-v<N>.md, with the score alone on line 1.
 ```
 
 ## Judging prompts for `critic.py ask` (not rubric reviews)
 
-`python3 "$SKILL/scripts/critic.py" ask --film "$FILM" --prompt-file <file> [--audio F ...]
-[--video F] [--images F ...] [--tier draft|final|signoff] --stage <voice|animatic|assets> --name
+`python3 "$SKILL/scripts/critic.py" ask --film "$FILM" --prompt-file <file> [--append F ...]
+[--audio F ...] [--video F] [--images F ...] [--tier draft|final|signoff] --stage <voice|animatic|assets> --name
 <label>` prints the reply and saves it to `work/critic/`; `--stage` files the spend under the
-matching quote stage (voice for auditions and take picks, animatic, assets for the music pick).
+matching quote stage (voice for auditions and take picks, animatic, assets for the music pick);
+`--append` adds files' text after the prompt at call time.
 
 ### voice audition
 
@@ -432,10 +472,15 @@ the tone asks for it. Reply with the winning file name on the first line, then y
 
 ```text
 Each line of narration has several takes (file names <line>_<take>.wav). The transcript check
-found: <paste the per-take summary printed by voice.py check>. For each line pick the take with
-the clearest diction, correct pronunciation, natural rhythm and energy that matches the lines
-around it. Reply with a JSON object {"picks": {"<line>": <take>, ...}, "notes": {"<line>": "..."}}.
+of every take (word error rate, spoken length, words per second) follows this prompt; do not
+pick a take marked STALE or not checked. For each line pick the take with the clearest diction,
+correct pronunciation, natural rhythm and energy that matches the lines around it; when you
+cite a length or a pace, use the measured numbers. Reply with a JSON object
+{"picks": {"<line>": <take>, ...}, "notes": {"<line>": "..."}}.
 ```
+
+Pass `--append "$FILM/work/takes/check-summary.md"` with it: `voice.py check` rewrites that
+file on every run, so the numbers are never pasted by hand or stale.
 
 ### music pick
 
@@ -467,7 +512,7 @@ the round's reviews and writes `gates.json`; exit 0 = ship.
 | Gate | Passes when | Fed by |
 | --- | --- | --- |
 | director | overall >= 8.5 (`review.director_min`); a `-signoff` director review, when present, is decisive | director |
-| blocking | no counted blocking defect (defect rule above) | every review + `confirmed.json` |
+| blocking | no counted blocking defect (defect rule above); counted majors do not block, fix them when you can | every review + `confirmed.json` |
 | message | every persona's takeaway matches the message | comparer, one per persona |
 | quiz | every persona >= 80% (`review.quiz_min`) of the questions in `work/direction/quiz.json`, explainers only | graded persona reviews |
 | learned | every persona lists >= 5 concrete learnings (`review.learnings_min`), explainers only | persona |
@@ -485,3 +530,10 @@ Verdicts: `ship`; `iterate` (fix the counted defects and failed gates, re-export
 round; a failed sign-off is an ordinary iterate); `stop` at round `review.rounds` (default 4)
 without passing: stop iterating and report the open gates to the user in `out/report.md`. $0
 films have no sign-off pass.
+
+The fix pass (`--round <N>-fix`, stored in `work/reviews/r<N>-fix/`) is the one $0 change after
+a round, the last one included: fix only the round's counted defects, then a new technical
+review and frame QA of the changed frames (and the sign-off, when the round shipped). Its gates
+read round N with those reviews in place of round N's; a counted defect that a fix-pass review
+reports `fixed` in `previous` (and none reports `still_present`) moves to `fixed_defects`.
+Anything that changes narration or music is not a fix: it needs a round.

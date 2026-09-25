@@ -23,7 +23,8 @@ skill's base directory and `$FILM` the film directory.
 - Real things stay real: screenshots, logos, product photos and interfaces are used as they
   are. Never generate a fake UI or a look-alike logo.
 - Uncomfortable truths follow the film's `hard_truths` policy. Under `ask`, stop and ask; do
-  not decide alone, and list what was left out in the report.
+  not decide alone. When nobody can be asked (an unattended run), leave them out; either way
+  record the decision in the claim and let the report list them.
 - Technical names clutter labels for non-experts: plain words first, the real name faint and
   bracketed underneath (`sub`), or hidden, per the `jargon` policy.
 
@@ -31,9 +32,10 @@ skill's base directory and `$FILM` the film directory.
 
 - The script is the product. Most quality comes from the fact sheet and the rewrite, not from
   animation; spend review effort there first.
-- Budget about 2.5 spoken words per second of the speech window: the duration minus the
-  lead-in and the ending (the end card plus 0.5 s when it is on). A 45 s film with the end card
-  holds about 100 words; the formula and the worked example are in `phases.md`, phase 5.
+- Budget words from the voice's measured pace, not a round number: (speech window - the gaps
+  between lines) x the words per second `voice.py audition` prints. A 45 s film of 8 lines
+  with the end card holds about 90 words for a calm 2.4 words/s voice; the formula and the
+  worked example are in `phases.md`, phase 5.
 - One read at a time, each held at least 1.2 s after it is complete; hold the big ones longer.
   Fast actions, slow meanings.
 - Text that repeats the narration is noise: label the thing, do not caption the sentence.
@@ -83,8 +85,9 @@ skill's base directory and `$FILM` the film directory.
 - A frame is a pure function of time: no `Math.random`, `Date`, counters or state carried
   between frames in shots. `render.mjs purity` samples frames (raise `--n` before a final
   render); a shot that looks right in order can still be impure.
-- A missing sticker draws a visible placeholder on purpose. Contact sheets catch it; never
-  ship one (VIS-6).
+- A missing sticker draws a visible placeholder on purpose, in a sprite element and in a
+  custom shot's `D.sticker` or `api.sticker` alike, and warns once. Contact sheets catch it;
+  never ship one (VIS-6).
 - Generic `cursive` maps to odd fonts on some systems and fonts differ between machines. Ship
   an OFL `.woff2` for the hand and print faces (`style-presets/collage.md`).
 - Captions or labels near the frame edge get cut on phones and TVs: keep text inside a safe
@@ -100,6 +103,12 @@ skill's base directory and `$FILM` the film directory.
   sheets.
 - Check every cutout (`work/qa/cutout-<sheet>.jpg`, `art.py contact`) before building: merged
   stickers, grey halos and missing borders are easier to fix at the sheet than in the film.
+  Image models sometimes draw the sheet as a photo of stickers on a table (a lighter band, soft
+  shadows): the cutout evens out the ground and keys the shadows, but read the result, and
+  drop a stray region with `--skip`.
+- Contact points (a fingertip on a button, a hand on a handle) belong in the manifest as
+  anchors (`art.py cutout --anchors`), not as fractions hard-coded in shots: the pivot then
+  travels with the sticker.
 - The first image model that succeeds is pinned per tier; a sticky failure stops the tool
   rather than switching style mid-film.
 
@@ -107,7 +116,10 @@ skill's base directory and `$FILM` the film directory.
 
 - Critics invent timestamps and flag deliberate style (write-on text as "truncation"). Send
   intent notes with every prompt and confirm every blocking or major defect on a still before
-  acting (`confirmed.json`).
+  acting (`confirmed.json`; `review.py gates` lists the ones still to confirm). Two personas
+  reporting the same thing are one blind spot, not a confirmation.
+- Each fresh reviewer finds a different set of issues; from round 2 on pass `--previous` so
+  every reviewer first says what it found before is fixed, and scores stay comparable.
 - Ask for "blocking or not" explicitly; it separates polish from real problems.
 - The reviewer that built the film is the worst judge of it: the critic is a different model
   family (Gemini watches; Claude builds), and Claude reviews are fresh subagents, not the
@@ -122,7 +134,8 @@ skill's base directory and `$FILM` the film directory.
   producing a frame. Quote before every expensive stage, keep `budget_usd` honest, set an
   account ceiling (film.json `account_ceiling_usd`), and stop on exit 3 instead of retrying.
 - TTS costs are estimates (the speech endpoint reports no cost). Reconcile the ledger with the
-  account at each stage boundary (`ledger.py reconcile`).
+  account at each stage boundary (`ledger.py reconcile`): it calibrates later estimates, and the
+  budget check already counts the account's usage when that is higher than the ledger.
 - A crash can leave reservations open, holding budget: `ledger.py release --all-open` after
   checking nothing is running.
 - Every node tool needs `npm install --prefix "$FILM"` first (playwright-core and Mediabunny).

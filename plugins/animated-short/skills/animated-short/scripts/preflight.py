@@ -33,6 +33,7 @@ from providers.openrouter import catalog_price
 from quote import build_quote
 
 PY_MIN = (3, 10)
+PIP_NAMES = {"PIL": "pillow"}
 PY_PACKAGES = {
     "numpy": "voice process/tighten fallback, music beats/cut, sticker cutout",
     "PIL": "sticker cutout and contact sheets (package: pillow)",
@@ -203,8 +204,8 @@ def tier1(ctx, film, roles):
 
 
 def _call(ctx, role, job):
-    try:
-        res = run_role(ctx, role, job, stage="preflight", use_cache=False)
+    try:  # registry order, not an earlier preference: tier 1 is where the preference is found
+        res = run_role(ctx, role, job, stage="preflight", use_cache=False, prefer=False)
         return {
             "ok": True,
             "served_by": res.candidate["id"],
@@ -235,14 +236,23 @@ def main(argv=None):
 
 def preflight(a, film_dir):
     film = load_film(film_dir, required=False)
-    scaffolded = film is not None
+    # a directory holding only its film.json (written before scaffold.py new) is judged by that film.json
+    # but left untouched, so scaffold.py new can still use it
+    scaffolded = film is not None and (film_dir / "web" / "index.html").exists()
+    if not scaffolded and a.tier == 1:
+        raise UsageError("tier 1 spends (a sub-cent per role) and needs a film ledger: run scaffold.py new first")
     if film is None:
-        if a.tier == 1:
-            raise UsageError("tier 1 spends (a sub-cent per role) and needs a film ledger: run scaffold.py new first")
         film, _ = validate_film({"topic": "-", "goal": "-", "message": "-"})
     ctx = Context(film_dir, film, key_file=a.key_file, account_ceiling=a.account_ceiling, use_cache=False)
     report = {"ts": now_iso(), "tier": a.tier, "film": a.film, "problems": [], "warnings": []}
     report["tools"] = check_tools(film_dir)
+    missing = [PIP_NAMES.get(m, m) for m in ("numpy", "PIL") if not report["tools"]["python"]["packages"][m]["ok"]]
+    if missing:
+        report["warnings"].append(
+            f"python packages missing: install only these: python3 -m pip install {' '.join(missing)} (if pip "
+            "refuses with 'externally managed' (PEP 668), make a virtual environment outside the film "
+            "directory: python3 -m venv <dir>, then <dir>/bin/python for every tool)"
+        )
 
     key = {"present": ctx.key() is not None}
     if key["present"]:
@@ -274,6 +284,17 @@ def preflight(a, film_dir):
                     report["problems"].append(f"{role}: tier-1 call failed ({r.get('reason')})")
                 elif r.get("ok"):
                     roles[role]["chosen"] = r["served_by"]
+                    # later commands start with the candidate that worked for this key (work/state.json)
+                    ctx.update_state(
+                        "preferred",
+                        f"{role}/final",
+                        {"candidate": r["served_by"], "since": now_iso(), "skipped": r["fallbacks"]},
+                    )
+                    for fb in r["fallbacks"]:
+                        report["warnings"].append(
+                            f"{role}: {fb['id']} is not usable with this key ({fb['why'][:160]}); later {role} "
+                            f"commands start with {r['served_by']}"
+                        )
                 if r.get("warning"):
                     report["warnings"].append(f"{role}: {r['warning']}")
     for role, r in roles.items():
@@ -367,7 +388,7 @@ def print_report(r):
         q = r["quote"]
         print(
             f"  quote   {usd(q['total'])} for all stages; budget {usd(q['budget'])}, remaining {usd(q['remaining'])}"
-            f" -> {'fits' if q['fits'] else 'DOES NOT FIT'}"
+            f" -> {'fits' if q['fits'] else 'DOES NOT FIT (quote.py lists what to change)'}"
         )
     for w in r["warnings"]:
         print(f"  warning {w}")

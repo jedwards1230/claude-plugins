@@ -28,8 +28,8 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | Field | Default | What it controls | Example |
 | --- | --- | --- | --- |
 | `style.preset` | `collage` | The only preset (`style-presets/collage.md`). | `collage` |
-| `style.palette` | engine defaults | A list of hex colours (first = accent; the list also colours board panels and ransom letters; swatch names c1, c2, ...) or an object of engine palette keys (`ground`, `board`, `paper`, `ink`, `pencil`, `accent`, `swatches`, `panels`, `ransom`, ...). | `["#C8553D", "#F2D0A4", "#588B8B", "#2E2E3A"]` |
-| `style.fonts` | engine stacks | `{display, body, hand, faces}`: families or CSS stacks; `faces` are local `.woff2` files under `web/fonts/` (`[{family, src, weight?, style?}]`). | see `style-presets/collage.md` |
+| `style.palette` | engine defaults | A list of hex colours (first = accent; the list also colours board panels and ransom letters; swatch names c1, c2, ...) or an object of engine palette keys (`ground`, `board`, `paper`, `ink`, `pencil`, `accent`, `swatches`, `panels`, `ransom`, ...). Sticker-sheet prompts get the list, or an object's `accent`, `ink`, `paper` and `swatches` (grounds are left out). | `["#C8553D", "#F2D0A4", "#588B8B", "#2E2E3A"]` |
+| `style.fonts` | engine stacks | `{display, body, hand, faces}`: families or CSS stacks; `faces` are local `.woff2` files under `web/fonts/` (`[{family, src, weight?, style?}]`); a face that fails to load fails the glyph test. Declare a single-weight hand font as `"weight": "400 700"` (the heading and body styles draw at 700). | see `style-presets/collage.md` |
 | `style.texture` | `"paper grain, torn edges, tape"` | Surface words for art prompts and the style bible. | `"flour-dusted kraft paper, torn edges"` |
 | `style.motif` | none | The one central image that escalates and pays off. | "a balloon that grows with every scene" |
 | `style.banned_patterns` | `[]` | Looks and moves this film must not use; the originality reviewer checks them. Start from the preset's default list. | "ransom letters on every card" |
@@ -39,7 +39,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `duration` | 90 | Seconds; 15-180 for a real film (5 is allowed for tests). Sets the word budget: about 2.5 words per second. | 60 |
 | `aspect` | `16:9` | `16:9` (1920x1080), `9:16` (1080x1920), `1:1` (1080x1080). | `9:16` for phones |
 | `language` | `en` | Narration language (ISO 639-1) for TTS checks and alignment. | `de` |
-| `voice.mode` | `audition` | `audition` (try several voices on one line and judge), `named` (use `voice.name`), `none` (no narration; captions come from hand-written timings). | `named` |
+| `voice.mode` | `audition` | `audition` (try several voices on one line and judge), `named` (use `voice.name`), `none` (no narration; captions come from hand-written timings). A film has one narrator: the TTS model, voice and style are pinned at the first take, and on-screen characters do not get voices of their own. | `named` |
 | `voice.name` | none | TTS voice name; required when mode is `named`. `voice.py audition` without `--voices` tries the model's default voice list (`audition_voices` in the provider registry). | a Gemini prebuilt voice name |
 | `voice.style` | none | Delivery direction sent with every take. | "Unhurried, warm, a smile in the voice, crisp consonants." |
 | `voice.takes` | 3 | Takes per line (1-8); each is transcript-checked. | 3 |
@@ -51,7 +51,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `music.candidates` | 3 | Generated candidates to judge (1-6). | 3 |
 | `sfx` | `synthesized` | Engine-synthesized effects from the storyboard event list, or `none`. | `synthesized` |
 | `art.mode` | `generated` | `generated` (image-model sticker sheets) or `code` (everything drawn in code, $0). | `code` |
-| `art.sheets` | 6 | Expected final sheets (for the quote). | 5 |
+| `art.sheets` | the duration / 15, rounded up, 2-8 (45 s: 3, 90 s: 6) | Expected final sheets (for the quote); scaffold fills it in. | 5 |
 | `art.draft_first` | true | Cheap 1K draft sheets for the animatic before final art. | true |
 
 ## Truth and care
@@ -62,7 +62,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `real_assets` | `[]` | `[{path, what}]`: screenshots, logos, photos used as they are or as references; never replaced with generated fakes. | `[{"path": "assets/app-home.png", "what": "real home screen of the app, show as is"}]` |
 | `subjects` | `[]` | `[{name, kind, consent, notes?}]`: real people, pets or places. No consent = do not depict. Never invent their traits, quotes or behaviour. | `[{"name": "the founder", "kind": "person", "consent": true}]` |
 | `offscreen` | street addresses, IP addresses, domain names, credentials, private names | Must never appear on screen or in narration; the fact-checker flags violations. | add "customer names" |
-| `hard_truths` | `ask` | When research finds uncomfortable facts: `include`, `soften`, `omit`, or `ask` (stop and ask the user when one turns up). Always asked at intake unless film.json sets it. | `soften` |
+| `hard_truths` | `ask` | When research finds uncomfortable facts: `include`, `soften`, `omit`, or `ask` (stop and ask the user when one turns up). Always asked at intake unless film.json sets it. When nobody can be asked (a supplied film.json, an unattended run), `ask` falls back to `omit` and the report lists what was left out. | `soften` |
 | `jargon` | `brackets` | Technical names `hide`, faint and bracketed under the plain words (`brackets`), or `show`. | `brackets` |
 | `disclosure.card` | true | Credits and the AI-made note on the page. | true |
 | `disclosure.end_card` | true | A disclosure card over the last `seconds` of the film itself (capped at 40% of the film). Finish the story before it. | false for a promo |

@@ -3,6 +3,8 @@
 
   new <dir>      copy engine/ (web/, tools/, package.json) into <dir>, create src/ work/ out/ cache/,
                  write film.json (validated, defaults filled) and derive web/film/config.json from it.
+                 <dir> must not exist, be empty, or hold only the film.json passed with --film-json
+                 (write <dir>/film.json first, then scaffold it in place).
                  --from-example <name> overlays examples/<name>/ (its config.json is kept as is).
   sync-config    regenerate the film.json-owned keys of web/film/config.json (title, subtitle, size,
                  fps, duration, captions, palette, fonts, notes, credits, disclosure) and the size,
@@ -163,8 +165,13 @@ def film_from_example(ex_dir):
 
 def cmd_new(a):
     dst = Path(a.dir)
-    if dst.exists() and any(dst.iterdir()) and not a.force:
-        raise UsageError(f"{dst} is not empty (use --force to copy the engine over it; other files are kept)")
+    present = sorted(dst.iterdir()) if dst.is_dir() else []
+    own_json = a.film_json and [p.resolve() for p in present] == [Path(a.film_json).resolve()]
+    if present and not (a.force or own_json):
+        raise UsageError(
+            f"{dst} is not empty (a directory holding only the film.json given with --film-json is fine; "
+            "use --force to copy the engine over other files, which are kept)"
+        )
     ex_dir = None
     if a.from_example:
         ex_dir = EXAMPLES / a.from_example

@@ -12,8 +12,11 @@ node "$FILM/tools/export.mjs" --film "$FILM"             # --mode auto: the best
 ```
 
 Every mode writes into `$FILM/out/`: `<slug>.srt`, `<slug>.vtt`, `transcript.md`, `page/` (the
-live player, ready to host) and `export.json` (mode, reason, loudness before and after, and
-per-file measurements). `<slug>` is the title in lower-case words joined by hyphens; read
+live player, ready to host) and `export.json` (mode, reason, loudness before and after, the
+mix's SHA-256 and per-file measurements). Two renders of an unchanged film can differ in the
+last bits of the sound (floating-point noise around -90 dBFS, far below hearing), so compare
+mixes with the null test (`node "$FILM/tools/qa.mjs" null --film "$FILM"`, part of TECH-7:
+under -60 dBFS passes), not by checksum. `<slug>` is the title in lower-case words joined by hyphens; read
 `out/export.json` for the exact file names. Options: `--mode`, `--variants master,share,phone`,
 `--lufs -14.5`, `--tp`, `--lra 11`, `--workers n`, `--keep-frames`, `--out <dir>` (use it for
 the animatic, so `out/` holds only deliverables), `--chromium <path>`.
@@ -63,15 +66,26 @@ full screen (`f`), keyboard seeking, a poster frame, the notes and the credits c
 - The end card (film.json `disclosure.end_card`, default true) draws "Made with AI" and the
   credits over the last `disclosure.seconds` (2.5 s) of the film itself, inside the duration:
   end the story before it, and leave narration at least `seconds + 0.5` s clear of the end
-  (`voice.py words` checks exactly that by default). Set `end_card: false` to keep the
-  disclosure on the page only.
+  (`voice.py words` checks exactly that by default; `resolve.mjs` warns when the narration
+  ends less than 0.3 s before the card). Set `end_card: false` to keep the disclosure on the
+  page only.
 - This section is where the credits are defined. Fill film.json `credits` before the first
-  review round (the end card draws them, so every reviewed cut must carry them) and add any
-  model a later round uses before that round's export: every model that made something in the
-  film (the `model` of each `record` entry in `ledger.jsonl`, and `work/state.json`), the
-  engine, fonts with their licenses, the music source, the sources of facts, and a watermark
-  note (SynthID on Gemini voice, music and images). Then
-  `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"`.
+  review round (the end card draws them, so every reviewed cut must carry them), complete from
+  the start so no later round changes the end card:
+  - every model whose output is in the film: the voice (model and voice name), the word
+    timing, the music, the images, with the models that actually served them (the `model` of
+    each `record` entry in `ledger.jsonl`, and the pins in `work/state.json`);
+  - the model that builds the film (the host agent running this skill: name it, it is on
+    record nowhere else) for the script, research, animation code and checks;
+  - the reviewers under a "reviewed by" credit: the critic and the planned sign-off model
+    (preflight's `roles.critic.tiers.signoff.chosen`, before it has run);
+  - the engine, fonts with their licenses, the music source, the sources of facts;
+  - provenance for watermarked media, worded as what the model does, not as a claim about the
+    edited file: "Google Gemini TTS, which adds a SynthID watermark to what it makes".
+  Candidates that were generated but not used (a music candidate that lost the pick, a
+  discarded sheet) are not credited. Then
+  `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"`; `report.py` flags a
+  model in the ledger that the credits do not seem to name.
 
 ## The phone copy
 
@@ -82,11 +96,17 @@ file must travel by message.
 ## What to hand over
 
 1. `out/page/` (or its published link), the MP4s, captions and `transcript.md`.
-2. `out/report.md`, written by the main agent: what was made, the message and how the
-   personas restated it, final gate results (`work/reviews/r<N>/gates.json`), spend
-   (`ledger.py status`), models used, claims the user accepted, hard truths left out or
-   softened, what was not verified (for a $0 film: that no model watched the video; an
-   unverified pronunciation), anything the user still has to decide.
+2. `out/report.md`, written by `python3 "$SKILL/scripts/report.py" --film "$FILM"` from the
+   film's records (so it works inside a subagent that may not write report files itself):
+   what was made and the deliverables with their measurements, how each persona restated the
+   message, the final round's gate results (the fix pass when there is one), the counted
+   defects left open, fixed and still to confirm, the claims the user accepted, every hard
+   truth with its decision, the latest creative-direction originality score, spend (ledger,
+   account delta, calibration), models used and a credits check, what was not verified (for a
+   $0 film: that no model watched the video; an unverified pronunciation), and anything the
+   user still has to decide. What only the agent knows goes into
+   `work/report-notes.json` first: `{"open_decisions": [...], "not_verified": [...],
+   "notes": [...]}`.
 3. The editable sources: the film directory itself (`film.json`, `src/`, `web/film/`,
    `web/img/`, `work/direction/`). Exclude `node_modules/`, `cache/`, `work/frames/`,
    `work/export-frames/` and `work/preflight.json` (the film's `.gitignore` lists them) when

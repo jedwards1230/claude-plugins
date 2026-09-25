@@ -7,7 +7,8 @@ Intake turns a request into `film.json` with as few questions as possible, all a
 
 Skip intake entirely when the user supplies a film.json with `topic`, `goal` and `message`: its
 missing fields take their defaults (`inputs.md`), and its `hard_truths` (default `ask`) applies
-when research finds something uncomfortable. Otherwise run the free preflight first, before any
+when research finds something uncomfortable. If nobody can answer then (an unattended run),
+`ask` falls back to `omit`: the hard truths are left out and the report lists them. Otherwise run the free preflight first, before any
 film directory exists (`python3 "$SKILL/scripts/preflight.py"`, plus `--key-file <path>` when the
 key is not in `OPENROUTER_API_KEY`; phase 1), so every option offered actually works on this
 machine and key.
@@ -22,9 +23,9 @@ machine and key.
    hard-truths question unless film.json sets it. Offer only options preflight says work.
 3. Ask call 4 (follow-ups) only for the answers that need one: those questions depend on
    answers given in calls 1-3, so they cannot share a call with them.
-4. Write the answers as a film.json (fields: `inputs.md`) outside the film directory, scaffold
-   (phase 2) and continue without further questions unless film.json `autonomy` or the `ask`
-   hard-truths policy says otherwise.
+4. Write the answers as `$FILM/film.json` (fields: `inputs.md`), scaffold it in place (phase 2)
+   and continue without further questions unless film.json `autonomy` or the `ask` hard-truths
+   policy says otherwise.
 
 ## Call 1: substance
 

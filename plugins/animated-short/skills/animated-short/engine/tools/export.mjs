@@ -7,8 +7,9 @@
 //   webm       MediaRecorder real-time capture (VP9/VP8 + Opus). Not frame-exact; last resort.
 //   bundle     JPEG frames + normalized mix.wav + captions + a README with the ffmpeg command.
 // Every mode also writes <out>/<slug>.srt and .vtt, transcript.md, page/ (the live player, ready
-// to host) and export.json (what was made, how, and the measured loudness).
+// to host) and export.json (what was made, how, the measured loudness and the mix's SHA-256).
 // The functions exported here are shared with tools/qa.mjs; importing this file runs nothing.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -569,6 +570,10 @@ async function main() {
   else if (mode === 'webm') manifest.loudness = await modeWebm(f, o, out);
   else { const b = modeBundle(f, o, out, files); manifest.loudness = b.loud; manifest.bundle = { dir: path.relative(f.film, b.dir), tar: b.tarFile && path.relative(f.film, b.tarFile) }; }
   if (mode === 'webm') manifest.note = 'real time, not frame-exact';
+  // the normalized mix's fingerprint: a later export with an unchanged film should match it, or differ
+  // only by render-to-render float noise (qa.mjs null measures that)
+  const mixFile = manifest.loudness && manifest.loudness.mix && path.join(f.film, manifest.loudness.mix);
+  if (mixFile && fs.existsSync(mixFile)) manifest.loudness.mix_sha256 = crypto.createHash('sha256').update(fs.readFileSync(mixFile)).digest('hex');
   manifest.files = await measureDeliverables(f, out, o);
   Object.assign(manifest, { captions: { srt: path.relative(f.film, files.srt), vtt: path.relative(f.film, files.vtt), cues: cues.length }, transcript: path.relative(f.film, files.transcript),
     page: path.relative(f.film, files.page), seconds: +((Date.now() - t0) / 1000).toFixed(1) });

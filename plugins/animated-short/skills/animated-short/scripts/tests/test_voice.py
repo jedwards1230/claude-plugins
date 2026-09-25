@@ -69,6 +69,62 @@ class VoiceTest(TempDirTest):
         self.assertTrue((self.film / "work" / "vo" / "l1.wav").exists())
         self.assertEqual(run_tool(voice, ["pick", "--film", str(self.film), "l9=0"])[0], 2)
 
+    def test_joined_words_are_not_errors(self):
+        r = voice.compare(["the", "secret", "is", "salt"], ["the", "secret", "issalt"])
+        self.assertEqual((r["wer"], r["joins"], r["subs"]), (0.0, [["is salt", "issalt"]], []))
+        r = voice.compare(["every", "one", "sings"], ["everyone", "rings"])
+        self.assertEqual(r["joins"], [])  # a real difference inside the span still counts
+        self.assertGreater(r["wer"], 0)
+
+    def test_check_prints_spoken_spans_and_writes_a_fresh_summary(self):
+        right = [("Meet", 0.1, 0.3), ("Zik", 0.35, 0.5), ("so", 0.5, 0.6), ("the", 0.6, 0.7), ("kettle", 0.7, 1.1)]
+        with FakeOpenRouter() as fake:
+            run_tool(voice, ["takes", "--film", str(self.film), "--n", "2", "l1"])
+            fake.words = right
+            code, out, _ = run_tool(voice, ["check", "--film", str(self.film), "l1"])
+            self.assertEqual(code, 0, out)
+            self.assertIn("spoken 1.00 s of 0.6 s, 5.00 words/s", out)  # first word start to last word end
+            summary = (self.film / "work" / "takes" / "check-summary.md").read_text()
+            self.assertIn("l1_0: wer 0.00  spoken 1.00 s", summary)
+            self.assertIn('l2 "It sings when it boils!"', summary)  # every line is listed, checked or not
+            # a take re-made after its check is marked stale, so nobody pastes old numbers
+            take = self.film / "work" / "takes" / "l1_1.wav"
+            take.write_bytes(take.read_bytes())
+            import os
+
+            os.utime(take, (take.stat().st_atime, take.stat().st_mtime + 5))
+            code, out, _ = run_tool(voice, ["check", "--film", str(self.film), "l2"])
+        summary = (self.film / "work" / "takes" / "check-summary.md").read_text()
+        self.assertIn("l1_1: STALE", summary)
+        self.assertIn("l1_0: wer 0.00", summary)
+        report = json.loads((self.film / "work" / "takes" / "check.json").read_text())
+        self.assertEqual(report["lines"]["l1"]["takes"]["l1_0"]["words_per_second"], 5.0)
+
+    def test_audition_prints_pace_and_the_word_budget(self):
+        with FakeOpenRouter():
+            code, out, err = run_tool(
+                voice, ["audition", "--film", str(self.film), "--line", "l1", "--voices", "Kore,Puck"]
+            )
+        self.assertEqual(code, 0, err)
+        spans = json.loads((self.film / "work" / "takes" / "audition" / "spans.json").read_text())
+        kore = spans["voices"]["Kore"]
+        self.assertAlmostEqual(kore["spoken"], 0.6, delta=0.05)  # the fake take is 0.6 s of tone
+        # 15 s film: 15 - 0.6 lead-in - 3.0 ending = 11.4 s window; 2 lines -> one 0.57 s gap
+        self.assertEqual(kore["budget_words"], int((11.4 - 0.57) * kore["words_per_second"]))
+        self.assertIn("words/s -> the 2-line script fits about", out)
+        self.assertEqual(
+            voice.word_budget(
+                {
+                    "duration": 45,
+                    "voice": {"lead_in": 0.6, "gap": 0.57},
+                    "disclosure": {"end_card": True, "seconds": 2.5},
+                },
+                8,
+                2.4,
+            ),
+            89,
+        )
+
     def test_partial_check_updates_only_those_lines(self):
         right = [("Meet", 0.0, 0.2), ("Zik", 0.25, 0.4), ("so", 0.4, 0.5), ("the", 0.5, 0.6), ("kettle", 0.6, 0.9)]
         with FakeOpenRouter() as fake:

@@ -110,7 +110,7 @@
       "description": "Artwork.",
       "properties": {
         "mode": { "enum": ["generated", "code"], "default": "generated", "description": "generated = image-model sticker sheets cut out into stickers; code = everything drawn in code ($0)." },
-        "sheets": { "type": "integer", "minimum": 0, "default": 6, "description": "Expected final sticker sheets (6-10 stickers each); used by the cost quote." },
+        "sheets": { "type": "integer", "minimum": 0, "description": "Expected final sticker sheets (6-10 stickers each); used by the cost quote. Default: the duration in seconds / 15, rounded up, between 2 and 8 (45 s -> 3, 90 s -> 6), filled in when the film is scaffolded." },
         "draft_first": { "type": "boolean", "default": true, "description": "Make cheap 1K draft sheets for the animatic before final art." }
       }
     },

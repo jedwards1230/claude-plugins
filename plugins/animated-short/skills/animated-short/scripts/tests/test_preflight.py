@@ -53,6 +53,30 @@ class PreflightTest(TempDirTest):
         entries = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual(sum(1 for e in entries if e["op"] == "record"), 3)
         self.assertEqual({e["stage"] for e in entries if e["op"] == "record"}, {"preflight"})
+        # later commands start with what worked for this key, and the report says why
+        state = json.loads((film / "work" / "state.json").read_text())
+        self.assertEqual(state["preferred"]["tts/final"]["candidate"], "openrouter:google/gemini-3.1-flash-tts-preview")
+        self.assertTrue(any("not usable with this key" in w and "402" in w for w in rep["warnings"]))
+        import voice
+
+        write_script(film, [{"id": "l1", "text": "One two three four."}])
+        with FakeOpenRouter() as fake:
+            fake.plan["google/gemini-3.8-flash-tts"] = [402]
+            code, out, err = run_tool(voice, ["audition", "--film", str(film), "--line", "l1", "--voices", "Kore,Puck"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(
+                {c["body"]["model"] for c in fake.calls("/audio/speech")}, {"google/gemini-3.1-flash-tts-preview"}
+            )
+
+    def test_a_directory_holding_only_its_film_json_is_left_alone(self):
+        d = self.tmp / "film"
+        d.mkdir()
+        (d / "film.json").write_text(json.dumps({"topic": "t", "goal": "g", "message": "m", "duration": 30}))
+        with FakeOpenRouter():
+            code, out, _ = run_tool(preflight, ["--film", str(d), "--json"])
+            self.assertEqual(json.loads(out)["quote"]["assumptions"]["script_words"], 75)  # judged by its film.json
+            self.assertEqual(run_tool(preflight, ["--film", str(d), "--tier", "1"])[0], 2)
+        self.assertEqual([p.name for p in d.iterdir()], ["film.json"])
 
     def test_missing_key(self):
         film = new_film(self.tmp)
@@ -94,6 +118,25 @@ class PreflightTest(TempDirTest):
     def test_python_floor_is_3_10(self):
         self.assertEqual(preflight.PY_MIN, (3, 10))
 
+    def test_missing_packages_get_a_pip_line_for_just_them(self):
+        real = preflight.check_tools
+
+        def without_pillow(film_dir):
+            tools = real(film_dir)
+            tools["python"]["packages"]["PIL"]["ok"] = False
+            tools["python"]["packages"]["numpy"]["ok"] = True
+            return tools
+
+        preflight.check_tools = without_pillow
+        try:
+            with FakeOpenRouter():
+                code, out, _ = run_tool(preflight, ["--json"])
+        finally:
+            preflight.check_tools = real
+        warning = next(w for w in json.loads(out)["warnings"] if w.startswith("python packages missing"))
+        self.assertIn("python3 -m pip install pillow (", warning)  # pillow only, by its pip name
+        self.assertIn("PEP 668", warning)
+
 
 class QuoteTest(TempDirTest):
     def test_quote_counts_and_budget(self):
@@ -133,6 +176,41 @@ class QuoteTest(TempDirTest):
             (film / "work" / "reviews" / f"r{n}").mkdir()
         code, out, _ = run_tool(quote, ["--film", str(film), "--stage", "review", "--json"])
         self.assertEqual(json.loads(out)["items"], [])
+
+    def test_over_budget_quote_lists_what_to_change(self):
+        film = new_film(self.tmp, duration=45, budget_usd=1.5)
+        write_script(film, [{"id": f"l{i}", "text": " ".join(["word"] * 12)} for i in range(8)])
+        code, out, _ = run_tool(quote, ["--film", str(film), "--json"])
+        q = json.loads(out)
+        self.assertEqual(code, 3)
+        steps = q["to_fit"]
+        self.assertEqual(steps[0]["change"], "art.draft_first")  # the least harmful change first
+        self.assertTrue(steps[-1]["fits"])
+        self.assertLessEqual(steps[-1]["total"], q["remaining"])
+        self.assertTrue(all(a["total"] > b["total"] for a, b in zip(steps, steps[1:], strict=False)))
+        self.assertTrue(all(not s["fits"] for s in steps[:-1]))  # it stops as soon as the quote fits
+        code, out, _ = run_tool(quote, ["--film", str(film)])
+        self.assertIn("to fit", out)
+        self.assertIn("art.draft_first True -> False", out)
+        # applying the listed changes makes the quote fit
+        f = json.loads((film / "film.json").read_text())
+        for s in steps:
+            if s["change"] == "audience":
+                f["audience"] = f["audience"][: s["to"]]
+            else:
+                a, b = s["change"].split(".")
+                f[a][b] = s["to"]
+        (film / "film.json").write_text(json.dumps(f))
+        self.assertEqual(run_tool(quote, ["--film", str(film)])[0], 0)
+
+    def test_default_sheets_follow_the_duration(self):
+        import common
+
+        for duration, sheets in ((20, 2), (45, 3), (60, 4), (90, 6), (180, 8)):
+            film, errors = common.validate_film({"topic": "t", "goal": "g", "message": "m", "duration": duration})
+            self.assertEqual((errors, film["art"]["sheets"]), ([], sheets), duration)
+        film, _ = common.validate_film({"topic": "t", "goal": "g", "message": "m", "art": {"sheets": 5}})
+        self.assertEqual(film["art"]["sheets"], 5)  # a value in film.json wins
 
     def test_zero_budget_film_quotes_nothing(self):
         # a $0 film: no voice, synthesized music, code-drawn art, Claude reviews -> no paid item
