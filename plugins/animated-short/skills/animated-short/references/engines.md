@@ -88,13 +88,13 @@ and composition format before starting, since 0.x details change):
 | Engine | Best for | License | Fit |
 | --- | --- | --- | --- |
 | Remotion | product demos, kinetic type, React-shaped data viz | source-available; free for individuals and companies of up to 3 people, larger companies pay, automated rendering is billed per render with a $100 monthly minimum (terms as of 2026-09) | strong, but print a license notice in `check()` and have the user confirm before use |
-| Manim CE | math, equations, geometric proofs | MIT | good adapter for math; reportedly weaker when Claude writes it, better with Gemini |
-| Revideo | Motion-Canvas-style code and diagram explainers | MIT | usable; slow releases, telemetry on by default (turn it off) |
+| Manim CE | math, equations, geometric proofs | MIT | good adapter for math |
+| Revideo | Motion-Canvas-style code and diagram explainers | MIT | usable; slow releases, and telemetry on by default as of 2026-09 (turn it off) |
 | p5.js + p5.brush | painterly and watercolour looks | LGPL-2.1 | better as a future style preset on the canvas engine than a separate engine |
 | Three.js / React Three Fiber | stylized 3D in the browser | MIT | drive a manual clock from `t`; needs a GPU for speed |
 | Blender (headless) | high-quality 3D, Grease Pencil 2D | GPL application, output is yours | heavy and slow on CPU |
 | dotLottie | logo stings, icon loops | MIT | renders in Node without a browser; good for small inserts |
-| GSAP | timelines inside HTML engines | free including commercial use, but its terms bar tools that compete with Webflow's no-code builder | fine as a library inside an adapter |
+| GSAP | timelines inside HTML engines | free including commercial use, but as of 2026-09 its terms bar tools that compete with Webflow's no-code builder | fine as a library inside an adapter |
 
 Skip for now: Rive (agents cannot author its files), Theatre.js (dormant), Motion Canvas (no
 CLI render), Godot (niche for this). Real-time capture (Playwright video, MediaRecorder,

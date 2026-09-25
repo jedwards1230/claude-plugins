@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Estimate what a film will cost before spending: python3 quote.py --film <dir> [--stage STAGE] [--json]
 
-Stages: voice (auditions, takes per line, transcript checks, final alignment), animatic (draft
-sheets, one critic pass), assets (final sheets, music candidates), review (up to review.rounds
-rounds: director, personas, audio, comparers, originality; plus one sign-off pass), preflight
-(tier-1 probes), all. Counts come from film.json and src/script.json (the word count sets the take
-lengths; without a script, duration x 2.5 words). Unit prices come from the registry, refined by
-catalog prices when preflight has run. A film with budget_usd 0 quotes no critic calls (its
-reviews are Claude subagents). Prints a table, writes work/quote.json, and exits 3 when the quote
-does not fit the film's remaining budget.
+Stages (the same labels the tools write into ledger.jsonl): voice (auditions and the critic's pick,
+takes per line, transcript checks, the critic's take picks, final alignment), animatic (draft sheets,
+one critic pass), assets (final sheets, music candidates and the critic's pick), review (the review
+rounds still to run: review.rounds minus the work/reviews/r<N>/ directories that exist, N >= 1;
+director, personas, audio, comparers, originality per round, plus one sign-off pass), preflight (tier-1
+probes), all. Counts come from film.json and src/script.json (the word count sets the take lengths;
+without a script, duration x 2.5 words). Unit prices come from the registry, refined by catalog prices
+when preflight has run. A film with budget_usd 0 quotes no critic calls (its reviews are Claude
+subagents). Prints a table, writes work/quote.json, and exits 3 when the quote does not fit the film's
+remaining budget.
 """
 
 import json
 import math
+import re
 from pathlib import Path
 
 from common import add_film_arg, load_film, parser, run_main, script_lines, usd, validate_film, write_json
@@ -20,6 +23,15 @@ from providers import Context
 from providers.base import EXIT_BUDGET
 
 STAGES = ("preflight", "voice", "animatic", "assets", "review")
+TAKE_PICK_LINES = 4  # lines judged per take-pick critic call (phases.md, phase 6)
+
+
+def rounds_done(film_dir):
+    """Film-review rounds already started: work/reviews/r<N>/ directories with N >= 1."""
+    d = Path(film_dir) / "work" / "reviews"
+    if not d.is_dir():
+        return 0
+    return sum(1 for p in d.iterdir() if p.is_dir() and re.fullmatch(r"r([1-9]\d*)", p.name))
 
 
 def build_quote(film, film_dir, ctx=None, stage="all"):
@@ -74,10 +86,21 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
         add("preflight", "tts probe", "tts", "final", 1, text="Testing one two three.")
         add("preflight", "align probe", "align", "final", 1, unit=align_unit(0.05))
         auditions = 6 if film["voice"]["mode"] == "audition" else 0
-        takes = n_lines * film["voice"]["takes"]
+        n_takes = film["voice"]["takes"]
+        takes = n_lines * n_takes
         if auditions:
             add("voice", f"auditions ({auditions} voices x 1 line)", "tts", "final", auditions, text=text)
-        add("voice", f"takes ({n_lines} lines x {film['voice']['takes']})", "tts", "final", takes, text=text)
+            if critic:
+                add(
+                    "voice",
+                    "audition pick (critic, 1 call)",
+                    "critic",
+                    "final",
+                    1,
+                    audio=["takes"],
+                    media_seconds=auditions * line_seconds,
+                )
+        add("voice", f"takes ({n_lines} lines x {n_takes})", "tts", "final", takes, text=text)
         n = takes + auditions + n_lines
         add(
             "voice",
@@ -87,6 +110,17 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             n,
             unit=align_unit(wav_minutes),
         )
+        if critic:
+            calls = math.ceil(n_lines / TAKE_PICK_LINES)
+            add(
+                "voice",
+                f"take picks (critic, {TAKE_PICK_LINES} lines per call)",
+                "critic",
+                "final",
+                calls,
+                audio=["takes"],
+                media_seconds=min(n_lines, TAKE_PICK_LINES) * n_takes * line_seconds,
+            )
     if critic:
         add("preflight", "critic probe", "critic", "final", 1, prompt="Reply with OK.")
     art = film["art"]
@@ -97,11 +131,21 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
     if critic:
         add("animatic", "animatic critic pass", "critic", "draft", 1, video=True, media_seconds=film["duration"])
     if film["music"]["mode"] == "generated":
-        add(
-            "assets", f"music candidates ({film['music']['candidates']})", "music", "final", film["music"]["candidates"]
-        )
-    rounds = film["review"]["rounds"]
-    if critic:
+        n_music = film["music"]["candidates"]
+        add("assets", f"music candidates ({n_music})", "music", "final", n_music)
+        if critic:
+            add(
+                "assets",
+                "music pick (critic, 1 call)",
+                "critic",
+                "final",
+                1,
+                audio=["candidates"],
+                media_seconds=n_music * film["duration"],
+            )
+    done = rounds_done(film_dir)
+    rounds = max(0, film["review"]["rounds"] - done)
+    if critic and rounds:
         add(
             "review",
             f"video reviews ({rounds} rounds x {reviewers_video})",
@@ -148,15 +192,17 @@ def build_quote(film, film_dir, ctx=None, stage="all"):
             "lines": n_lines,
             "avg_line_seconds": round(line_seconds, 2),
             "review_rounds": rounds,
+            "review_rounds_done": done,
             "personas": len(film["audience"]),
         },
     }
 
 
 def print_quote(q):
+    s = q["assumptions"]
     print(
-        f"quote ({q['stage']}): {q['assumptions']['script_words']} words in {q['assumptions']['lines']} lines, "
-        f"{q['assumptions']['review_rounds']} review rounds, {q['assumptions']['personas']} persona(s)"
+        f"quote ({q['stage']}): {s['script_words']} words in {s['lines']} lines, {s['review_rounds']} review "
+        f"rounds to go ({s['review_rounds_done']} done), {s['personas']} persona(s)"
     )
     print(f"  {'stage':10} {'item':52} {'model':36} {'units':>5} {'each':>9} {'total':>9}")
     for i in q["items"]:
@@ -165,8 +211,8 @@ def print_quote(q):
     for n in q["notes"]:
         print(f"  note: {n}")
     print(
-        f"  total {usd(q['total'])}  budget {usd(q['budget'])}  spent {usd(q['spent'])}  remaining {usd(q['remaining'])}"
-        f"  -> {'fits' if q['fits'] else 'DOES NOT FIT'}"
+        f"  total {usd(q['total'])}  budget {usd(q['budget'])}  spent {usd(q['spent'])}  "
+        f"remaining {usd(q['remaining'])}  -> {'fits' if q['fits'] else 'DOES NOT FIT'}"
     )
 
 

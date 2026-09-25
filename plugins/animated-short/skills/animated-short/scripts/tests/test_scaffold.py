@@ -7,6 +7,7 @@ import unittest
 
 from helpers import SKILL_DIR, TempDirTest, run_tool
 
+# isort: split
 import audiolib
 import scaffold
 
@@ -65,6 +66,11 @@ class ScaffoldTest(TempDirTest):
         )
         sb = json.loads((d / "src" / "storyboard.json").read_text())
         self.assertEqual(sb["meta"]["size"], [1080, 1920])
+        ignored = (d / ".gitignore").read_text().split()
+        for pattern in ("node_modules/", "cache/", "work/frames/", "work/export-frames/", "work/preflight.json"):
+            self.assertIn(pattern, ignored)
+        self.assertIn(".env", ignored)  # secrets never belong in a film, and are ignored if they land there
+        self.assertIn("*.key", ignored)
 
     def test_refuses_non_empty_dir_and_invalid_film(self):
         d = self.tmp / "busy"

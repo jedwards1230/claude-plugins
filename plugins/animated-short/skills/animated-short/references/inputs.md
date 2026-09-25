@@ -3,7 +3,7 @@
 Every film starts from `film.json` in the film directory, validated against
 `$SKILL/references/film.schema.json` (`$SKILL` is the skill's base directory). Three fields are
 required: `topic`, `goal`, `message`. Everything else has a default. Intake asks for what is
-missing in one batched round (SKILL.md) and writes the file; `scaffold.py new --film-json`
+missing in one batched round (`intake.md`) and writes the file; `scaffold.py new --film-json`
 validates it, fills the defaults and derives `web/film/config.json`. After editing film.json,
 run `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"` and resolve again.
 
@@ -35,7 +35,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `style.banned_patterns` | `[]` | Looks and moves this film must not use; the originality reviewer checks them. Start from the preset's default list. | "ransom letters on every card" |
 | `style.references_to_use` | `[]` | Cultural references or gags that fit the audience. | "the proofing drawer every baker forgets about" |
 | `style.references_to_avoid` | `[]` | References that must not appear. | "diet culture jokes" |
-| `tone` | `warm` | whimsical, warm, calm, wry, documentary, or your own words. | "wry and warm" |
+| `tone` | `warm` | whimsical, warm, calm, wry, documentary, or any short description. | "wry and warm" |
 | `duration` | 90 | Seconds; 15-180 for a real film (5 is allowed for tests). Sets the word budget: about 2.5 words per second. | 60 |
 | `aspect` | `16:9` | `16:9` (1920x1080), `9:16` (1080x1920), `1:1` (1080x1080). | `9:16` for phones |
 | `language` | `en` | Narration language (ISO 639-1) for TTS checks and alignment. | `de` |
@@ -45,9 +45,9 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `voice.takes` | 3 | Takes per line (1-8); each is transcript-checked. | 3 |
 | `voice.lead_in` / `voice.gap` | 0.6 / 0.57 | Seconds before the first line / between lines when `voice.py words` lays lines out. | 0.8 / 0.5 |
 | `pronunciations` | `{}` | Word -> respelling the TTS reads correctly (captions keep the real spelling). | `{"levain": "leh-VAN"}` |
-| `music.mode` | `generated` | `generated` (model-made candidates), `file` (your track; you must hold the rights), `synth` (the engine's $0 pad), `none`. | `synth` for a $0 draft |
+| `music.mode` | `generated` | `generated` (model-made candidates), `file` (the user's track; the user must hold the rights), `synth` (the engine's $0 pad), `none`. | `synth` for a $0 draft |
 | `music.prompt` | none | Mood and instrumentation for generated music. | "Gentle upright bass and brushed snare, 90 BPM, warm, no vocals, a clear final chord." |
-| `music.file` | none | Your track when mode is `file`. | `/path/to/track.mp3` |
+| `music.file` | none | The user's track when mode is `file`. | `/path/to/track.mp3` |
 | `music.candidates` | 3 | Generated candidates to judge (1-6). | 3 |
 | `sfx` | `synthesized` | Engine-synthesized effects from the storyboard event list, or `none`. | `synthesized` |
 | `art.mode` | `generated` | `generated` (image-model sticker sheets) or `code` (everything drawn in code, $0). | `code` |
@@ -58,7 +58,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 
 | Field | Default | What it controls | Example |
 | --- | --- | --- | --- |
-| `sources` | `[]` (ask at intake) | `[{kind, ref}]`, kind `web`, `docs`, `repo`, `live` (read-only systems), `none` (fiction: research is skipped). | `[{"kind": "web", "ref": "baking science references"}]` |
+| `sources` | `[]` (asked at intake) | `[{kind, ref}]`, kind `web`, `docs`, `repo`, `live` (read-only systems), `none` (fiction: research is skipped). Left empty, it follows the form: web research for `explainer`, `promo` and `data_story`; none (fiction) for `story` and `music_video`. | `[{"kind": "web", "ref": "baking science references"}]` |
 | `real_assets` | `[]` | `[{path, what}]`: screenshots, logos, photos used as they are or as references; never replaced with generated fakes. | `[{"path": "assets/app-home.png", "what": "real home screen of the app, show as is"}]` |
 | `subjects` | `[]` | `[{name, kind, consent, notes?}]`: real people, pets or places. No consent = do not depict. Never invent their traits, quotes or behaviour. | `[{"name": "the founder", "kind": "person", "consent": true}]` |
 | `offscreen` | street addresses, IP addresses, domain names, credentials, private names | Must never appear on screen or in narration; the fact-checker flags violations. | add "customer names" |
@@ -68,7 +68,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `disclosure.end_card` | true | A disclosure card over the last `seconds` of the film itself (capped at 40% of the film). Finish the story before it. | false for a promo |
 | `disclosure.seconds` / `title` / `lines` | 2.5 / "Made with AI" / the credits | End card length, title, lines. | 3 |
 | `disclosure.note` | "Made with AI. The credits list the models and tools used." | The note on the page, in the transcript and in the MP4 comment; `""` turns it off. | |
-| `credits` | keep config.json's | Models and tools used, people, sources: strings or `{role, name}`. Fill it before the first review round (the end card draws it) from `ledger.jsonl` and `work/state.json`. | `[{"role": "Voice", "name": "a Gemini TTS model"}]` |
+| `credits` | keep config.json's | Models and tools used, people, sources: strings or `{role, name}`. What to list and when: `delivery.md`, "Credits and disclosure". | `[{"role": "Voice", "name": "a Gemini TTS model"}]` |
 | `notes` | keep config.json's | Short notes under the player: `[{title, text}]`. | `[{"title": "Sources", "text": "..."}]` |
 | `captions` | true | Captions on by default in the live player. | true |
 
@@ -81,6 +81,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `providers.commercial_safe` | true | Filter out models and weights whose terms are non-commercial before anything else. |
 | `providers.roles.{tts, align, music, image, critic, video}` | null (registry order) | A model id or registry candidate id to try first for that role. `video` is opt-in and unused by the tools. |
 | `budget_usd` | 10 | Hard cap across every paid call for this film (`ledger.jsonl`). 0 = no paid calls at all. |
+| `account_ceiling_usd` | null (none) | Optional hard stop on the whole account: a paid call is refused when the account's reported usage (GET /key) plus open reservations plus the call would pass it. `--account-ceiling` and env `ANIMATED_SHORT_ACCOUNT_CEILING` win over it. |
 | `delivery` | `["page", "mp4"]` | Any of `page`, `mp4`, `webm`, `bundle` (`delivery.md`). The page is always produced. |
 | `autonomy` | `intake_once` | `intake_once` (one question round, then autonomous), `approve_animatic` (also stop at the animatic), `approve_each_phase`. |
 | `review.rounds` | 4 | Maximum film-review rounds. |

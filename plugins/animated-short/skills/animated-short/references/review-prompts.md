@@ -8,26 +8,30 @@ from this file. `$SKILL` is the skill's base directory and `$FILM` the film dire
 
 | Reviewer (`reviewer`) | Runs as | Sees | Owns | How it gets into the round |
 | --- | --- | --- | --- | --- |
-| `script_persona` | Claude subagent (free), once per persona | script, reads sheet, planned labels | learned, confusions, worries, takeaway | `review.py ingest --round 0` |
+| `script_persona` | Claude subagent (free), once per persona | script, reads sheet, planned labels, quiz questions | learned, confusions, worries, takeaway, quiz answers | `review.py ingest --round 0` |
 | `fact_checker` | Claude subagent | script, on-screen text, claims ledger, film.json truth fields | accuracy, claims, off-screen violations | `review.py ingest --round N` |
 | `frame_qa` | Claude subagent reading images | contact sheets, strips, crops, `text-check` output | readability, continuity, polish | `review.py ingest --round N` |
 | `technical` | scripts | the deliverables | TECH-1..15 | `review.py technical --round N` |
 | `director` | critic model (Gemini), video | the cut + intent notes | story, originality, sync, pacing, overall | `review.py run --reviewer director` (and `--tier signoff` before shipping) |
 | `persona` | critic model, video, once per persona | the cut + prior knowledge + quiz questions | message, new knowledge, quiz answers | `review.py run --reviewer persona --persona NAME`, then graded and re-ingested |
-| `comparer` | critic model (text) or a Claude subagent | the message + one persona's takeaway | matches_message | `review.py run --reviewer comparer --persona NAME` |
+| `comparer` | the critic model (text) in film-review rounds when `budget_usd` > 0; a fresh Claude subagent at round 0 and on $0 films | the message + one persona's takeaway | matches_message | `review.py run --reviewer comparer --persona NAME`, or `review.py ingest --persona NAME` for a subagent |
 | `originality` | critic model, video | the cut + banned patterns | originality, banned_patterns_seen | `review.py run --reviewer originality` |
-| `audio` | critic model, audio | the cut's sound (and line files) | audio, sync of sound | `review.py run --reviewer audio` |
+| `audio` | critic model, audio | the rendered mix (`work/mix.wav`) | audio, sync of sound | `review.py run --reviewer audio --audio "$FILM/work/mix.wav"` |
 
 `review.py run` appends the film context (title, form, duration, aspect, goal, message), the
 persona and what they know, the banned patterns (director, originality), the persona's
-takeaway (comparer), the intent notes and the output schema to your prompt file. Write only
+takeaway (comparer), the intent notes and the output schema to the prompt file. Write only
 the reviewer-specific part (the templates below). Claude subagents get no such appendix: their
-templates include the context, and you pass file paths.
+templates include the context, and the main agent passes file paths.
 
-With `budget_usd` 0 there is no critic: the director, persona, comparer, originality and audio
-passes are fresh Claude subagents working from contact sheets, strips, crops, the export's
-loudness figures (`out/export.json`) and the transcript, stored with `review.py ingest`. Since
-nothing is appended for them, give each one the `review.py run` template plus this block:
+Every Claude subagent writes its JSON to `$FILM/work/reviews/incoming/<reviewer>[-<persona
+slug>].json` and nothing else; `review.py ingest` validates it and stores it in
+`work/reviews/r<N>/` under the name the gates read. Only those names count there: any other
+file in a round directory is reported and ignored by `review.py gates`.
+
+On a $0 film (SKILL.md, "$0 films") the director, persona, comparer, originality and audio
+passes are fresh Claude subagents. Since nothing is appended for them, give each one the
+`review.py run` template plus this block:
 
 ```text
 The film: <title> (<form>, <duration> s, <aspect>). Goal: <goal>. Message (the one sentence
@@ -36,23 +40,23 @@ viewers should repeat): <message>. <Persona: <name>. Already knows: <knows>.> <B
 You cannot watch the video: judge it from these images and files: <contact sheets, strips,
 crops, transcript, out/export.json>. Intent notes (deliberate choices, not defects):
 <work/direction/intent-notes.md>.
-Write ONLY one JSON object valid against $SKILL/references/rubric.schema.json to <path>, with
-"reviewer": "<director|persona|comparer|originality|audio>", "cut": "r<N>" and, for persona
-and comparer, "persona": "<name>". Times are "m:ss" or "m:ss.s"; cite checklist ids.
+Write ONLY one JSON object valid against $SKILL/references/rubric.schema.json to
+$FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json, with "reviewer":
+"<director|persona|comparer|originality|audio>", "cut": "r<N>" and, for persona and comparer,
+"persona": "<name exactly as in film.json>". Times are "m:ss" or "m:ss.s"; cite checklist ids.
 ```
-
-The sign-off director pass is skipped (there is no stronger critic); say in the report that no
-model watched the video.
 
 ## Files
 
 | Path (in `$FILM`) | What |
 | --- | --- |
 | `work/direction/intent-notes.md` | Deliberate choices; appended to every `review.py run` prompt (template below). |
-| `work/direction/quiz.json` | `{"questions": [{"q": "...", "a": "...", "accept": ["..."]}]}`: drafted at script time; at least 5 questions for explainers. Answers never go to the personas. |
-| `work/reviews/prompts/<reviewer>.md` | The filled prompt templates you pass as `--prompt-file`. |
-| `work/reviews/r<N>/<reviewer>[-<persona-slug>][-signoff].json` | Stored reviews (`review.py` names them; the slug is the persona's film.json name in lower case with every run of other characters turned into one hyphen, e.g. `persona-a-home-baker.json`). Pass `--persona` the exact film.json name. Round 0 holds pre-production reviews. |
-| `work/reviews/r<N>/confirmed.json` | `[{"check": "TEXT-3", "at": "0:41.5", "still": "work/qa/stills/t041.50.jpg", "note": "..."}]`: defects you confirmed on a still. |
+| `work/direction/quiz.json` | `{"questions": [{"q": "...", "a": "...", "accept": ["..."]}]}`: drafted at script time; at least 5 questions for explainers. The answer key: the quiz gate is scored out of its questions. Answers never go to the personas. |
+| `work/direction/originality.md` | The creative-direction originality check: the score alone on line 1, then the answer. |
+| `work/reviews/prompts/<reviewer>.md` | The filled prompt templates passed as `--prompt-file`. |
+| `work/reviews/incoming/<reviewer>[-<persona-slug>].json` | Where Claude subagents write; `review.py ingest --file` reads from here. |
+| `work/reviews/r<N>/<reviewer>[-<persona-slug>][-signoff].json` | Stored reviews (`review.py` names them; the slug is the persona's film.json name in lower case with every run of other characters turned into one hyphen, e.g. `persona-a-home-baker.json`). Pass `--persona` the film.json name (an exact match wins; otherwise a unique part of it). Round 0 holds pre-production reviews. |
+| `work/reviews/r<N>/confirmed.json` | `[{"check": "TEXT-3", "at": "0:41.5", "still": "work/qa/stills/t041.50.jpg", "note": "..."}]`: defects confirmed on a still. |
 | `work/reviews/r<N>/accepted_claims.json` | `["claim text", ...]`: claims the user accepted as they are. |
 | `work/reviews/r<N>/raw/` | Raw critic replies and validation errors. |
 | `work/reviews/r<N>/gates.json` | `review.py gates` output. |
@@ -176,7 +180,9 @@ Write `work/direction/intent-notes.md` at creative direction and extend it after
 
 Draft it with the script, before any art: at least 5 questions for explainers (film.json
 `review.quiz_min` and `learnings_min` set the gates). Each question has one answer the film
-states or shows clearly; test the mechanism and the message, not trivia. Store it:
+states or shows clearly; test the mechanism and the message, not trivia. A persona's score is
+its correct answers out of the questions in this file, so a skipped question counts as wrong;
+`review.py gates` stops with an error when an explainer has no quiz file. Store it:
 
 ```json
 {
@@ -275,11 +281,12 @@ Verdict: ship when originality >= 7 and no banned pattern appears, else iterate.
 ### audio
 
 ```text
-Listen as a sound engineer. Judge the narration (intelligibility, every word pronounced right,
-natural rhythm, no audible splices, clicks or cut breaths, consistent level from line to line),
-the music (sits 9-15 dB under the voice, ducks without pumping, breathes in long gaps, its
-final chord lands just after the last line), the effects (land on their actions, restrained,
-nothing harsh or isolated and loud) and the overall loudness.
+Listen as a sound engineer to the film's full mix. Judge the narration (intelligibility, every
+word pronounced right, natural rhythm, no audible splices, clicks or cut breaths, consistent
+level from line to line), the music (sits 9-15 dB under the voice, ducks without pumping,
+breathes in long gaps, its final chord lands just after the last line) and the effects (land on
+their actions, restrained, nothing harsh or isolated and loud). The absolute loudness is
+measured separately; judge the balance, not the level.
 
 Score audio and sync (0-10 with why) and overall. List defects with times and checklist ids
 AUDIO-1..6 and SYNC-3, severity, issue and fix; name the exact word for a pronunciation problem.
@@ -288,9 +295,10 @@ Verdict: ship, iterate or rethink.
 
 ## Templates for Claude subagents (free; stored with `review.py ingest`)
 
-Spawn a fresh subagent (not the builder) for each. It writes the JSON to the given path and
-nothing else; then run `python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round <N>
---file <path> [--persona "<name>"]`.
+Spawn a fresh subagent (not the builder) for each. It writes the JSON to
+`$FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json` and nothing else; then run
+`python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round <N> --file <that path>
+[--persona "<name>"]` (`--force` replaces a review stored earlier in the round).
 
 ### script_persona (round 0, one per persona)
 
@@ -300,19 +308,30 @@ Read the narration script ($FILM/src/script.json), the reads sheet (the "reads" 
 and of each scene in $FILM/src/storyboard.json, if it exists yet) and the planned on-screen
 labels (<list them, or point to the file>). Imagine watching the film they describe.
 
-Write one JSON object valid against $SKILL/references/rubric.schema.json to <path>:
-reviewer "script_persona", cut "r0", persona "<persona name>". Fill learned (every concrete new
-thing; be picky), confusions and worries (objects with "what", starting with the line id; omit
-"at"), takeaway (one sentence in your words), scores message_landed and new_knowledge
-(0-10 with why), defects with checklist ids MSG, LEARN, MECH, TEXT, ACC and at "0:00", and a
-verdict. The film's message is: "<message>". Do not judge the art or sound; they do not exist
-yet.
+Write one JSON object valid against $SKILL/references/rubric.schema.json to
+$FILM/work/reviews/incoming/script_persona-<persona slug>.json: reviewer "script_persona", cut
+"r0", persona "<persona name>". Fill learned (every concrete new thing; be picky), confusions
+and worries (objects with "what", starting with the line id; omit "at"), takeaway (one
+sentence in your words), quiz (answer each question below from the script alone; "not in the
+script" when it does not answer it; set "correct": false on every answer, a grader marks
+them), scores message_landed and new_knowledge (0-10 with why), defects with checklist ids
+MSG, LEARN, MECH, TEXT, ACC and at "0:00", and a verdict. The film's message is: "<message>".
+Do not judge the art or sound; they do not exist yet.
+
+Quiz questions:
+<1. question one>
+<... every question in work/direction/quiz.json, without the answers>
 ```
 
-Gate: every persona's takeaway says the same thing as the message (judge it yourself: the
-comparer tool reads film-review persona files, not round 0), explainers list at least
-`learnings_min` concrete learnings, and no
-blocking confusion about the mechanism. Otherwise rewrite the script and run it again.
+Then, per persona, two more fresh subagents: the quiz grader (below) on
+`script_persona-<slug>.json`, and the comparer (the `review.py run` template plus the $0
+context block, with that persona's takeaway, `cut` "r0") writing
+`incoming/comparer-<slug>.json`. Ingest all of them with `--round 0`.
+
+Gate: every persona's comparer says `matches_message: true`; explainers list at least
+`learnings_min` concrete learnings and answer every quiz question correctly from the script;
+no blocking confusion about the mechanism. Otherwise rewrite the script (or a question the
+script was never meant to answer) and run the gate again.
 
 ### fact_checker
 
@@ -333,10 +352,11 @@ viewer's local zone with daylight saving handled, numbers match their sources ex
 invents traits, quotes or behaviour of real people or pets, real things are not generated
 fakes, and the hard-truths policy is followed.
 
-Write one JSON object valid against $SKILL/references/rubric.schema.json to <path>: reviewer
-"fact_checker", cut "r<N>", scores.accuracy (0-10 with why), claims [{text, where (line id or
-label id), source (with date), status}], defects with checklist ids ACC-1..6 (time of the line
-or label, severity blocking for anything false or off-screen), and a verdict.
+Write one JSON object valid against $SKILL/references/rubric.schema.json to
+$FILM/work/reviews/incoming/fact_checker.json: reviewer "fact_checker", cut "r<N>",
+scores.accuracy (0-10 with why), claims [{text, where (line id or label id), source (with
+date), status}], defects with checklist ids ACC-1..6 (time of the line or label, severity
+blocking for anything false or off-screen), and a verdict.
 ```
 
 ### frame_qa
@@ -355,22 +375,27 @@ twin motion, motion-blur artefacts.
 
 Report only what an image shows. Each defect: the time from the image label (m:ss.s), severity,
 checklist id (TEXT, READ, VIS, CHAR, A11Y-2), the issue naming the image file, and a fix. Write
-one JSON object valid against $SKILL/references/rubric.schema.json to <path>: reviewer
-"frame_qa", cut "r<N>", scores reads, visual_polish, character and accessibility (0-10 with
-why), defects, verdict. Intent notes (not defects): <paste work/direction/intent-notes.md>.
+one JSON object valid against $SKILL/references/rubric.schema.json to
+$FILM/work/reviews/incoming/frame_qa.json: reviewer "frame_qa", cut "r<N>", scores reads,
+visual_polish, character and accessibility (0-10 with why), defects, verdict. Intent notes (not
+defects): <paste work/direction/intent-notes.md>.
 ```
 
 ### quiz grader (after each persona review)
 
 ```text
 Grade one viewer's quiz. The answer key is $FILM/work/direction/quiz.json (q, a, accept). The
-viewer's review is $FILM/work/reviews/r<N>/persona-<slug>.json. For each quiz entry set
-"correct" to true when the answer matches the key in substance (wording may differ; "not in
-the film" is false), false otherwise. Change nothing else. Write the full review JSON to <path>.
+viewer's review is <$FILM/work/reviews/r<N>/persona-<slug>.json, or at round 0
+$FILM/work/reviews/incoming/script_persona-<slug>.json>. For each quiz entry set "correct" to
+true when the answer matches the key in substance (wording may differ; "not in the film" or
+"not in the script" is false), false otherwise. For every question of the key that the viewer
+did not answer, add {"q": "<the question>", "a": "not answered", "correct": false}. Change
+nothing else. Write the full review JSON to
+$FILM/work/reviews/incoming/<persona|script_persona>-<slug>.json.
 ```
 
 Then store it over the ungraded one:
-`python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round <N> --file <path> --persona "<name>" --force`.
+`python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round <N> --file <that path> --persona "<name>" --force`.
 
 ### originality (creative direction, before any art)
 
@@ -382,14 +407,16 @@ generated music bed. Could the film these files describe be mistaken for another
 of these banned patterns does it plan to use: <film.json style.banned_patterns>? What default
 choices does it lean on? Give a score from 0 to 10 (7 = a viewer would remember it as itself)
 and three concrete changes to the motif, palette, cast, structure or sound that would make it
-unmistakably its own. Answer in plain text.
+unmistakably its own. Write the answer in plain text to $FILM/work/direction/originality.md,
+with the score alone (a number) on line 1.
 ```
 
 ## Judging prompts for `critic.py ask` (not rubric reviews)
 
 `python3 "$SKILL/scripts/critic.py" ask --film "$FILM" --prompt-file <file> [--audio F ...]
-[--video F] [--images F ...] [--tier draft|final|signoff] --name <label>` prints the reply and
-saves it to `work/critic/`.
+[--video F] [--images F ...] [--tier draft|final|signoff] --stage <voice|animatic|assets> --name
+<label>` prints the reply and saves it to `work/critic/`; `--stage` files the spend under the
+matching quote stage (voice for auditions and take picks, animatic, assets for the music pick).
 
 ### voice audition
 
@@ -423,8 +450,10 @@ Reply with the winning file name on the first line.
 
 ```text
 This is an animatic: draft art, placeholder stickers (a dashed outline with a name) and simple
-motion are expected; judge only the film underneath. Watch with sound. For each scene: is
-there one read at a time, is each read held long enough, is the mechanism shown rather than
+motion are expected; judge only the film underneath. <Critic: Watch it with sound. | $0 film:
+You see a contact sheet of the animatic (a frame every 2 s, labelled with its time) and read the
+script with its line timings; judge picture and timing from them.> For each scene: is there
+one read at a time, is each read held long enough, is the mechanism shown rather than
 illustrated, does the voice line up with the picture? Where would a viewer get lost? Does the
 message land by the end? List problems with times and a fix each, then answer GO or NO-GO on
 the first line of a final paragraph.
@@ -440,18 +469,19 @@ the round's reviews and writes `gates.json`; exit 0 = ship.
 | director | overall >= 8.5 (`review.director_min`); a `-signoff` director review, when present, is decisive | director |
 | blocking | no counted blocking defect (defect rule above) | every review + `confirmed.json` |
 | message | every persona's takeaway matches the message | comparer, one per persona |
-| quiz | every persona >= 80% (`review.quiz_min`), explainers only | graded persona reviews |
+| quiz | every persona >= 80% (`review.quiz_min`) of the questions in `work/direction/quiz.json`, explainers only | graded persona reviews |
 | learned | every persona lists >= 5 concrete learnings (`review.learnings_min`), explainers only | persona |
 | originality | originality >= 7 (`review.originality_min`) and no banned pattern seen by any reviewer | originality (else the director's score) |
-| claims | every claim verified or in `accepted_claims.json`; no off-screen violation (fiction with `sources: [{"kind": "none"}]` passes without a fact-checker) | fact_checker |
+| claims | every claim verified or in `accepted_claims.json`; no off-screen violation (fiction passes without a fact-checker: `sources: [{"kind": "none"}]`, or empty sources on a story or music video) | fact_checker |
+| technical | the round's technical review ships: no TECH defect of any severity (this covers TECH-4, 7, 8 and 12-15, which have no gate of their own) | technical |
 | tech-10, tech-9, tech-11 | reads held >= 1.2 s; text >= 28 px at 1080p; no on-screen sentence repeating the narration | technical |
 | tech-1, tech-2, tech-3 | duration +- 1 s; -14.5 +- 0.5 LUFS; true peak <= -1 dBTP | technical |
 | tech-5, tech-6 | captions (SRT + VTT) and transcript present | technical |
 
-Also required, outside `gates.json`: the round's `review.py technical` exits 0 (verdict ship:
-no TECH defect at all, including the major TECH-12, TECH-13 and TECH-15 the table does not
-list). $0 films skip the sign-off director.
+A round with an invalid review file also fails (`gates.json` `invalid`); files that are not
+review names are listed under `ignored` and do not count.
 
-Verdicts: `ship`; `iterate` (fix the counted defects, re-export, run the next round);
-`stop` at round `review.rounds` (default 4) without passing: stop iterating and report the
-open gates to the user in `out/report.md`.
+Verdicts: `ship`; `iterate` (fix the counted defects and failed gates, re-export, run the next
+round; a failed sign-off is an ordinary iterate); `stop` at round `review.rounds` (default 4)
+without passing: stop iterating and report the open gates to the user in `out/report.md`. $0
+films have no sign-off pass.

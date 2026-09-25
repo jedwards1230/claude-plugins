@@ -115,8 +115,9 @@ class Context:
         self.registry = registry or Registry.load()
         self.key_file, self.base_url, self.use_cache = key_file, base_url, use_cache
         self._key, self._key_loaded, self._client, self._catalog = None, False, None, None
+        # precedence: --account-ceiling, then env ANIMATED_SHORT_ACCOUNT_CEILING, then film.json account_ceiling_usd
         if account_ceiling is None:
-            account_ceiling = os.environ.get("ANIMATED_SHORT_ACCOUNT_CEILING") or None
+            account_ceiling = os.environ.get("ANIMATED_SHORT_ACCOUNT_CEILING") or film.get("account_ceiling_usd")
         self.ledger = Ledger(
             self.dir / "ledger.jsonl",
             film.get("budget_usd", 10),

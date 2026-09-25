@@ -6,6 +6,7 @@ import unittest
 
 from helpers import FakeOpenRouter, TempDirTest, new_film, run_tool
 
+# isort: split
 import art
 import audiolib
 
@@ -148,6 +149,8 @@ class SheetTest(TempDirTest):
             self.assertIn("pinned", err)
         self.assertTrue((film / "work" / "sheets" / "kitchen_0.png").exists())
         self.assertEqual(json.loads((film / "work" / "sheets" / "kitchen.json").read_text())["tier"], "draft")
+        records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual({e["stage"] for e in records if e["op"] == "record"}, {"animatic"})  # draft art = animatic
 
 
 if __name__ == "__main__":

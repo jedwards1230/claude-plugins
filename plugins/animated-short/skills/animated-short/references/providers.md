@@ -13,20 +13,23 @@ can be swapped. `$SKILL` is the skill's base directory and `$FILM` the film dire
 - Ask the user where the key is; never guess a path, never hard-code one in a film.
 - Never print, echo, log or commit the key, and never put it on a command line. Pass the file
   path, not the value. The tools never print it either.
-- For a hard stop on the whole account, also pass `--account-ceiling <usd>` (or set
-  `ANIMATED_SHORT_ACCOUNT_CEILING`): a paid call is refused when the account's reported usage
-  (GET /key) plus open reservations plus this call would pass it. A dedicated key with its own
-  limit (set in the OpenRouter dashboard) is the strongest guard of all.
+- For a hard stop on the whole account, set an account ceiling: a paid call is refused when
+  the account's reported usage (GET /key) plus open reservations plus this call would pass it.
+  Set it once for the film in film.json `account_ceiling_usd`, or per command with
+  `--account-ceiling <usd>` or env `ANIMATED_SHORT_ACCOUNT_CEILING` (the flag wins, then the
+  environment, then film.json). A dedicated key with its own limit (set in the OpenRouter
+  dashboard) is the strongest guard of all.
 
 Tools that take the key (`[P]` = `--key-file F` and optionally `--account-ceiling USD`):
 `preflight.py`, `ledger.py reconcile`, `voice.py audition|takes|check|words`, `music.py gen`,
 `art.py sheet`, `critic.py ask`, `review.py run`. They also accept `--no-cache` (ignore the
 cache and pay again; rarely wanted, see Cache below).
 
-Environment variables: `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` (API base override, for
-tests), `ANIMATED_SHORT_ACCOUNT_CEILING`, `ANIMATED_SHORT_RETRY_BASE` (retry backoff seconds),
-`ANIMATED_SHORT_HTTP_TIMEOUT`, `ANIMATED_SHORT_REGISTRY` (an alternative registry file),
-`ANIMATED_SHORT_WHISPERX_DEVICE` (`cpu` or `cuda`).
+Environment variables: `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` (API base override for
+tests; the key is sent there, so it must be `https://`, or `http://` to 127.0.0.1, localhost or
+::1, and anything else is refused), `ANIMATED_SHORT_ACCOUNT_CEILING`, `ANIMATED_SHORT_RETRY_BASE`
+(retry backoff seconds), `ANIMATED_SHORT_HTTP_TIMEOUT`, `ANIMATED_SHORT_REGISTRY` (an
+alternative registry file), `ANIMATED_SHORT_WHISPERX_DEVICE` (`cpu` or `cuda`).
 
 Exit codes of every Python tool: 0 ok, 1 gate or validation failure, 2 usage or environment
 error, 3 budget refusal, 4 provider unavailable after fallbacks (including a sticky failure).
@@ -38,7 +41,7 @@ error, 3 budget refusal, 4 provider unavailable after fallbacks (including a sti
 | `tts` | google/gemini-3.8-flash-tts, google/gemini-3.1-flash-tts-preview, google/gemini-3.8-flash-lite-tts | same | PCM 24 kHz converted to WAV; style prompt per take; SynthID watermark (inaudible). hexgrad/kokoro-82m is opt-in (different voices, no style prompt). Cost is always an estimate (the endpoint reports none). |
 | `align` | openai/whisper-1 (until 2027-02-26), openai/whisper-large-v3, local WhisperX (if installed), local energy aligner | same | Word timestamps; doubles as the pronunciation check. A reply without word times counts as unavailable. The energy aligner is $0 and coarse: it cannot catch mispronunciations. |
 | `music` | google/lyria-3-pro-preview (~$0.08 per song) | google/lyria-3-clip-preview (~$0.04 per 30 s clip) | Length is not controllable: beat-track and cut on downbeats (`music.py cut`). |
-| `image` | google/gemini-3-pro-image-preview (4K, ~$0.25-0.30 per sheet), google/gemini-3-pro-image (2K) | google/gemini-3.1-flash-image (1K), -preview | No alpha: sheets use flat grey and are cut out. Opt-in: gpt-image-2, recraft-v4.1, flux.2-pro, seedream-4.5 (no reference images through these), gemini-2.5-flash-image (until 2026-10-02). |
+| `image` | google/gemini-3-pro-image-preview (4K, ~$0.25-0.30 per sheet), google/gemini-3-pro-image (2K) | google/gemini-3.1-flash-image (1K), -preview | No alpha: sheets use flat grey and are cut out. Opt-in: gpt-image-2, recraft-v4.1, flux.2-pro, flux.2-klein-4b (draft), seedream-4.5 (no reference images through these), gemini-2.5-flash-image (until 2026-10-02). |
 | `critic` | google/gemini-3.8-flash (~1 cent per 90 s film) | same | Watches video with audio, listens, looks at stills. A different model family from the builder. Sign-off tier: google/gemini-3.1-pro-preview, google/gemini-2.5-pro. |
 | `video` | none | none | Opt-in registry entries only (Veo 3.1, Kling 3.0); no tool uses the role. |
 | sound effects | synthesized in the engine | | 25 types from the storyboard's `sfx` list; $0. |
@@ -49,6 +52,7 @@ candidate id), or per command with `--model`. An override must pass the license 
 ## Preflight: probe, then plan
 
 ```bash
+python3 "$SKILL/scripts/preflight.py" --key-file <path>                           # before the film exists: tier 0, writes nothing
 python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path>            # tier 0, free
 python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1   # sub-cent real calls
 ```
@@ -56,8 +60,10 @@ python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1 
 - Tier 0 (free): tools (Node 18+, npm, ffmpeg/ffprobe, Chromium via the film's glyph test,
   Python packages), the key and its remaining limit (GET /key), each candidate's catalog entry
   and output modality (GET /models?output_modalities=all), the license filter, the delivery
-  probe, and a quote. It works before the film exists (judged with default inputs); run it
-  again after scaffolding and `npm install`.
+  probe, and a quote. Without `--film` (before the film exists) it judges with default inputs,
+  skips the Chromium check and writes nothing; with `--film` on a directory that has no
+  film.json yet it writes nothing either, so `scaffold.py new` can still use it. Run it again
+  with `--film` after scaffolding and `npm install`.
 - Tier 1 (a few cents at most, needs a scaffolded film): one real call each for tts, align and
   critic through the normal fallback walker. Catalogs lie: a model can be listed and still
   return 402 or 404 for a given key. Run it whenever `budget_usd > 0`, before planning.
@@ -71,7 +77,7 @@ python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1 
   opt-in, retirement date, block list (Sora is blocked: shut down though still listed).
 - It moves to the next candidate only on availability errors: 401, 402, 403, 404, 408, 429
   after retries, 5xx, timeouts, unsupported-parameter replies, empty outputs. Anything else is
-  a real failure and comes back to you; quality problems go to the review loop, not to a
+  a real failure and stops the tool; quality problems go to the review loop, not to a
   different model.
 - Sticky choices never switch mid-film: the TTS model, voice and style, and the image model per
   tier, are pinned in `work/state.json` on first success. If a pinned choice fails, the tool
@@ -82,22 +88,23 @@ python3 "$SKILL/scripts/preflight.py" --film "$FILM" --key-file <path> --tier 1 
 
 film.json `providers.commercial_safe` is true by default: candidates whose `terms.commercial`
 is not `true` are skipped before anything else, and an override that fails the filter is an
-error. Known non-commercial or restricted terms (keep them out, or opt in knowingly with
-`commercial_safe: false` for a private film):
+error. Known non-commercial or restricted terms, as of 2026-09 (keep them out, or opt in
+knowingly with `commercial_safe: false` for a private film):
 
 - XTTS-v2 and F5-TTS weights: non-commercial.
 - MusicGen weights: non-commercial.
-- FLUX.2 klein and FLUX dev weights: non-commercial (the registry marks flux.2-klein-4b
-  `commercial: false`).
+- FLUX.2 klein 9B and FLUX.2 dev weights: FLUX Non-Commercial License (their Hugging Face model
+  cards). FLUX.2 klein 4B is different: Apache-2.0, so the registry's opt-in flux.2-klein-4b
+  entry is `commercial: true`.
 - MMAudio and ThinkSound: upstream weights non-commercial, even when a host sells access.
-- ElevenLabs Music: terms exclude film, TV and radio use without an enterprise license.
-- Chatterbox TTS: adds an audio watermark.
+- ElevenLabs Music: its terms exclude film, TV and radio use without an enterprise license.
 - Kling video: output terms not verified (registry `commercial: null`, filtered).
 - Suno has no public API; Udio downloads are disabled. Do not scrape either.
 - Voice cloning of a real person needs that person's consent, always.
 
 Watermarks: Gemini TTS, Lyria and Gemini images carry SynthID (invisible); say so in the
-credits card.
+credits card. Chatterbox TTS is MIT-licensed but adds an audio watermark to what it makes; an
+adapter for it would say so in the credits too.
 
 ## Cache
 
@@ -137,10 +144,15 @@ python3 "$SKILL/scripts/quote.py" --film "$FILM" --stage voice   # preflight | v
 ```
 
 Counts come from film.json and `src/script.json` (without a script: duration x 2.5 words);
-prices from the registry, refined by the catalog once preflight has run. Exit 3 when the
-quote does not fit the remaining budget. Quote before voice, before the animatic, before
-final assets and before each review round; if a stage does not fit, cut scope (fewer sheets,
-fewer candidates, one persona) before asking the user for more budget.
+prices from the registry, refined by the catalog once preflight has run. The quote includes
+the critic's judging calls (the audition pick and take picks under voice, the music pick under
+assets) and, for review, only the rounds still to run (`review.rounds` minus the
+`work/reviews/r<N>/` directories that exist). Its stages are the labels the tools write into
+`ledger.jsonl` (`critic.py ask --stage` sets one per call), so `ledger.py status` compares
+like with like. Exit 3 when the quote does not fit the remaining budget. Quote before voice,
+before the animatic, before final assets and before each review round; if a stage does not
+fit, cut scope (fewer sheets, fewer candidates, one persona) before asking the user for more
+budget.
 
 Typical spend for a 60-90 s film at defaults: 5-8 final sheets (~$1.50-2.40), 3 music
 candidates (~$0.24), 3 takes per line plus checks (~$0.30-0.60), 2-4 review rounds
@@ -160,10 +172,12 @@ final run, so keep its files apart before generating final candidates.
   word timestamps. The registry skips it after that date; alignment then falls to
   whisper-large-v3 (word times unverified), local WhisperX (`pip install whisperx`), then the
   coarse energy aligner.
-- Sora is shut down (2026-09-24) though the catalog may still list it: blocked, never offered.
+- Sora is shut down (as of 2026-09: the service ended 2026-09-24) though the catalog may still
+  list it: blocked, never offered.
 - google/gemini-3.1-flash-tts-preview is preview/legacy: 3.8 Flash TTS is probed first.
 - google/gemini-2.5-flash-image retires 2026-10-02 (opt-in until then).
-- The gpt-image-1 family retires 2026-12-01 and is not offered; Imagen 4 is shut down.
+- The gpt-image-1 family retires 2026-12-01 and is not offered; Imagen 4 is shut down (as of
+  2026-09).
 
 When a model disappears, preflight shows it as "not in the catalog" and the walker moves on;
 update `registry.json` (`retires`, order, `checked` date) rather than patching tools.
@@ -187,12 +201,13 @@ update `registry.json` (`retires`, order, `checked` date) rather than patching t
   "cost": { "unit": "take", "usd": 0.01, "min_usd": 0.002, "basis": "how the estimate was made" },
   "params": { "response_format": "pcm", "sample_rate": 24000, "audition_voices": ["a", "b"] },
   "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "..." },
-  "notes": "what is proven and what is not"
+  "notes": "what is verified end to end and what is not"
 }
 ```
 
    Position in the list is the fallback order. `terms.commercial` must be `true` for the entry
-   to run while commercial_safe is on. Leave new entries `opt_in: true` until a film proves them.
+   to run while commercial_safe is on. Leave new entries `opt_in: true` until a real run has
+   verified them end to end.
 2. A model on OpenRouter with an existing request shape needs nothing more: the role class in
    `providers/openrouter.py` (`ROLE_CLASSES`) serves it.
 3. A new host or request shape: subclass `Provider` (`providers/base.py`) and register it
@@ -212,9 +227,9 @@ update `registry.json` (`retires`, order, `checked` date) rather than patching t
      coarse}`; music `prompt, candidate, out_dir, stem` -> `<stem>.<ext>`; image `prompt, refs,
      aspect, variant, out_dir, stem` -> `<stem>_<i>.<ext>`; critic `prompt, video, audio,
      images` -> data `{text}`.
-4. Test with the fake server (`scripts/tests/helpers.py` points `OPENROUTER_BASE_URL` at a
-   local port): `cd "$SKILL/scripts/tests" && python3 -m unittest discover -s .` runs every test
-   offline at $0.
+4. Test with the fake server (`$SKILL/scripts/tests/helpers.py` points `OPENROUTER_BASE_URL` at
+   a local port): `python3 -m unittest discover -s "$SKILL/scripts/tests"` (or
+   `bash "${CLAUDE_PLUGIN_ROOT}/tests/unit.test.sh"`) runs every test offline at $0.
 
 Alternates worth an adapter (none implemented): ElevenLabs v3 TTS and its forced alignment or
 TTS-with-timestamps (a second word-timing source after whisper-1 retires), local Kokoro

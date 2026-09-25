@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Stdlib-only JSON Schema validator for the subset the animated-short schemas use.
 
-Supported keywords: type, required, properties, additionalProperties, items, enum, const,
-minimum, maximum, exclusiveMinimum, exclusiveMaximum, minLength, maxLength, pattern, minItems,
-maxItems, $ref (to #/$defs/... or #/definitions/...), oneOf, anyOf, allOf. Annotations
-(title, description, default, examples, $schema, $id, $comment, deprecated) are ignored.
+Supported keywords: type, required, properties, patternProperties, additionalProperties, items,
+prefixItems, enum, const, minimum, maximum, exclusiveMinimum, exclusiveMaximum, minLength, maxLength,
+pattern, minItems, maxItems, $ref (to #/$defs/... or #/definitions/...), oneOf, anyOf, allOf, not,
+if/then/else. Annotations (title, description, default, examples, $schema, $id, $comment,
+deprecated) are ignored.
 Any other keyword raises SchemaError, so a schema can never silently outgrow this validator.
 
     python3 schema.py validate <schema.json> <doc.json> [--defaults]
@@ -24,8 +25,10 @@ VALIDATION = {
     "type",
     "required",
     "properties",
+    "patternProperties",
     "additionalProperties",
     "items",
+    "prefixItems",
     "enum",
     "const",
     "minimum",
@@ -41,6 +44,10 @@ VALIDATION = {
     "oneOf",
     "anyOf",
     "allOf",
+    "not",
+    "if",
+    "then",
+    "else",
     "$defs",
     "definitions",
 }
@@ -127,18 +134,27 @@ def _check(root, schema, value, path, errors):
             errors.append(f"{_fmt(path)}: needs at least {schema['minItems']} items")
         if "maxItems" in schema and len(value) > schema["maxItems"]:
             errors.append(f"{_fmt(path)}: allows at most {schema['maxItems']} items")
+        prefix = schema.get("prefixItems", [])
+        for i, item in enumerate(value[: len(prefix)]):
+            _check(root, prefix[i], item, f"{path}[{i}]", errors)
         if "items" in schema:
-            for i, item in enumerate(value):
+            for i, item in enumerate(value[len(prefix) :], start=len(prefix)):
                 _check(root, schema["items"], item, f"{path}[{i}]", errors)
     if isinstance(value, dict):
         for k in schema.get("required", []):
             if k not in value:
                 errors.append(f"{_fmt(path)}: missing required property {k!r}")
         props = schema.get("properties", {})
+        patterns = schema.get("patternProperties", {})
         for k, v in value.items():
             sub = f"{path}.{k}" if path else k
+            matched = [ps for pat, ps in patterns.items() if re.search(pat, k)]
+            for ps in matched:
+                _check(root, ps, v, sub, errors)
             if k in props:
                 _check(root, props[k], v, sub, errors)
+            elif matched:
+                continue  # a patternProperties key is exempt from additionalProperties
             elif "additionalProperties" in schema:
                 ap = schema["additionalProperties"]
                 if ap is False:
@@ -161,6 +177,18 @@ def _check(root, schema, value, path, errors):
                 errors.append(f"{_fmt(path)}: must match exactly one allowed shape, matched {passing}")
     for option in schema.get("allOf", []):
         _check(root, option, value, path, errors)
+    if "not" in schema and not _errors(root, schema["not"], value, path):
+        errors.append(f"{_fmt(path)}: matches a shape that is not allowed")
+    if "if" in schema:
+        branch = "then" if not _errors(root, schema["if"], value, path) else "else"
+        if branch in schema:
+            _check(root, schema[branch], value, path, errors)
+
+
+def _errors(root, schema, value, path):
+    errs = []
+    _check(root, schema, value, path, errs)
+    return errs
 
 
 def validate(schema, doc):

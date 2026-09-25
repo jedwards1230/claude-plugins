@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Check that this machine and key can make the film: python3 preflight.py --film <dir> [--tier 0|1]
+"""Check that this machine and key can make the film: python3 preflight.py [--film <dir>] [--tier 0|1]
+
+Before the film exists (at intake), run it without --film: it judges the providers with default
+inputs, skips the Chromium check and writes nothing. After scaffold.py new, run it with --film.
 
 tier 0 (free): tools (node >= 18, npm, ffmpeg/ffprobe, Chromium via the film's glyph test, Python
 packages), the key and its remaining limit (GET /key), the catalog entry and output modality of
@@ -9,8 +12,9 @@ tier 1 (sub-cent, needs a scaffolded film): one real call each for tts, align an
 the normal fallback walker (catalogs lie; a 402 there is how a model turns out to be unusable).
 Reserved and recorded in the ledger like every paid call.
 
-Writes work/preflight.json (when the film directory exists). Exit 1 when a role the film needs
-has no working provider or no requested delivery mode is available.
+Writes work/preflight.json when the film is scaffolded (film.json exists; a directory without one is
+left untouched, so scaffold.py new can still use it). Exit 1 when a role the film needs has no working
+provider or no requested delivery mode is available.
 """
 
 import importlib.util
@@ -19,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from common import add_film_arg, add_provider_args, load_film, now_iso, parser, run_main, usd, validate_film, write_json
@@ -27,12 +32,12 @@ from providers.base import ProviderError, ToolError, UsageError
 from providers.openrouter import catalog_price
 from quote import build_quote
 
+PY_MIN = (3, 10)
 PY_PACKAGES = {
     "numpy": "voice process/tighten fallback, music beats/cut, sticker cutout",
     "PIL": "sticker cutout and contact sheets (package: pillow)",
-    "scipy": "optional: nothing requires it",
     "soundfile": "optional: decoding MP3/FLAC without ffmpeg",
-    "librosa": "better beat tracking in music.py beats; time-stretch without ffmpeg",
+    "librosa": "optional: better beat tracking in music.py beats; time-stretch without ffmpeg",
 }
 
 
@@ -82,7 +87,7 @@ def check_tools(film_dir):
     py = {}
     for mod, why in PY_PACKAGES.items():
         py[mod] = {"ok": importlib.util.find_spec(mod) is not None, "for": why}
-    tools["python"] = {"ok": sys.version_info >= (3, 9), "detail": sys.version.split()[0], "packages": py}
+    tools["python"] = {"ok": sys.version_info >= PY_MIN, "detail": sys.version.split()[0], "packages": py}
     return tools
 
 
@@ -214,21 +219,29 @@ def _call(ctx, role, job):
 
 def main(argv=None):
     ap = parser("preflight.py", __doc__)
-    add_film_arg(ap)
+    add_film_arg(ap, required=False)
     add_provider_args(ap)
     ap.add_argument(
         "--tier", type=int, choices=(0, 1), default=0, help="0 = free checks (default); 1 = also sub-cent real calls"
     )
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")
     a = ap.parse_args(argv)
-    film_dir = Path(a.film)
+    if a.film:
+        return preflight(a, Path(a.film))
+    # no film yet: judge with default inputs in an empty scratch directory that is removed afterwards
+    with tempfile.TemporaryDirectory(prefix="animated-short-preflight-") as scratch:
+        return preflight(a, Path(scratch))
+
+
+def preflight(a, film_dir):
     film = load_film(film_dir, required=False)
+    scaffolded = film is not None
     if film is None:
         if a.tier == 1:
             raise UsageError("tier 1 spends (a sub-cent per role) and needs a film ledger: run scaffold.py new first")
         film, _ = validate_film({"topic": "-", "goal": "-", "message": "-"})
     ctx = Context(film_dir, film, key_file=a.key_file, account_ceiling=a.account_ceiling, use_cache=False)
-    report = {"ts": now_iso(), "tier": a.tier, "film": str(film_dir), "problems": [], "warnings": []}
+    report = {"ts": now_iso(), "tier": a.tier, "film": a.film, "problems": [], "warnings": []}
     report["tools"] = check_tools(film_dir)
 
     key = {"present": ctx.key() is not None}
@@ -241,7 +254,7 @@ def main(argv=None):
             if ctx.ledger.ceiling is not None and info.get("usage") is not None:
                 key["ceiling"] = ctx.ledger.ceiling
                 key["ceiling_headroom"] = round(ctx.ledger.ceiling - float(info["usage"]), 4)
-            if film_dir.is_dir() and (film_dir / "film.json").exists():
+            if scaffolded:
                 ctx.ledger.ensure_anchor()
         except Exception as e:  # noqa: BLE001 -- any failure is reported, never raised
             key.update(ok=False, error=str(e))
@@ -277,14 +290,17 @@ def main(argv=None):
         report["problems"].append("node 18+ is required")
     if report["tools"]["chromium"]["ok"] is False:
         report["problems"].append(f"chromium: {report['tools']['chromium']['detail']}")
-    if film_dir.is_dir():
+    # the report is written before the quote too, so the quote reads the catalog prices; never into a directory
+    # that is not a film yet (scaffold.py new refuses non-empty directories); the no-film scratch dir is removed
+    writable = scaffolded or not a.film
+    if writable:
         write_json(film_dir / "work" / "preflight.json", report)
     try:
         report["quote"] = build_quote(film, film_dir, ctx)
     except ToolError as e:
         report["warnings"].append(f"quote: {e}")
     report["ok"] = not report["problems"]
-    if film_dir.is_dir():
+    if writable:
         write_json(film_dir / "work" / "preflight.json", report)
     if a.json:
         print(json.dumps(report, indent=1))
@@ -295,7 +311,7 @@ def main(argv=None):
 
 def print_report(r):
     t = r["tools"]
-    print(f"preflight (tier {r['tier']}) for {r['film']}")
+    print(f"preflight (tier {r['tier']}) for {r['film'] or 'no film yet (default inputs)'}")
     print(
         "  tools   "
         + " | ".join(

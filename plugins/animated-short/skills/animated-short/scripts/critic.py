@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Ask the critic model about a cut, a mix or stills: python3 critic.py ask --film <dir> --prompt-file P
-[--video cut.mp4] [--audio a.wav ...] [--images a.jpg ...] [--tier final|signoff] [--model M]
+[--video cut.mp4] [--audio a.wav ...] [--images a.jpg ...] [--tier draft|final|signoff] [--model M]
+[--stage voice|animatic|assets|review]
 
 The critic (a different model family from the builder) watches video with its audio track via a
 video_url data URL, listens via input_audio and looks via image_url. A video larger than --max-mib
@@ -17,6 +18,7 @@ import audiolib
 from common import add_film_arg, add_provider_args, context, load_film, parser, run_main, slug, usd, write_json
 from providers import run_role
 from providers.base import UsageError
+from quote import STAGES
 
 MIB = 1024 * 1024
 
@@ -219,7 +221,13 @@ def main(argv=None):
     p.add_argument("--model", help="critic model to try first (default: the registry order for the tier)")
     p.add_argument("--max-mib", type=float, default=20.0, help="size cap per media file before base64 (default 20)")
     p.add_argument("--name", help="label for the saved reply (default: the prompt file name)")
-    p.add_argument("--stage", default="review", help="ledger stage label (default review)")
+    p.add_argument(
+        "--stage",
+        default="review",
+        choices=STAGES,
+        help="the quote.py stage this call's spend belongs to in the ledger (default review): voice for audition "
+        "and take picks, animatic, assets for the music pick",
+    )
     a = ap.parse_args(argv)
     return cmd_ask(a)
 

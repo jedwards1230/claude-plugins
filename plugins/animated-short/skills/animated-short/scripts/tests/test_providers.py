@@ -7,6 +7,7 @@ import wave
 
 from helpers import FAKE_KEY, FakeOpenRouter, TempDirTest, bursts, new_film, write_wav
 
+# isort: split
 import common
 from providers import Context, Registry, run_role
 from providers.base import BudgetRefused, ProviderError, ProviderUnavailable, StickyFailure, UsageError, is_availability
@@ -84,13 +85,31 @@ class RegistryTest(unittest.TestCase):
 
     def test_license_retire_and_override_filters(self):
         chain, skipped = self.reg.chain("image", "draft", commercial_safe=True, today="2026-09-25")
-        self.assertNotIn("black-forest-labs/flux.2-klein-4b", [c["model"] for c in chain])
-        with self.assertRaises(UsageError):
-            self.reg.chain("image", "draft", commercial_safe=True, override="black-forest-labs/flux.2-klein-4b")
+        self.assertNotIn("black-forest-labs/flux.2-klein-4b", [c["model"] for c in chain])  # opt-in
         chain, _ = self.reg.chain(
-            "image", "draft", commercial_safe=False, override="black-forest-labs/flux.2-klein-4b", today="2026-09-25"
+            "image", "draft", commercial_safe=True, override="black-forest-labs/flux.2-klein-4b", today="2026-09-25"
         )
-        self.assertEqual(chain[0]["model"], "black-forest-labs/flux.2-klein-4b")
+        self.assertEqual(chain[0]["model"], "black-forest-labs/flux.2-klein-4b")  # Apache-2.0 weights
+        with self.assertRaises(UsageError):  # output terms unverified (commercial null)
+            self.reg.chain("video", "draft", commercial_safe=True, override="kwaivgi/kling-v3.0-std")
+        chain, _ = self.reg.chain(
+            "video", "draft", commercial_safe=False, override="kwaivgi/kling-v3.0-std", today="2026-09-25"
+        )
+        self.assertEqual(chain[0]["model"], "kwaivgi/kling-v3.0-std")
+        synthetic = Registry(
+            {
+                "roles": {
+                    "image": [
+                        {"id": "nc", "provider": "openrouter", "model": "v/nc", "terms": {"commercial": False}},
+                        {"id": "ok", "provider": "openrouter", "model": "v/ok", "terms": {"commercial": True}},
+                    ]
+                }
+            }
+        )
+        chain, skipped = synthetic.chain("image", commercial_safe=True)
+        self.assertEqual([c["id"] for c in chain], ["ok"])
+        self.assertIn("not cleared for commercial use", skipped[0]["why"])
+        self.assertEqual([c["id"] for c in synthetic.chain("image", commercial_safe=False)[0]], ["nc", "ok"])
         chain, _ = self.reg.chain("image", "draft", override="google/gemini-2.5-flash-image", today="2026-09-25")
         self.assertEqual(chain[0]["model"], "google/gemini-2.5-flash-image")  # opt-in by name, before it retires
         with self.assertRaises(UsageError):
@@ -146,6 +165,39 @@ class KeyTest(TempDirTest):
             catalog_price({"pricing": {"prompt": "0.000001"}, "description": "Full songs are $0.08 per song."}),
             {"prompt": 1e-06, "completion": None, "image_output": None, "per_generation": 0.08},
         )
+
+    def test_key_goes_only_to_https_or_loopback(self):
+        for ok in (
+            "https://openrouter.ai/api/v1",
+            "https://proxy.example.org/v1",
+            "http://127.0.0.1:9/api/v1",
+            "http://localhost:8080/api/v1",
+            "http://[::1]:8080/api/v1",
+        ):
+            self.assertEqual(OpenRouter(Secret(FAKE_KEY), ok).base, ok)
+        for bad in ("http://openrouter.ai/api/v1", "http://10.0.0.5/api/v1", "ftp://127.0.0.1/x", "openrouter.ai"):
+            with self.subTest(bad), self.assertRaises(UsageError) as cm:
+                OpenRouter(Secret(FAKE_KEY), bad)
+            self.assertNotIn(FAKE_KEY, str(cm.exception))
+        old = os.environ["OPENROUTER_BASE_URL"]
+        os.environ["OPENROUTER_BASE_URL"] = "http://attacker.example/api/v1"
+        try:
+            with self.assertRaises(UsageError):
+                OpenRouter(Secret(FAKE_KEY))
+        finally:
+            os.environ["OPENROUTER_BASE_URL"] = old
+
+    def test_account_ceiling_precedence_flag_env_film(self):
+        film_dir = new_film(self.tmp, account_ceiling_usd=7.5)
+        film = common.load_film(film_dir)
+        self.assertEqual(Context(film_dir, film).ledger.ceiling, 7.5)
+        os.environ["ANIMATED_SHORT_ACCOUNT_CEILING"] = "6"
+        try:
+            self.assertEqual(Context(film_dir, film).ledger.ceiling, 6.0)
+            self.assertEqual(Context(film_dir, film, account_ceiling=5).ledger.ceiling, 5.0)
+        finally:
+            os.environ.pop("ANIMATED_SHORT_ACCOUNT_CEILING")
+        self.assertIsNone(Context(film_dir, dict(film, account_ceiling_usd=None)).ledger.ceiling)
 
 
 class WalkerTest(TempDirTest):
@@ -275,7 +327,9 @@ class WalkerTest(TempDirTest):
         film = new_film(self.tmp, budget_usd=0)
         with FakeOpenRouter() as fake:
             with self.assertRaises(BudgetRefused) as cm:
-                run_role(self.ctx(film), "image", {"prompt": "p", "out_dir": film / "work", "stem": "s"}, stage="art")
+                run_role(
+                    self.ctx(film), "image", {"prompt": "p", "out_dir": film / "work", "stem": "s"}, stage="assets"
+                )
             self.assertEqual(fake.calls("/chat/completions"), [])
         self.assertEqual(cm.exception.exit_code, 3)
 
@@ -299,7 +353,7 @@ class WalkerTest(TempDirTest):
                 ctx,
                 "image",
                 {"prompt": "p", "refs": [], "aspect": "1:1", "out_dir": film / "work" / "sheets", "stem": "s1"},
-                stage="art",
+                stage="assets",
                 sticky=True,
             )
             self.assertEqual(res.files[0].suffix, ".png")
@@ -308,7 +362,7 @@ class WalkerTest(TempDirTest):
             self.assertEqual(body["modalities"], ["image", "text"])
             self.assertEqual(ctx.get_sticky("image/final")["model"], "google/gemini-3-pro-image-preview")
             m = run_role(
-                ctx, "music", {"prompt": "calm", "out_dir": film / "work" / "music", "stem": "c0"}, stage="music"
+                ctx, "music", {"prompt": "calm", "out_dir": film / "work" / "music", "stem": "c0"}, stage="assets"
             )
             self.assertEqual(m.files[0].suffix, ".wav")
             self.assertEqual(m.basis, "usage.cost")

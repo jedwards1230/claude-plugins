@@ -1,8 +1,8 @@
-# Optional Python packages for the animated-short tools (Python 3.9+). Everything else is stdlib.
+# Python packages for the animated-short tools (Python 3.10+). Everything else is stdlib.
 # The tools import these lazily and print this file's path when one is missing.
 numpy>=1.24        # voice process/tighten fallback, music beats and cut, sticker cutout
 pillow>=10.0       # sticker cutout (WebP with alpha) and contact sheets
-# Nice to have:
-librosa>=0.10      # better beat tracking (music.py beats); time-stretch when ffmpeg is absent
-soundfile>=0.12    # decode MP3/FLAC when ffmpeg is absent
-# Opt-in local alignment (large download, pulls in torch): pip install whisperx
+# optional: install by hand when wanted (not part of the default install)
+#   librosa>=0.10    better beat tracking (music.py beats); time-stretch when ffmpeg is absent
+#   soundfile>=0.12  decode MP3/FLAC when ffmpeg is absent
+#   whisperx         local word alignment (large download, pulls in torch)

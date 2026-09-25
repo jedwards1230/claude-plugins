@@ -126,7 +126,7 @@
         }
       },
       "default": [],
-      "description": "Fact sources for the claims ledger. Empty = ask at intake."
+      "description": "Fact sources for the claims ledger. Empty (intake skipped or unanswered) = by form: web research for explainer, promo and data_story; none (fiction) for story and music_video."
     },
     "real_assets": {
       "type": "array",
@@ -229,6 +229,7 @@
       }
     },
     "budget_usd": { "type": "number", "minimum": 0, "default": 10, "description": "Hard cap across all paid calls for this film (ledger.jsonl). 0 = no paid calls." },
+    "account_ceiling_usd": { "type": ["number", "null"], "minimum": 0, "default": null, "description": "Optional hard stop on the whole account: refuse any paid call that would push the account's reported usage (GET /key) past this many USD. --account-ceiling and env ANIMATED_SHORT_ACCOUNT_CEILING win over it. null = no ceiling." },
     "delivery": {
       "type": "array",
       "minItems": 1,

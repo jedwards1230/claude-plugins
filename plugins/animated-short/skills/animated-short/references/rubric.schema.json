@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FilmReview",
-  "$comment": "The blueprint's review.schema.json, with additive extensions only: reviewer adds 'comparer' (judges one persona takeaway against the film's message) and 'originality'; optional top-level 'matches_message' (comparer verdict), 'banned_patterns_seen' (banned patterns the reviewer saw) and 'checks' (the technical reviewer's machine checks, as emitted by tools/qa.mjs check --json). Every document valid against the blueprint schema is valid here.",
+  "$comment": "One shape for every reviewer so rounds can be merged and compared. Extensions over the base review shape are additive: reviewer includes 'comparer' (judges one persona takeaway against the film's message) and 'originality'; optional top-level 'matches_message' (comparer verdict), 'banned_patterns_seen' (banned patterns the reviewer saw) and 'checks' (the technical reviewer's machine checks, as emitted by tools/qa.mjs check --json).",
   "type": "object",
   "required": ["reviewer", "cut", "scores", "defects", "verdict"],
   "properties": {
     "reviewer": { "enum": ["script_persona", "fact_checker", "frame_qa", "audio", "director", "persona", "technical", "comparer", "originality"] },
     "cut": { "type": "string", "description": "Render id, e.g. r3" },
-    "persona": { "type": "string", "description": "Name and prior knowledge, for persona reviewers" },
+    "persona": { "type": "string", "description": "The persona's name exactly as in film.json audience (persona, script_persona and comparer reviews)" },
     "scores": {
       "type": "object",
       "additionalProperties": false,

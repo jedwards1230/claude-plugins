@@ -13,11 +13,14 @@
   gates --round N
         merge the round and compute every ship gate -> work/reviews/r<N>/gates.json; exit 0 ship, 1 iterate
 
-Review names: <reviewer>[-<persona slug>][-signoff]. A defect counts only when maybe_intentional is not
-true and either a still confirms it (work/reviews/r<N>/confirmed.json: [{check, at?, still, note?}]), two
-different reviews of the round cite the same check id within 2 s, or it comes from a measuring reviewer (technical,
-frame_qa, fact_checker). Claims can be accepted by the user in work/reviews/r<N>/accepted_claims.json
-(a list of claim texts).
+Review names: <reviewer>[-<persona slug>][-signoff]. The gates read only files named that way in
+work/reviews/r<N>/ (other files there are reported and ignored): Claude subagents write their JSON to
+work/reviews/incoming/ and review.py ingest stores it under its name. A defect counts only when
+maybe_intentional is not true and either a still confirms it (work/reviews/r<N>/confirmed.json:
+[{check, at?, still, note?}]), two different reviews of the round cite the same check id within 2 s, or it
+comes from a measuring reviewer (technical, frame_qa, fact_checker). Claims can be accepted by the user in
+work/reviews/r<N>/accepted_claims.json (a list of claim texts). Explainer quiz scores are out of the questions
+in work/direction/quiz.json. The technical gate needs the round's technical review to ship.
 """
 
 import json
@@ -33,6 +36,7 @@ from common import (
     add_film_arg,
     add_provider_args,
     context,
+    is_fiction,
     load_film,
     load_schema,
     parser,
@@ -63,17 +67,42 @@ def round_dir(film_dir, n):
     return Path(film_dir) / "work" / "reviews" / f"r{n}"
 
 
+def persona_entry(film, name):
+    """The film.json audience entry a name refers to: an exact (case-insensitive) match first, then a
+    unique substring match either way; UsageError when the name is ambiguous or matches no persona."""
+    low = str(name).strip().lower()
+    people = film["audience"]
+    exact = [p for p in people if p["name"].lower() == low]
+    if exact:
+        return exact[0]
+    partial = [p for p in people if low and (low in p["name"].lower() or p["name"].lower() in low)]
+    if len(partial) == 1:
+        return partial[0]
+    if partial:
+        raise UsageError(
+            f"persona {name!r} is ambiguous: it matches {', '.join(p['name'] for p in partial)}; pass the exact name"
+        )
+    raise UsageError(f"persona {name!r} is not in film.json audience ({', '.join(p['name'] for p in people)})")
+
+
 def persona_slug(film, name):
-    low = str(name).lower()
-    for p in film["audience"]:
-        if p["name"].lower() in low or low in p["name"].lower():
-            return slug(p["name"])
-    return slug(str(name)[:40])
+    return slug(persona_entry(film, name)["name"])
 
 
 def review_name(film, reviewer, persona=None, tier="final"):
     name = reviewer + (f"-{persona_slug(film, persona)}" if persona else "")
     return name + ("-signoff" if tier == "signoff" else "")
+
+
+def review_names(film):
+    """Every file stem review_name() can produce for this film -> the reviewer that file must hold."""
+    reviewers = load_schema("rubric.schema.json")["properties"]["reviewer"]["enum"]
+    names = {}
+    for r in reviewers:
+        stems = [f"{r}-{slug(p['name'])}" for p in film["audience"]] if r in PERSONA_REVIEWERS else [r]
+        for stem in stems:
+            names[stem] = names[stem + "-signoff"] = r
+    return names
 
 
 def extract_json(text):
@@ -136,11 +165,8 @@ def build_prompt(film, film_dir, n, reviewer, base, persona=None, intent_file=No
         f"Message (the one sentence viewers should repeat): {film['message']}",
     ]
     if persona:
-        p = next((x for x in film["audience"] if persona_slug(film, persona) == slug(x["name"])), None)
-        if p is None:
-            raise UsageError(
-                f"persona {persona!r} is not in film.json audience ({', '.join(x['name'] for x in film['audience'])})"
-            )
+        p = persona_entry(film, persona)
+        persona = p["name"]
         parts.append(
             f"Persona: {p['name']}. Already knows: {p['knows']}." + (f" Wants: {p['wants']}." if p.get("wants") else "")
         )
@@ -201,7 +227,7 @@ def cmd_run(a):
         (d / "raw" / f"{name}-{attempt}.txt").write_text(text, encoding="utf-8")
         doc = extract_json(text)
         if isinstance(doc, dict) and a.persona and "persona" not in doc:
-            doc["persona"] = a.persona
+            doc["persona"] = persona_entry(film, a.persona)["name"]
         errs = check_review(doc, a.reviewer, cut)
         if not errs:
             break
@@ -368,21 +394,33 @@ def cmd_technical(a):
 
 
 # ---------------------------------------------------------------- gates
-def load_round(film_dir, n):
+def load_round(film, film_dir, n):
+    """-> (reviews by name, invalid files, ignored files). Only names review_name() produces are read."""
     d = round_dir(film_dir, n)
     if not d.is_dir():
         raise UsageError(f"{d} does not exist: run some reviews first")
-    reviews, invalid = {}, []
+    names = review_names(film)
+    reviews, invalid, ignored = {}, [], []
     for f in sorted(d.glob("*.json")):
         if f.name in SPECIAL:
             continue
+        if f.stem not in names:
+            ignored.append(f.name)
+            print(
+                f"gates: ignoring {f.name}: not a review name (<reviewer>[-<persona slug>][-signoff]); "
+                "store reviews with review.py ingest",
+                file=sys.stderr,
+            )
+            continue
         doc = read_json(f)
         errs = check_review(doc)
+        if not errs and doc["reviewer"] != names[f.stem]:
+            errs = [f"the file name says {names[f.stem]!r} but the review's reviewer is {doc['reviewer']!r}"]
         if errs:
             invalid.append({"file": f.name, "errors": errs[:5]})
         else:
             reviews[f.stem] = doc
-    return reviews, invalid
+    return reviews, invalid, ignored
 
 
 def judge_defects(reviews, confirmed):
@@ -427,8 +465,23 @@ def judge_defects(reviews, confirmed):
     return counted, discounted
 
 
+def quiz_questions(film_dir):
+    """The number of questions in the answer key (work/direction/quiz.json); UsageError when missing or empty."""
+    p = Path(film_dir) / "work" / "direction" / "quiz.json"
+    if not p.exists():
+        raise UsageError(
+            f"{p} not found: an explainer's quiz gate is scored against its answer key "
+            "(written at script time; review-prompts.md, Quiz)"
+        )
+    doc = read_json(p)
+    questions = doc.get("questions") if isinstance(doc, dict) else None
+    if not isinstance(questions, list) or not questions:
+        raise UsageError(f'{p} must be {{"questions": [{{"q", "a", "accept"}}, ...]}} with at least one question')
+    return len(questions)
+
+
 def compute_gates(film, film_dir, n):
-    reviews, invalid = load_round(film_dir, n)
+    reviews, invalid, ignored = load_round(film, film_dir, n)
     d = round_dir(film_dir, n)
     confirmed = read_json(d / "confirmed.json", default=[])
     accepted = read_json(d / "accepted_claims.json", default=[])
@@ -469,6 +522,7 @@ def compute_gates(film, film_dir, n):
         ", ".join(f"{s}: {'missing' if c is None else c.get('matches_message')}" for s, c in comp.items()),
     )
     if film["form"] == "explainer":
+        n_questions = quiz_questions(film_dir)
         ev_q, ev_l, ok_q, ok_l = [], [], True, True
         for s in slugs:
             p = reviews.get(f"persona-{s}")
@@ -478,10 +532,12 @@ def compute_gates(film, film_dir, n):
                 ev_l.append(f"{s}: missing")
                 continue
             quiz = p.get("quiz", [])
-            frac = sum(1 for q in quiz if q["correct"]) / len(quiz) if quiz else 0.0
-            ok_q &= bool(quiz) and frac >= rv["quiz_min"]
+            # scored out of the answer key, so a question the persona skipped counts as wrong
+            right = min(sum(1 for q in quiz if q["correct"]), n_questions)
+            frac = right / n_questions
+            ok_q &= frac >= rv["quiz_min"]
             ok_l &= len(p.get("learned", [])) >= rv["learnings_min"]
-            ev_q.append(f"{s}: {frac:.0%} of {len(quiz)}")
+            ev_q.append(f"{s}: {right}/{n_questions} ({frac:.0%}; {len(quiz)} answered)")
             ev_l.append(f"{s}: {len(p.get('learned', []))}")
         gate("quiz", f"quiz >= {rv['quiz_min']:.0%} per persona (explainer)", ok_q, ", ".join(ev_q))
         gate("learned", f">= {rv['learnings_min']} concrete learnings per persona (explainer)", ok_l, ", ".join(ev_l))
@@ -495,7 +551,7 @@ def compute_gates(film, film_dir, n):
         bool(o_scores) and min(o_scores) >= rv["originality_min"] and not seen,
         f"scores {o_scores or 'missing'}; banned seen: {', '.join(seen) or 'none'}",
     )
-    fiction = bool(film["sources"]) and all(s["kind"] == "none" for s in film["sources"])
+    fiction = is_fiction(film)
     claims = [c for v in reviews.values() if v["reviewer"] == "fact_checker" for c in v.get("claims", [])]
     has_fc = any(v["reviewer"] == "fact_checker" for v in reviews.values())
     off = [c for c in claims if c["status"] == "offscreen_violation"]
@@ -503,7 +559,7 @@ def compute_gates(film, film_dir, n):
         c for c in claims if c["status"] not in ("verified", "offscreen_violation") and c["text"] not in accepted
     ]
     if fiction and not has_fc:
-        gate("claims", "claims verified or accepted; no off-screen violations", True, "fiction (sources: none)")
+        gate("claims", "claims verified or accepted; no off-screen violations", True, "fiction (no fact sources)")
     else:
         gate(
             "claims",
@@ -515,6 +571,15 @@ def compute_gates(film, film_dir, n):
             + (f" (e.g. {open_claims[0]['text'][:60]!r})" if open_claims else ""),
         )
     tech = reviews.get("technical")
+    tech_defects = sorted({x["check"] for x in (tech or {}).get("defects", [])})
+    gate(
+        "technical",
+        "technical review ships (no TECH defect of any severity)",
+        tech is not None and tech["verdict"] == "ship" and not tech_defects,
+        "no technical review (review.py technical)"
+        if tech is None
+        else f"verdict {tech['verdict']}" + (f"; defects {', '.join(tech_defects)}" if tech_defects else ""),
+    )
     checks = {c["id"]: c for c in (tech or {}).get("checks", [])}
     for cid, name in TECH_GATES:
         c = checks.get(cid)
@@ -534,6 +599,7 @@ def compute_gates(film, film_dir, n):
         "gates": gates,
         "reviews": sorted(reviews),
         "invalid": invalid,
+        "ignored": ignored,
         "counted_defects": counted,
         "discounted_defects": discounted,
         "max_rounds_reached": last and not ship,
@@ -552,6 +618,8 @@ def cmd_gates(a):
             print(f"  {'PASS' if g['pass'] else 'FAIL'} {g['id']:12} {g['name']}: {g['evidence']}")
         for i in res["invalid"]:
             print(f"  INVALID {i['file']}: {'; '.join(i['errors'])}")
+        for name in res["ignored"]:
+            print(f"  IGNORED {name} (not a review name)")
         print(
             f"gates r{a.round}: {res['verdict'].upper()} ({len(res['counted_defects'])} counted defects, "
             f"{len(res['discounted_defects'])} discounted){(' - ' + res['note']) if res['note'] else ''}"

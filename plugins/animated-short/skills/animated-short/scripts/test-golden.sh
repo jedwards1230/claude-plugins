@@ -8,7 +8,7 @@
 set -uo pipefail
 
 usage() {
-  cat <<'EOF'
+  tee <<'EOF'
 Usage: scripts/test-golden.sh [--out <dir>] [--no-ffmpeg] [--aspect 16:9|9:16|1:1] [--end-card] [--force] [--scaffold-py]
 
   --out <dir>    where to build the test film (default: a new temporary directory)

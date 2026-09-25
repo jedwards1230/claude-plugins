@@ -14,7 +14,7 @@ model (poses and expressions of one design) and pure-time helpers in
 Write each recurring character into the style bible first (`work/direction/style-bible.md`):
 silhouette, proportions, two or three fixed colours, one distinguishing prop, how it moves.
 Then generate its sheets with `art.py sheet`, which adds the style block, the flat-grey sticker
-format and the reference wording for you; the prompt file only lists the stickers, one per line
+format and the reference wording itself; the prompt file only lists the stickers, one per line
 (see `style-presets/collage.md` for the full sheet template).
 
 Model sheet (make it first, final tier; every later sheet passes it as `--refs`):

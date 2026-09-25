@@ -1,11 +1,14 @@
 # Style preset: collage
 
 Cut paper on a work surface: torn edges, tape, grain, ink lines that boil, handwriting that
-writes itself on, die-cut stickers that lift off the page. It is the only preset today, and
-it has a problem: paper collage with image-model stickers, a Gemini narrator and a Lyria bed is
-now the default look of agent-made explainers. Viewers can "pick out the next one blind". Use
-the preset for its craft, then make every film its own: its own motif, palette, cast, texture
-emphasis and a banned-pattern list, checked by the originality gate.
+writes itself on, die-cut stickers that lift off the page. It is the only preset today.
+
+Why every film needs its own look (this section is where that rationale lives): paper collage
+with image-model stickers, ransom-note titles, a scrapbook board, a warm generated narrator and
+a gentle generated music bed is a common default for agent-made explainers, so a film that
+leans on those defaults reads as one more of them. Use the preset for its craft, then make
+every film its own: its own motif, palette arc, cast, texture emphasis and a banned-pattern
+list (defaults below), checked by the originality gate.
 
 `$SKILL` is the skill's base directory and `$FILM` the film directory (see SKILL.md).
 
@@ -60,7 +63,8 @@ film.json `credits`.
 
 ## Sticker sheets
 
-`art.py sheet` builds the prompt from three parts; only the item list comes from you.
+`art.py sheet` builds the prompt from three parts; only the item list comes from the prompt
+file.
 
 1. Style block (automatic, from film.json): `STYLE: collage illustration, <style.texture>;
    hand-made, cut-paper look, confident slightly wobbly ink outlines; tone: <tone>.` plus
@@ -70,8 +74,8 @@ film.json `credits`.
    WHITE border; a loose grid with lots of space; stickers never touch; ONE flat uniform grey
    `#8C8C8C` background with no texture, gradient, vignette, shadows, text, letters, numbers,
    logos, watermarks or frames; front-facing, flat even lighting.
-3. `STICKERS ON THIS SHEET (draw each exactly once):` followed by your prompt file, then the
-   reference wording when you pass `--refs` (match the reference sheet's style, line quality,
+3. `STICKERS ON THIS SHEET (draw each exactly once):` followed by the prompt file, then the
+   reference wording when `--refs` is passed (match the reference sheet's style, line quality,
    palette and borders exactly, but draw only the new items) or `--likeness` (take only
    colours and markings from the photos).
 
@@ -137,8 +141,10 @@ Procedure at creative direction:
    off, echo ending, three reference images described in words) and
    `work/direction/style-bible.md` (palette with its arc, textures, type, cast, camera
    grammar, sound palette, banned patterns).
-2. Spawn a fresh subagent with the originality prompt from `review-prompts.md` and both files.
-   It answers: could this be mistaken for another film, which banned patterns or default
-   choices are present, and three concrete changes that would make it unmistakably this film.
+2. Spawn a fresh subagent with the creative-direction originality prompt from
+   `review-prompts.md` and both files. It answers: could this be mistaken for another film,
+   which banned patterns or default choices are present, and three concrete changes that would
+   make it unmistakably this film; it saves the answer to `work/direction/originality.md` with
+   the score alone on line 1.
 3. Gate: originality score >= 7 (film.json `review.originality_min`) and no banned pattern
    planned. Otherwise change the motif, palette, cast or structure and run it again.

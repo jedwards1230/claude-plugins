@@ -4,6 +4,7 @@ import unittest
 
 from helpers import TempDirTest, bursts, write_wav
 
+# isort: split
 import voice
 from providers.local import energy_align, syllables, voiced_regions
 
@@ -14,7 +15,7 @@ class EnergyAlignerTest(TempDirTest):
         wav = write_wav(self.tmp / "b.wav", bursts(spans, 2.4))
         words = energy_align(wav, "one amazing kite")
         self.assertEqual([w["word"] for w in words], ["one", "amazing", "kite"])
-        for w, (a, b) in zip(words, spans):
+        for w, (a, b) in zip(words, spans, strict=True):
             self.assertAlmostEqual(w["start"], a, delta=0.03)
             self.assertAlmostEqual(w["end"], b, delta=0.03)
 

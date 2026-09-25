@@ -3,8 +3,9 @@
 import json
 import unittest
 
-from helpers import FIXTURES, FakeOpenRouter, TempDirTest, new_film, run_tool
+from helpers import FIXTURES, FakeOpenRouter, TempDirTest, new_film, quiet, run_tool
 
+# isort: split
 import audiolib
 import common
 import review
@@ -34,7 +35,109 @@ class RoundTest(TempDirTest):
             doc = json.loads(f.read_text())
             doc["cut"] = f"r{n}"
             (d / f.name).write_text(json.dumps(doc))
+        (film / "work" / "direction" / "quiz.json").write_text((FIXTURES / "quiz.json").read_text())
         return d
+
+    def gate(self, g, gid):
+        return next(x for x in g["gates"] if x["id"] == gid)
+
+    def test_only_review_names_are_read(self):
+        film = self.film()
+        d = self.ship_round(film)
+        stray = load("director.json")
+        stray["scores"]["overall"]["value"] = 2  # would fail the director gate if it were read
+        (d / "director-draft.json").write_text(json.dumps(stray))
+        (d / "notes.json").write_text("{}")
+        code, out, err = run_tool(review, ["gates", "--film", str(film), "--round", "1"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("ignoring director-draft.json", err)
+        g = json.loads((d / "gates.json").read_text())
+        self.assertEqual(g["ignored"], ["director-draft.json", "notes.json"])
+        self.assertNotIn("director-draft", g["reviews"])
+        wrong = load("director.json")
+        wrong["cut"] = "r1"
+        (d / "originality.json").write_text(json.dumps(wrong))  # a director review stored under another name
+        with quiet():
+            g = review.compute_gates(common.load_film(film), film, 1)
+        self.assertEqual([i["file"] for i in g["invalid"]], ["originality.json"])
+        self.assertEqual(g["verdict"], "iterate")
+
+    def test_quiz_is_scored_out_of_the_answer_key(self):
+        film = self.film()
+        self.ship_round(film)
+        key = json.loads((FIXTURES / "quiz.json").read_text())
+        key["questions"].append({"q": "What stops the whistle?", "a": "Lifting the kettle off", "accept": []})
+        (film / "work" / "direction" / "quiz.json").write_text(json.dumps(key))
+        g = review.compute_gates(common.load_film(film), film, 1)
+        quiz = self.gate(g, "quiz")
+        self.assertFalse(quiz["pass"])  # 4 right of 6 questions, although 4 of the 5 answers were right
+        self.assertIn("4/6", quiz["evidence"])
+        (film / "work" / "direction" / "quiz.json").unlink()
+        code, _, err = run_tool(review, ["gates", "--film", str(film), "--round", "1"])
+        self.assertEqual(code, 2)
+        self.assertIn("quiz.json not found", err)
+        (self.tmp / "story").mkdir()
+        story = new_film(self.tmp / "story", form="story", sources=[{"kind": "none"}])
+        self.ship_round(story)
+        (story / "work" / "direction" / "quiz.json").unlink()
+        g = review.compute_gates(common.load_film(story), story, 1)
+        self.assertNotIn("quiz", {x["id"] for x in g["gates"]})
+        self.assertEqual(g["verdict"], "ship")
+
+    def test_technical_gate_needs_a_shipping_technical_review(self):
+        film = self.film()
+        d = self.ship_round(film)
+        tech = load("technical.json")
+        tech["defects"] = [
+            {"at": "0:04", "severity": "major", "check": "TECH-12", "issue": "write-on runs late", "fix": "earlier"}
+        ]
+        tech["verdict"] = "iterate"
+        (d / "technical.json").write_text(json.dumps(tech))
+        g = review.compute_gates(common.load_film(film), film, 1)
+        t = self.gate(g, "technical")
+        self.assertFalse(t["pass"])
+        self.assertIn("TECH-12", t["evidence"])
+        self.assertTrue(self.gate(g, "tech-1")["pass"])  # the listed TECH gates alone would have passed
+        self.assertEqual(g["verdict"], "iterate")
+        (d / "technical.json").unlink()
+        g = review.compute_gates(common.load_film(film), film, 1)
+        self.assertIn("no technical review", self.gate(g, "technical")["evidence"])
+
+    def test_persona_names_resolve_exactly_then_uniquely(self):
+        film = common.load_film(
+            self.film(
+                audience=[
+                    {"name": "a baker", "knows": "recipes"},
+                    {"name": "a baker's apprentice", "knows": "little"},
+                    {"name": "a chemist", "knows": "reactions"},
+                ]
+            )
+        )
+        self.assertEqual(review.persona_slug(film, "A Baker"), "a-baker")  # exact beats substring
+        self.assertEqual(review.persona_slug(film, "apprentice"), "a-baker-s-apprentice")
+        self.assertEqual(review.persona_slug(film, "chemist"), "a-chemist")
+        with self.assertRaises(common.UsageError):
+            review.persona_slug(film, "baker")  # a substring of two names, exact for neither
+        with self.assertRaises(common.UsageError):
+            review.persona_slug(film, "a physicist")
+
+    def test_empty_sources_follow_the_form(self):
+        for form, fiction in (("story", True), ("music_video", True), ("explainer", False), ("promo", False)):
+            with self.subTest(form):
+                self.assertEqual(common.is_fiction({"form": form, "sources": []}), fiction)
+        self.assertFalse(common.is_fiction({"form": "story", "sources": [{"kind": "docs", "ref": "a book"}]}))
+        self.assertTrue(common.is_fiction({"form": "explainer", "sources": [{"kind": "none"}]}))
+        film = self.film(form="story")  # sources default to []
+        d = self.ship_round(film)
+        (d / "fact_checker.json").unlink()
+        g = review.compute_gates(common.load_film(film), film, 1)
+        self.assertTrue(self.gate(g, "claims")["pass"])
+        (self.tmp / "promo").mkdir()
+        promo = new_film(self.tmp / "promo", form="promo")
+        d = self.ship_round(promo)
+        (d / "fact_checker.json").unlink()
+        g = review.compute_gates(common.load_film(promo), promo, 1)
+        self.assertEqual(self.gate(g, "claims")["evidence"], "no fact_checker review")
 
     def test_ship_round_passes_every_gate(self):
         film = self.film()
@@ -48,7 +151,8 @@ class RoundTest(TempDirTest):
         self.assertIn("unconfirmed", why["SYNC-3"])  # a single reviewer, no still: does not block
         ids = {x["id"] for x in g["gates"]}
         self.assertTrue(
-            {"director", "blocking", "message", "quiz", "learned", "originality", "claims", "tech-10", "tech-2"} <= ids
+            {"director", "blocking", "message", "quiz", "learned", "originality", "claims", "technical", "tech-2"}
+            <= ids
         )
 
     def test_defect_counts_when_confirmed_by_still_or_second_reviewer(self):
@@ -210,7 +314,7 @@ class RoundTest(TempDirTest):
     def test_technical_runs_qa_mjs(self):
         film = self.film()
         stub = film / "tools" / "qa.mjs"
-        fixture = json.loads((FIXTURES / "qa-check-ship.json").read_text())
+        fixture = load("technical.json")
         stub.write_text(
             "const i = process.argv.indexOf('--cut'); const r = "
             + json.dumps(fixture)

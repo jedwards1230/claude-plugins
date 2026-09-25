@@ -81,6 +81,22 @@ def load_film(film_dir, required=True):
     return film
 
 
+FICTION_FORMS = ("story", "music_video")
+
+
+def fact_sources(film):
+    """film.json sources, with an empty list read by form (intake skipped or unanswered): web research for
+    explainer, promo and data_story; none (fiction) for story and music_video."""
+    if film.get("sources"):
+        return film["sources"]
+    return [{"kind": "none"}] if film.get("form") in FICTION_FORMS else [{"kind": "web"}]
+
+
+def is_fiction(film):
+    """True when the film has no fact sources to check (every effective source is kind none)."""
+    return all(s["kind"] == "none" for s in fact_sources(film))
+
+
 def add_film_arg(p, required=True):
     p.add_argument("--film", required=required, help="film directory (holds film.json)")
 
@@ -91,7 +107,7 @@ def add_provider_args(p):
         "--account-ceiling",
         type=float,
         help="refuse paid calls when the account's reported usage would pass this many USD "
-        "(default: env ANIMATED_SHORT_ACCOUNT_CEILING)",
+        "(default: env ANIMATED_SHORT_ACCOUNT_CEILING, then film.json account_ceiling_usd)",
     )
     p.add_argument("--no-cache", action="store_true", help="ignore the provider cache (still writes it)")
 

@@ -6,6 +6,7 @@ import unittest
 
 from helpers import FakeOpenRouter, TempDirTest, bursts, new_film, png_bytes, run_tool, write_wav
 
+# isort: split
 import audiolib
 import common
 import critic
@@ -36,6 +37,22 @@ class CriticTest(TempDirTest):
         saved = sorted((film / "work" / "critic").glob("*.json"))
         rec = json.loads(saved[-1].read_text())
         self.assertEqual((rec["model"], rec["text"]), ("google/gemini-3.8-flash", "Take one is warmer."))
+        records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual([e["stage"] for e in records if e["op"] == "record"], ["review"])  # the default stage
+
+    def test_stage_labels_are_the_quote_stages(self):
+        film = new_film(self.tmp)
+        prompt = self.tmp / "p.md"
+        prompt.write_text("Pick the take.")
+        with FakeOpenRouter():
+            code, _, err = run_tool(
+                critic, ["ask", "--film", str(film), "--prompt-file", str(prompt), "--stage", "voice"]
+            )
+            self.assertEqual(code, 0, err)
+            bad = run_tool(critic, ["ask", "--film", str(film), "--prompt-file", str(prompt), "--stage", "music"])
+        self.assertEqual(bad[0], 2)
+        records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual([e["stage"] for e in records if e["op"] == "record"], ["voice"])
 
     @unittest.skipUnless(audiolib.has_ffmpeg(), "needs ffmpeg")
     def test_big_video_is_sent_as_a_720p_proxy_under_the_cap(self):

@@ -1,7 +1,7 @@
-# Pitfalls: rules learned the hard way
+# Pitfalls: rules that prevent rework
 
-Each rule is here because breaking it cost a rebuild, a re-render or a wrong fact. `$SKILL`
-is the skill's base directory and `$FILM` the film directory.
+Breaking any of these rules costs a rebuild, a re-render or a wrong fact. `$SKILL` is the
+skill's base directory and `$FILM` the film directory.
 
 ## Substance and facts
 
@@ -16,10 +16,10 @@ is the skill's base directory and `$FILM` the film directory.
 - Convert every time to the viewer's local zone and account for daylight saving. A job logged
   at 02:00 UTC is not "2 a.m." for the viewer.
 - Documentation lags reality. When a live read-only source exists, check it and record which
-  one you used and when.
+  one was used and when.
 - Never invent traits, quotes or behaviour of real people or pets ("the office dog loves
   thunderstorms", a line the founder never said). Show them; do not characterise them beyond
-  what the user gave you.
+  what the user said.
 - Real things stay real: screenshots, logos, product photos and interfaces are used as they
   are. Never generate a fake UI or a look-alike logo.
 - Uncomfortable truths follow the film's `hard_truths` policy. Under `ask`, stop and ask; do
@@ -31,8 +31,9 @@ is the skill's base directory and `$FILM` the film directory.
 
 - The script is the product. Most quality comes from the fact sheet and the rewrite, not from
   animation; spend review effort there first.
-- Budget about 2.5 spoken words per second of film, minus the lead-in, the ending and the end
-  card. A 60 s film holds about 125-140 words.
+- Budget about 2.5 spoken words per second of the speech window: the duration minus the
+  lead-in and the ending (the end card plus 0.5 s when it is on). A 45 s film with the end card
+  holds about 100 words; the formula and the worked example are in `phases.md`, phase 5.
 - One read at a time, each held at least 1.2 s after it is complete; hold the big ones longer.
   Fast actions, slow meanings.
 - Text that repeats the narration is noise: label the thing, do not caption the sentence.
@@ -51,7 +52,8 @@ is the skill's base directory and `$FILM` the film directory.
   word times by the displayed words of the line; cue words by their index in the displayed
   text and check the cue lands with a still.
 - The energy aligner (the $0 fallback) is coarse: it cannot hear a wrong word. When `voice.py
-  check` prints UNVERIFIED, listen to the takes yourself or with the critic.
+  check` prints UNVERIFIED, judge those takes by ear with the critic and record the verdict
+  (`phases.md`, phase 6); without a critic, report pronunciation as unverified.
 - A compressor is not a brickwall: peaks still reach 0 dBFS. Loudness and true peak are set at
   export (two-pass loudnorm, verified with ebur128, with a JavaScript fallback for short
   films where loudnorm misses) and gated by TECH-2 and TECH-3.
@@ -68,16 +70,16 @@ is the skill's base directory and `$FILM` the film directory.
   measures letters with ligatures broken; still run `render.mjs glyph` (preflight does) after
   adding any font.
 - JavaScript source is ASCII-only: write non-ASCII characters as `\u` escapes. Raw UTF-8 in a
-  script has shown up as mojibake ("A-with-circumflex" before a middle dot). `qa.mjs ascii`
+  script can render as mojibake ("A-with-circumflex" before a middle dot). `qa.mjs ascii`
   enforces it (TECH-13).
-- Full-frame texture stays static. Flickering full-frame grain once ballooned a master to
-  hundreds of megabytes at over 30 Mbit/s.
+- Full-frame texture stays static. Grain that changes every frame multiplies the file size
+  (a master can grow to hundreds of megabytes at over 30 Mbit/s) and reads as noise.
 - Motion blur is a quarter-frame shutter on pans only, with a separate zoom blur; heavier blur
-  ghosts and smears. The engine does this; do not add your own.
+  ghosts and smears. The engine does this; shots add no blur of their own.
 - Write-ons finish at least 0.3 s before the camera leaves (TECH-12); labels still writing as
   the camera pans read as broken.
-- `[hidden]{display:none!important}` is in the page: an element with `hidden` must never cover
-  the playing film (a poster once did).
+- `[hidden]{display:none!important}` is in the page: an element with `hidden` (the poster, an
+  overlay) must never cover the playing film.
 - A frame is a pure function of time: no `Math.random`, `Date`, counters or state carried
   between frames in shots. `render.mjs purity` samples frames (raise `--n` before a final
   render); a shot that looks right in order can still be impure.
@@ -110,14 +112,15 @@ is the skill's base directory and `$FILM` the film directory.
 - The reviewer that built the film is the worst judge of it: the critic is a different model
   family (Gemini watches; Claude builds), and Claude reviews are fresh subagents, not the
   builder.
-- Reviewers miss things: none of them caught letters vanishing in a write-on; the stills did.
-  Always run the frame QA pass yourself as well.
+- Reviewers that watch a whole cut miss small things, such as letters vanishing in a write-on;
+  stills and crops catch them. The main agent reads the frame QA images too, not only the
+  frame QA review.
 
 ## Cost and process
 
-- Runaway cost is real (an unattended run once burned $100 without producing a frame). Quote
-  before every expensive stage, keep `budget_usd` honest, set `--account-ceiling`, and stop
-  on exit 3 instead of retrying.
+- Runaway cost is real: an unattended loop of paid calls can spend a large sum without
+  producing a frame. Quote before every expensive stage, keep `budget_usd` honest, set an
+  account ceiling (film.json `account_ceiling_usd`), and stop on exit 3 instead of retrying.
 - TTS costs are estimates (the speech endpoint reports no cost). Reconcile the ledger with the
   account at each stage boundary (`ledger.py reconcile`).
 - A crash can leave reservations open, holding budget: `ledger.py release --all-open` after

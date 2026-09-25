@@ -8,13 +8,13 @@
     "image": []
   },
   "blocked": [
-    { "pattern": "^openai/sora", "reason": "Sora is shut down (2026-09-24) although the catalog may still list it" }
+    { "pattern": "^openai/sora", "reason": "Sora is shut down (as of 2026-09: service ended 2026-09-24) although the catalog may still list it" }
   ],
   "deprecations": [
     "openai/whisper-1 retires 2027-02-26 and is the only OpenAI transcription model known to return word timestamps: keep a second aligner (local WhisperX, or the $0 energy aligner, which is coarse).",
     "google/gemini-3.1-flash-tts-preview is a preview/legacy model: probe google/gemini-3.8-flash-tts first.",
     "google/gemini-2.5-flash-image retires 2026-10-02 (opt-in only; skipped after that date).",
-    "The gpt-image-1 family retires 2026-12-01 and is not offered; Imagen 4 is shut down and is not offered."
+    "The gpt-image-1 family retires 2026-12-01 and is not offered; Imagen 4 is shut down (as of 2026-09) and is not offered."
   ],
   "roles": {
     "tts": [
@@ -33,12 +33,12 @@
         "id": "openrouter:google/gemini-3.1-flash-tts-preview",
         "provider": "openrouter", "model": "google/gemini-3.1-flash-tts-preview", "endpoint": "/audio/speech", "modality": "speech",
         "tiers": ["final", "draft"], "default": false, "opt_in": false, "probe_tier1": true,
-        "cost": { "unit": "take", "usd": 0.01, "min_usd": 0.003, "tokens_per_second": 32, "basis": "catalog tokens; under 1 cent per take measured",
+        "cost": { "unit": "take", "usd": 0.01, "min_usd": 0.003, "tokens_per_second": 32, "basis": "catalog tokens; under 1 cent per take on the live API (2026-09)",
                   "pricing": { "prompt": 0.000001, "completion": 0.00002 } },
         "params": { "response_format": "pcm", "sample_rate": 24000,
                     "audition_voices": ["Sulafat", "Achird", "Aoede", "Puck", "Kore", "Charon", "Iapetus", "Vindemiatrix"] },
         "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
-        "notes": "Preview/legacy model, proven in a finished film (PCM 24 kHz s16le mono; style via provider.options.google-ai-studio.speech_metadata.style). Same voice names as 3.8."
+        "notes": "Preview/legacy model; request shape verified end to end against the live API (2026-09): PCM 24 kHz s16le mono; style via provider.options.google-ai-studio.speech_metadata.style. Same voice names as 3.8."
       },
       {
         "id": "openrouter:google/gemini-3.8-flash-lite-tts",
@@ -49,7 +49,7 @@
         "params": { "response_format": "pcm", "sample_rate": 24000,
                     "audition_voices": ["Sulafat", "Achird", "Aoede", "Puck", "Kore", "Charon", "Iapetus", "Vindemiatrix"] },
         "terms": { "commercial": true, "watermark": "SynthID (inaudible)", "consent_needed": false },
-        "notes": "Faster, cheaper member of the 3.8 TTS family; same voice names. Request shape assumed identical to 3.8 (not yet proven in a film)."
+        "notes": "Faster, cheaper member of the 3.8 TTS family; same voice names. Request shape assumed identical to 3.8 (not yet verified end to end)."
       },
       {
         "id": "openrouter:hexgrad/kokoro-82m",
@@ -71,7 +71,7 @@
         "cost": { "unit": "minute", "usd": 0.01, "min_usd": 0.001, "basis": "about $0.006 per audio minute; responses carry usage.cost" },
         "params": { "response_format": "verbose_json", "timestamp_granularities": ["word"], "requires_words": true },
         "terms": { "commercial": true, "watermark": false, "consent_needed": false },
-        "notes": "Word timestamps proven in a finished film; doubles as the pronunciation checker. Retires 2027-02-26."
+        "notes": "Word timestamps verified end to end against the live API (2026-09); doubles as the pronunciation checker. Retires 2027-02-26."
       },
       {
         "id": "openrouter:openai/whisper-large-v3",
@@ -126,7 +126,7 @@
         "id": "openrouter:google/gemini-3-pro-image-preview",
         "provider": "openrouter", "model": "google/gemini-3-pro-image-preview", "endpoint": "/chat/completions", "modality": "image",
         "tiers": ["final"], "default": true, "opt_in": false, "probe_tier1": false,
-        "cost": { "unit": "sheet", "usd": 0.3, "basis": "measured $0.245 per 4K sheet; catalog image_output $0.00012/token",
+        "cost": { "unit": "sheet", "usd": 0.3, "basis": "$0.245 per 4K sheet on the live API (2026-09); catalog image_output $0.00012/token",
                   "usd_by_size": { "1K": 0.08, "2K": 0.16, "4K": 0.3 }, "pricing": { "prompt": 0.000002, "image_output": 0.00012 } },
         "params": { "image_size": "4K" },
         "terms": { "commercial": true, "watermark": "SynthID (invisible)", "consent_needed": false },
@@ -178,7 +178,7 @@
         "cost": { "unit": "sheet", "usd": 0.25, "basis": "catalog image_output $0.00003/token; responses carry usage.cost" },
         "params": { "resolution": "2K", "background": "opaque", "output_format": "png" },
         "terms": { "commercial": true, "watermark": "C2PA metadata", "consent_needed": false },
-        "notes": "Opt-in. Uses the dedicated POST /images endpoint (native transparency available); no reference images through this tool. Not proven in a film."
+        "notes": "Opt-in. Uses the dedicated POST /images endpoint (native transparency available); no reference images through this tool. Not yet verified end to end."
       },
       {
         "id": "openrouter:recraft/recraft-v4.1",
@@ -187,7 +187,7 @@
         "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens; about 1K output" },
         "params": { "resolution": "1K", "output_format": "png" },
         "terms": { "commercial": true, "watermark": false, "consent_needed": false },
-        "notes": "Opt-in. About 1K output; strong for flat vector-like stickers. Not proven in a film."
+        "notes": "Opt-in. About 1K output; strong for flat vector-like stickers. Not yet verified end to end."
       },
       {
         "id": "openrouter:black-forest-labs/flux.2-pro",
@@ -196,7 +196,7 @@
         "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens" },
         "params": { "resolution": "2K", "output_format": "png" },
         "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "hosted API" },
-        "notes": "Opt-in. Not proven in a film."
+        "notes": "Opt-in. Not yet verified end to end."
       },
       {
         "id": "openrouter:black-forest-labs/flux.2-klein-4b",
@@ -204,8 +204,8 @@
         "tiers": ["draft"], "default": false, "opt_in": true, "probe_tier1": false,
         "cost": { "unit": "sheet", "usd": 0.05, "basis": "catalog image_output tokens" },
         "params": { "resolution": "1K", "output_format": "png" },
-        "terms": { "commercial": false, "watermark": false, "consent_needed": false, "license": "FLUX.2 klein weights are non-commercial" },
-        "notes": "Non-commercial weights: filtered out while commercial_safe is on."
+        "terms": { "commercial": true, "watermark": false, "consent_needed": false, "license": "Apache-2.0 weights (FLUX.2 klein 4B model card on Hugging Face, as of 2026-09)" },
+        "notes": "Opt-in. Not yet verified end to end. Only the 4B model qualifies: the FLUX.2 klein 9B weights are under the FLUX Non-Commercial License (as of 2026-09)."
       },
       {
         "id": "openrouter:bytedance-seed/seedream-4.5",
@@ -214,7 +214,7 @@
         "cost": { "unit": "sheet", "usd": 0.1, "basis": "catalog image_output tokens" },
         "params": { "resolution": "2K", "output_format": "png" },
         "terms": { "commercial": true, "watermark": false, "consent_needed": false },
-        "notes": "Opt-in. Not proven in a film."
+        "notes": "Opt-in. Not yet verified end to end."
       }
     ],
     "critic": [

@@ -2,8 +2,9 @@
 
 The key comes from --key-file <path> (KEY=VALUE lines or a bare key) or the OPENROUTER_API_KEY
 environment variable. It is never printed, logged, written or put in an exception message.
-OPENROUTER_BASE_URL overrides the API base (tests point it at a local fake server).
-Request shapes follow what a finished film proved (see references/providers.md).
+OPENROUTER_BASE_URL overrides the API base (tests point it at a local fake server); it must be https,
+or http to a loopback host, because the key is sent there. The request shapes were verified end to end against
+the live API (2026-09) for the registry entries whose notes say so; see references/providers.md.
 """
 
 import base64
@@ -13,6 +14,7 @@ import re
 import socket
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import wave
 from io import BytesIO
@@ -87,12 +89,28 @@ def _env_float(name, default):
         return default
 
 
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def check_base_url(url):
+    """The key goes to this URL: only https, or plain http to a loopback host (local test servers)."""
+    u = urllib.parse.urlsplit(url)
+    if u.scheme == "https" and u.hostname:
+        return url
+    if u.scheme == "http" and u.hostname in LOOPBACK:
+        return url
+    raise UsageError(
+        f"refusing API base {url!r}: the key is only sent over https, or over http to "
+        f"{', '.join(sorted(LOOPBACK))} (check OPENROUTER_BASE_URL)"
+    )
+
+
 class OpenRouter:
     """Minimal HTTP client. Every error message is scrubbed of the key."""
 
     def __init__(self, key=None, base_url=None):
         self.key = key
-        self.base = (base_url or os.environ.get("OPENROUTER_BASE_URL") or DEFAULT_BASE).rstrip("/")
+        self.base = check_base_url((base_url or os.environ.get("OPENROUTER_BASE_URL") or DEFAULT_BASE).rstrip("/"))
         self.retry_base = _env_float("ANIMATED_SHORT_RETRY_BASE", 2.0)
         self.timeout_override = os.environ.get("ANIMATED_SHORT_HTTP_TIMEOUT")
 
@@ -150,7 +168,7 @@ class OpenRouter:
                 if is_availability(e.code, body):
                     raise AvailabilityError(msg, status=e.code) from None
                 raise ProviderError(msg) from None
-            except (socket.timeout, TimeoutError) as e:
+            except TimeoutError as e:
                 raise AvailabilityError(
                     f"timeout on {path} ({e.__class__.__name__})", maybe_charged=data is not None
                 ) from None
@@ -263,7 +281,7 @@ class OpenRouter:
                         text.append(audio["transcript"])
                     if delta.get("content"):
                         text.append(delta["content"])
-        except (socket.timeout, TimeoutError):
+        except TimeoutError:
             raise AvailabilityError("timeout while streaming audio", maybe_charged=True) from None
         audio = base64.b64decode("".join(chunks)) if chunks else b""
         return audio, "".join(text), usage

@@ -36,7 +36,7 @@ def cmd_gen(a):
             ctx,
             "music",
             {"prompt": prompt, "candidate": k, "out_dir": out_dir, "stem": f"cand_{k}"},
-            stage="music",
+            stage="assets",  # the quote.py stage this spend belongs to
             tier="draft" if a.draft else "final",
             model=a.model,
         )
@@ -192,7 +192,7 @@ def final_chord(x, sr, downbeats):
     hop = HOP
     vals = [float(env[max(0, int(d * sr / hop) - 4) : int(d * sr / hop) + 5].max()) for d in downbeats]
     med = float(np.median(vals)) if vals else 0.0
-    for d, v in zip(reversed(downbeats), reversed(vals)):
+    for d, v in zip(reversed(downbeats), reversed(vals), strict=True):
         if v >= 0.3 * med:
             return d
     return downbeats[-1]
@@ -202,7 +202,7 @@ def extend_grid(times, duration):
     """Continue a regular grid at its median spacing up to the end of the track."""
     if len(times) < 2:
         return list(times)
-    step = sorted(b - a for a, b in zip(times, times[1:]))[(len(times) - 1) // 2]
+    step = sorted(b - a for a, b in zip(times, times[1:], strict=False))[(len(times) - 1) // 2]
     out = list(times)
     while out[-1] + step < duration - 0.05:
         out.append(round(out[-1] + step, 3))

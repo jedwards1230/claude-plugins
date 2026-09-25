@@ -6,6 +6,7 @@ import unittest
 
 from helpers import FakeOpenRouter, TempDirTest, new_film, run_tool
 
+# isort: split
 import audiolib
 import music
 
@@ -71,7 +72,7 @@ class BeatsAndCutTest(TempDirTest):
         self.assertEqual(edit["plan"]["k"], 3)  # three whole bars removed
         self.assertAlmostEqual(audiolib.wav_duration(film / "web" / "audio" / "music.wav"), 16.0, delta=0.01)
         beats = json.loads((film / "src" / "beats.json").read_text())
-        gaps = [b - a for a, b in zip(beats["downbeats"], beats["downbeats"][1:])]
+        gaps = [b - a for a, b in zip(beats["downbeats"], beats["downbeats"][1:], strict=False)]
         self.assertTrue(all(abs(g - 2.0) < 0.06 for g in gaps), gaps)
         self.assertTrue(all(b <= 16 for b in beats["beats"]))
 
@@ -108,6 +109,8 @@ class GenTest(TempDirTest):
         self.assertEqual([b["messages"][0]["content"] for b in bodies], ["gentle marimba, 100 BPM"] * 2)
         self.assertTrue(all(b["stream"] and b["model"] == "google/lyria-3-pro-preview" for b in bodies))
         self.assertEqual(sorted(p.name for p in (film / "work" / "music").glob("cand_*")), ["cand_0.wav", "cand_1.wav"])
+        records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
+        self.assertEqual({e["stage"] for e in records if e["op"] == "record"}, {"assets"})
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ import unittest
 
 from helpers import FakeOpenRouter, TempDirTest, bursts, new_film, run_tool, write_script, write_wav
 
+# isort: split
 import audiolib
 import voice
 
@@ -67,6 +68,57 @@ class VoiceTest(TempDirTest):
         self.assertEqual(code, 0)
         self.assertTrue((self.film / "work" / "vo" / "l1.wav").exists())
         self.assertEqual(run_tool(voice, ["pick", "--film", str(self.film), "l9=0"])[0], 2)
+
+    def test_partial_check_updates_only_those_lines(self):
+        right = [("Meet", 0.0, 0.2), ("Zik", 0.25, 0.4), ("so", 0.4, 0.5), ("the", 0.5, 0.6), ("kettle", 0.6, 0.9)]
+        with FakeOpenRouter() as fake:
+            run_tool(voice, ["takes", "--film", str(self.film), "--n", "1"])
+            fake.words = [("Meet", 0.0, 0.2), ("little", 0.25, 0.4), ("so", 0.4, 0.5), ("kettle", 0.6, 0.9)]
+            code, out, _ = run_tool(voice, ["check", "--film", str(self.film)])
+            self.assertEqual(code, 1)
+            first = json.loads((self.film / "work" / "takes" / "check.json").read_text())
+            self.assertEqual(first["needs_work"], ["l1", "l2"])
+            fake.words = right
+            code, out, _ = run_tool(voice, ["check", "--film", str(self.film), "l1", "--no-cache"])
+            self.assertEqual(code, 0, out)  # l1 is clean now; l2 was not re-checked
+            self.assertIn("still open in check.json: l2", out)
+        report = json.loads((self.film / "work" / "takes" / "check.json").read_text())
+        self.assertEqual(sorted(report["lines"]), ["l1", "l2"])  # l2 kept from the first run
+        self.assertTrue(report["lines"]["l1"]["clean"])
+        self.assertEqual(report["lines"]["l2"], first["lines"]["l2"])
+        self.assertEqual(report["needs_work"], ["l2"])
+
+    def test_coarse_only_takes_are_unverified(self):
+        write_wav(self.film / "work" / "takes" / "l1_0.wav", bursts([(0.2, 0.7), (0.9, 1.6)], 2.0))
+        with FakeOpenRouter() as fake:
+            fake.plan["openai/whisper-1"] = [404]
+            fake.plan["openai/whisper-large-v3"] = [404]
+            code, out, _ = run_tool(voice, ["check", "--film", str(self.film), "l1"])
+        self.assertEqual(code, 1)
+        self.assertIn("UNVERIFIED", out)
+        self.assertIn("check-override.md", out)
+        report = json.loads((self.film / "work" / "takes" / "check.json").read_text())
+        self.assertEqual(report["unverified"], ["l1"])
+        self.assertTrue(report["lines"]["l1"]["takes"]["l1_0"]["coarse"])
+
+    def test_words_tail_defaults_to_the_end_card(self):
+        self.assertEqual(voice.ending_seconds({"disclosure": {"end_card": True, "seconds": 2.5}}), 3.0)
+        self.assertEqual(voice.ending_seconds({"disclosure": {"end_card": False, "seconds": 2.5}}), 1.5)
+        # 0.6 s lead-in + 6 s + 0.57 s gap + 6 s ends at 13.17 s of 15: 1.83 s left
+        self._vo("l1", [(0.1, 5.9)], 6.0)
+        self._vo("l2", [(0.1, 5.9)], 6.0)
+        with FakeOpenRouter():
+            code, out, _ = run_tool(voice, ["words", "--film", str(self.film)])
+            self.assertEqual(code, 1, out)  # the end card is on by default: the ending needs 3.0 s
+            self.assertIn("need 3.0", out)
+            code, out, _ = run_tool(voice, ["words", "--film", str(self.film), "--tail", "1.5"])
+            self.assertEqual(code, 0, out)
+            f = json.loads((self.film / "film.json").read_text())
+            f["disclosure"] = {"end_card": False}
+            (self.film / "film.json").write_text(json.dumps(f))
+            code, out, _ = run_tool(voice, ["words", "--film", str(self.film)])
+            self.assertEqual(code, 0, out)
+            self.assertIn("need 1.5", out)
 
     def _vo(self, lid, spans, total):
         write_wav(self.film / "work" / "vo" / f"{lid}.wav", bursts(spans, total, rate=24000))

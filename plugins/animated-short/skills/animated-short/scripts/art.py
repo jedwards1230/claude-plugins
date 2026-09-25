@@ -85,7 +85,7 @@ def cmd_sheet(a):
             "out_dir": Path(a.film) / "work" / "sheets",
             "stem": a.name,
         },
-        stage="art",
+        stage="animatic" if a.draft else "assets",  # the quote.py stage this spend belongs to
         tier=tier,
         sticky=True,
         model=a.model,
@@ -128,7 +128,7 @@ def label(mask):
     for y in range(H):
         starts, ends = np.nonzero(d[y] == 1)[0], np.nonzero(d[y] == -1)[0]
         cur, j = [], 0
-        for s, e in zip(starts.tolist(), ends.tolist()):
+        for s, e in zip(starts.tolist(), ends.tolist(), strict=True):
             rid = len(parent)
             parent.append(rid)
             while j < len(prev) and prev[j][1] < s:

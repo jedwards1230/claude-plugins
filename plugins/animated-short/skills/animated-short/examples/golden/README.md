@@ -34,8 +34,9 @@ tools treat the example like any other film.
 ## Run it
 
 Needs Node 18+, a Chromium (`npx playwright install chromium` if `tools/render.mjs` cannot
-find one) and Python 3.10+. ffmpeg is optional. `SKILL` is the skill directory,
-`${CLAUDE_PLUGIN_ROOT}/skills/animated-short`; `FILM` is any new directory (absolute path).
+find one) and Python 3.10+. ffmpeg is optional. `SKILL` is the skill directory
+(`${CLAUDE_SKILL_DIR}`, the same as `${CLAUDE_PLUGIN_ROOT}/skills/animated-short`); `FILM` is an
+absolute path that does not exist yet.
 
 The one-command conformance run (builds a fresh film, runs every check below, prints a
 PASS/FAIL table, costs $0; `--no-ffmpeg` repeats it with the in-browser WebCodecs export):
@@ -70,6 +71,7 @@ URL (the page needs HTTP; it does not work from `file://`).
   arrived on the second panel; 8 s start of the pull-back; 9.5 s the whole board with its
   caption and the arrow between the panels.
 - 300 frames at 30 fps; the offline mix peaks around -5 dBFS before loudness normalization.
-- `export.mjs` with ffmpeg: `out/shapes-take-turns.mp4` (1920x1080), `-share.mp4` and
-  `-phone.mp4` (1280x720), each about -14.6 LUFS with true peak at or below -1.3 dBTP, plus
-  `.srt`, `.vtt`, `transcript.md`, `page/` and `export.json`. `qa.mjs check` prints verdict ship.
+- `export.mjs` with ffmpeg: `out/shapes-take-turns.mp4` (1920x1080), `-share.mp4` (1920x1080,
+  a smaller file) and `-phone.mp4` (1280x720), each about -14.6 LUFS with true peak at or below
+  -1.3 dBTP, plus `.srt`, `.vtt`, `transcript.md`, `page/` and `export.json`. `qa.mjs check`
+  prints verdict ship.

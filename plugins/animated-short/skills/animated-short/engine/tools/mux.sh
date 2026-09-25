@@ -8,7 +8,7 @@
 set -euo pipefail
 
 usage() {
-  cat <<'EOF'
+  tee <<'EOF'
 Usage: tools/mux.sh --frames <dir> --audio <mix.wav> --out <dir> --slug <name> [options]
 
   --frames <dir>        JPEG frames f00000.jpg, f00001.jpg, ... (tools/render.mjs video)

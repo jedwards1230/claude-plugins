@@ -8,11 +8,11 @@ how to use it.
 
 | File | Who writes it | What it holds |
 | --- | --- | --- |
-| `src/script.json` | you | `{"lines": [{"id": "l1", "text": "...", "tts": "...", "reads": ["..."]}]}`. `text` is what captions and the transcript show; `tts` (optional) is the spelling the voice model reads. |
-| `src/words.json` | `voice.py words` (or you, for voice `none`) | `{"l1": {"t": 0.6, "d": 3.2, "words": [{"w": "Pedals", "s": 0.0, "e": 0.41}]}}`: line start `t` and length `d` in film seconds, word times relative to the line start. Word `i` is the i-th space-separated word of the line's `text`. |
+| `src/script.json` | the main agent | `{"lines": [{"id": "l1", "text": "...", "tts": "...", "reads": ["..."]}]}`. `text` is what captions and the transcript show; `tts` (optional) is the spelling the voice model reads. |
+| `src/words.json` | `voice.py words` (or the main agent by hand, for voice `none`) | `{"l1": {"t": 0.6, "d": 3.2, "words": [{"w": "Pedals", "s": 0.0, "e": 0.41}]}}`: line start `t` and length `d` in film seconds, word times relative to the line start. Word `i` is the i-th space-separated word of the line's `text`. |
 | `src/beats.json` | `music.py cut` | `{"bpm": 96, "beats": [...], "downbeats": [...]}` of the final music edit, film seconds. Absent: the grid comes from `music.synth.bpm`. |
-| `src/storyboard.json` | you | The SOURCE storyboard: scenes, elements, beats, camera, audio, all timed with cues. |
-| `web/film/shots/<id>.js` | you (or build subagents) | One custom canvas shot per file. |
+| `src/storyboard.json` | the main agent | The SOURCE storyboard: scenes, elements, beats, camera, audio, all timed with cues. |
+| `web/film/shots/<id>.js` | the main agent or build subagents, one writer per file | One custom canvas shot per file. |
 | `web/film/storyboard.json` | `tools/resolve.mjs` | The RESOLVED storyboard (every cue turned into seconds). Never edit it by hand. |
 
 After any change to `src/`, run:
@@ -132,7 +132,7 @@ draw-on, scale from 0) stays hidden until that beat.
 
 ## Camera
 
-On a board the automatic path is usually right. To direct it yourself, give
+On a board the automatic path is usually right. To direct the camera by hand, give
 `"camera": {"keys": [{"at": cue, "scene": id, "focus": [x, y], "z": 1.1, "r": 0, "ease": "sine", "cut": false, "zoomTo": false}]}`
 (explicit keys replace the automatic path; `x`/`y` world px instead of `scene`). Camera beats
 layer on top either way. Every move gets a whoosh unless `layout.whoosh` is false. Write-ons

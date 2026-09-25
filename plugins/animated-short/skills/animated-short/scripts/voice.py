@@ -4,7 +4,9 @@
 audition --voices a,b,c --line <id>   one take per voice of one line -> work/takes/audition/<voice>.wav
 takes --n 3 [ids...]                  N takes per line (the line's `tts` spelling when present, film.json
                                       pronunciations applied) -> work/takes/<id>_<k>.wav; pins the voice
-check [ids...]                        align every take and compare it with the intended words -> work/takes/check.json
+check [ids...] [--max-wer w]          align every take and compare it with the intended words -> work/takes/check.json
+                                      (with ids, only those lines are replaced); lines served only by the coarse
+                                      aligner are listed as unverified
 pick <id>=<k> ...                     copy chosen takes to work/vo/<id>.wav
 process [ids...]                      trim, high-pass, gentle EQ, compression, loudness -16 LUFS per line
                                       -> work/vo/<id>_final.wav (ffmpeg two-pass loudnorm; numpy fallback)
@@ -12,7 +14,8 @@ tighten [--max-pause 0.24] [--tempo 1.0] [--exempt ids]
                                       cap internal pauses, optional tempo lift (original kept as <id>_loose.wav)
 words [--lead-in s] [--gap s] [--keep-t] [--tail s]
                                       word timings -> src/words.json: lines laid out from the lead-in with a
-                                      gap, word i of the script line = words[i]; total checked against duration
+                                      gap, word i of the script line = words[i]; the last line must end --tail
+                                      s before the film does (default: end card seconds + 0.5, else 1.5)
 export [--format mp3|wav]             work/vo/<id>_final.wav -> web/audio/vo_<id>.<fmt>; VO length vs budget
 """
 
@@ -42,6 +45,13 @@ from providers import run_role
 from providers.base import EXIT_GATE, UsageError
 
 WORDS_PER_SECOND = 2.5
+PLAIN_ENDING = 1.5  # seconds after the last line when there is no end card
+
+
+def ending_seconds(film):
+    """Seconds the film needs after the last line: the end card plus 0.5 s when it is on, else 1.5 s."""
+    d = film["disclosure"]
+    return round(d["seconds"] + 0.5, 3) if d["end_card"] else PLAIN_ENDING
 
 
 def _lines(film_dir, ids):
@@ -173,7 +183,7 @@ def cmd_check(a):
     film = load_film(a.film)
     ctx = context(a, film)
     takes_dir, _ = _paths(a.film)
-    report, bad_lines = {}, []
+    report = {}
     for line in _lines(a.film, a.ids):
         text = tts_text(line, film["pronunciations"])
         expected = norm_words(text)
@@ -181,7 +191,7 @@ def cmd_check(a):
         files = [f for f in files if f.stem[len(line["id"]) + 1 :].isdigit()]
         if not files:
             print(f"{line['id']}: no takes in {takes_dir}")
-            bad_lines.append(line["id"])
+            report[line["id"]] = {"expected": text, "takes": {}, "best": None, "max_wer": a.max_wer, "clean": False}
             continue
         rows = {}
         for f in files:
@@ -198,28 +208,51 @@ def cmd_check(a):
             )
             write_json(f.with_suffix(".words.json"), res.data)
         best = min(rows, key=lambda k: (rows[k]["wer"], k))
-        report[line["id"]] = {"expected": text, "takes": rows, "best": best}
         clean = [k for k, r in rows.items() if r["wer"] <= a.max_wer and not r["coarse"]]
-        flag = (
-            ""
-            if clean
-            else ("  UNVERIFIED (coarse aligner)" if all(r["coarse"] for r in rows.values()) else "  NO CLEAN TAKE")
-        )
+        unverified = not clean and all(r["coarse"] for r in rows.values())
+        report[line["id"]] = {
+            "expected": text,
+            "takes": rows,
+            "best": best,
+            "max_wer": a.max_wer,
+            "clean": bool(clean),
+            "unverified": unverified,
+        }
+        flag = "" if clean else ("  UNVERIFIED (coarse aligner)" if unverified else "  NO CLEAN TAKE")
         print(f"{line['id']}: best {best} (wer {rows[best]['wer']}){flag}")
         for k, r in sorted(rows.items()):
             issues = [f"missing {' '.join(r['missing'])}"] if r["missing"] else []
             issues += [f"heard '{h}' for '{e}'" for e, h in r["subs"]]
             issues += [f"extra {' '.join(r['extra'])}"] if r["extra"] else []
             print(f"   {k}: wer {r['wer']:.2f}  {r['seconds']} s  {'; '.join(issues) or 'clean'}")
-        if not clean:
-            bad_lines.append(line["id"])
-    write_json(takes_dir / "check.json", {"max_wer": a.max_wer, "lines": report, "needs_work": bad_lines})
-    if bad_lines:
+    # a partial re-run (line ids given) replaces only those lines in check.json and keeps the others;
+    # lines no longer in the script are dropped, lines never checked need work
+    prev = (read_json(takes_dir / "check.json", default={}).get("lines") or {}) if a.ids else {}
+    lines = {}
+    for ln in script_lines(a.film):
+        unchecked = {"expected": tts_text(ln, film["pronunciations"]), "takes": {}, "best": None, "clean": False}
+        lines[ln["id"]] = report.get(ln["id"]) or prev.get(ln["id"]) or dict(unchecked, note="not checked yet")
+    needs_work = [lid for lid, r in lines.items() if not r.get("clean")]
+    unverified = [lid for lid in needs_work if lines[lid].get("unverified")]
+    write_json(
+        takes_dir / "check.json",
+        {"max_wer": a.max_wer, "lines": lines, "needs_work": needs_work, "unverified": unverified},
+    )
+    now = [lid for lid in needs_work if lid in report]  # the exit code judges the lines checked in this run
+    if [lid for lid in now if lid in unverified]:
         print(
-            f"check: no verified clean take for {', '.join(bad_lines)} -> make more takes or respell (pronunciations)"
+            f"check: {', '.join(lid for lid in now if lid in unverified)} UNVERIFIED: only the coarse aligner "
+            "served them, so no word was checked. Judge those takes by ear (critic.py ask --audio with the "
+            "take-picks prompt), record the verdict in work/takes/check-override.md and go on; without a critic, "
+            "report pronunciation as unverified"
         )
-        return EXIT_GATE
-    return 0
+    rest = [lid for lid in now if lid not in unverified]
+    if rest:
+        print(f"check: no verified clean take for {', '.join(rest)} -> make more takes or respell (pronunciations)")
+    older = [lid for lid in needs_work if lid not in report]
+    if older:
+        print(f"check: other lines still open in check.json: {', '.join(older)}")
+    return EXIT_GATE if now else 0
 
 
 def cmd_pick(a):
@@ -379,7 +412,7 @@ def tighten_file(src, dst, max_pause, tempo, threshold_db=-42.0):
             tmp.unlink(missing_ok=True)
             return before, cut, audiolib.wav_duration(dst)
         if not audiolib.has("librosa"):
-            raise UsageError(f"--tempo needs ffmpeg or librosa ({audiolib.HINT})")
+            raise UsageError("--tempo needs ffmpeg, or the optional package librosa (pip install librosa)")
         import librosa
 
         y = np.stack(
@@ -499,10 +532,12 @@ def cmd_words(a):
     write_json(Path(a.film) / "work" / "vo" / "words-detail.json", detail)
     end = max(v["t"] + v["d"] for v in out.values())
     room = film["duration"] - end
+    tail = ending_seconds(film) if a.tail is None else a.tail
     print(
-        f"words: narration ends at {end:.2f} s; film {film['duration']} s; {room:.2f} s left for the ending (need {a.tail})"
+        f"words: narration ends at {end:.2f} s; film {film['duration']} s; "
+        f"{room:.2f} s left for the ending (need {tail})"
     )
-    if room < a.tail:
+    if room < tail:
         print("words: too long: cut words, tighten pauses (voice.py tighten), or lengthen the film")
         return EXIT_GATE
     return 0
@@ -581,7 +616,12 @@ def main(argv=None):
     p.add_argument("--lead-in", type=float, help="first line start, s (default: film.json voice.lead_in)")
     p.add_argument("--gap", type=float, help="gap between lines, s (default: film.json voice.gap)")
     p.add_argument("--keep-t", action="store_true", help="keep line starts already in src/words.json")
-    p.add_argument("--tail", type=float, default=1.5, help="seconds the ending needs after the last line")
+    p.add_argument(
+        "--tail",
+        type=float,
+        help="seconds the ending needs after the last line (default: disclosure.seconds + 0.5 when the end card "
+        "is on, else 1.5)",
+    )
     p.add_argument("--force", action="store_true", help="run even when voice.mode is none")
     p = sp("export", "processed lines -> web/audio/vo_<id>.<fmt>")
     p.add_argument("--format", choices=("mp3", "wav"), help="default mp3 when ffmpeg exists, else wav")

@@ -142,7 +142,9 @@ def read_audio(path, sr=None):
         y, rate = librosa.load(str(path), sr=sr, mono=False)
         y = np.atleast_2d(y).T.astype(np.float32)
         return y, rate
-    raise UsageError(f"decoding {path.suffix} needs ffmpeg on PATH, or: {HINT}")
+    raise UsageError(
+        f"decoding {path.suffix} needs ffmpeg on PATH, or the optional package soundfile (pip install soundfile)"
+    )
 
 
 def write_wav(path, x, sr):

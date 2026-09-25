@@ -28,7 +28,7 @@ learned, alongside director, originality, audio, fact-check and technical gates.
 - ffmpeg and ffprobe: optional. With them, MP4s are H.264 + AAC with measured two-pass
   loudness; without them, MP4s are encoded in the browser (H.264 + Opus via WebCodecs).
 - Python 3.10 or newer with `skills/animated-short/scripts/requirements.txt` (numpy, pillow;
-  librosa and soundfile optional).
+  librosa, soundfile and whisperx are optional extras listed there as comments).
 - For generated voice, music, art and video reviews: an OpenRouter API key, read from the
   environment variable `OPENROUTER_API_KEY` or a key file passed with `--key-file`. Without a
   key the skill makes $0 films (code-drawn art, synthesized music, captions instead of voice,
@@ -102,18 +102,19 @@ bash plugins/animated-short/skills/animated-short/scripts/test-golden.sh --scaff
 Each run builds a fresh film from `examples/golden`, then resolves, renders stills, checks
 glyphs, frame purity and text rules, makes QA images, exports every deliverable and runs the
 technical gate; it prints a PASS/FAIL table. The Python tools have offline unit tests (a fake
-provider server, $0):
+provider server, $0); CI runs them through this script:
 
 ```bash
-cd plugins/animated-short/skills/animated-short/scripts/tests && python3 -m unittest discover -s .
+bash plugins/animated-short/tests/unit.test.sh
 ```
 
 ## Layout
 
 ```
+tests/unit.test.sh         runs the Python unit tests (what CI runs)
 skills/animated-short/
   SKILL.md                 the workflow: rules, phases and gates, intake, spend, briefs
-  references/              inputs, phases, storyboard, acting kit, style preset, reviews,
+  references/              intake, inputs, phases, storyboard, acting kit, style preset, reviews,
                            providers, engines, delivery, pitfalls, JSON schemas
   engine/                  the film template: player page, canvas engine, render/export/QA tools
   scripts/                 scaffold, preflight, quote, ledger, voice, music, art, critic, review

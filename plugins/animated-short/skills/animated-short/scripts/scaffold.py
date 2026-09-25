@@ -35,7 +35,9 @@ from providers.base import UsageError
 SIZES = {"16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080]}
 WORK_DIRS = ["research", "direction", "takes", "vo", "music", "sheets", "qa", "reviews", "critic"]
 SKIP = {"node_modules", "__pycache__", ".DS_Store"}
-GITIGNORE = "node_modules/\ncache/\nwork/frames/\n*.lock\n"
+# build output, provider cache and anything that may hold a secret or account details (preflight.json keeps
+# the account's usage and limit); keep a key file outside the film directory anyway
+GITIGNORE = "node_modules/\ncache/\nwork/frames/\nwork/export-frames/\nwork/preflight.json\n*.lock\n.env\n*.key\n"
 
 
 def copy_tree(src, dst):
