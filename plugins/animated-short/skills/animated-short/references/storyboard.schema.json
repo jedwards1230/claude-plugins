@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:animated-short:storyboard-source:1",
+  "title": "Source storyboard (src/storyboard.json)",
+  "description": "Engine-neutral description of a short film. Times are cues (see $defs/cue) that tools/resolve.mjs turns into seconds, writing web/film/storyboard.json for the engine. Positions are fractions (0..1) of the scene's box (a board panel, or the whole frame); sizes are px of a 1080-line frame at camera zoom 1. Keys starting with '$' or '_' are ignored (use them for comments).",
+  "type": "object",
+  "required": ["meta", "scenes"],
+  "additionalProperties": false,
+  "patternProperties": { "^[$_]": {} },
+  "properties": {
+    "version": { "const": 1 },
+    "meta": { "$ref": "#/$defs/meta" },
+    "layout": { "$ref": "#/$defs/layout" },
+    "music": { "$ref": "#/$defs/music" },
+    "vo": {
+      "description": "Optional voice-line list. Omit it to place every src/script.json line that has a src/words.json entry, in script order.",
+      "type": "array", "items": { "$ref": "#/$defs/voLine" }
+    },
+    "sfx": { "type": "array", "items": { "$ref": "#/$defs/sfx" }, "description": "Synthesized sound events. resolve.mjs adds a whoosh for every camera move unless layout.whoosh is false." },
+    "camera": {
+      "type": "object", "additionalProperties": false, "required": ["keys"],
+      "description": "Explicit camera keys replace the automatic board path. Camera beats inside scenes are layered on top either way.",
+      "properties": { "keys": { "type": "array", "items": { "$ref": "#/$defs/cameraKey" } } }
+    },
+    "cues": { "$ref": "#/$defs/cueMap", "description": "Named cues, readable from custom shots with api.cue(name)." },
+    "mix": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "master": { "type": "number", "description": "Master trim before the limiter (default 0.7)." },
+        "vo_db": { "type": "number" }, "sfx_db": { "type": "number" }, "music_db": { "type": "number" }
+      }
+    },
+    "scenes": { "type": "array", "items": { "$ref": "#/$defs/scene" } },
+    "shots": { "type": "array", "items": { "$ref": "#/$defs/id" }, "description": "Extra shot ids to load (web/film/shots/<id>.js), first and in this order: shared helper files go here. Shots used by custom elements and scenes are added automatically after them." },
+    "notes": { "type": "string" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+    "pair": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
+    "color": { "type": "string", "description": "A palette key (ink, paper, board, accent, pencil, ...), a swatch name from config.palette.swatches, or any CSS colour." },
+    "cue": {
+      "description": "A time. 12.5 or \"12.5\" absolute seconds | \"+0.8\" relative to the previous cue in the same list (first entry: relative to the list's anchor, e.g. the scene start for beats) | \"end\" film end | \"vo:<line>\" line start | \"vo:<line>.end\" | \"vo:<line>.w<i>\" start of word i (0-based, mapped by index) | \"vo:<line>.w<i>.end\" | \"beat:<n>\" | \"bar:<n>\" (0-based, from src/beats.json or the synth bpm) | \"scene:<id>\" | \"scene:<id>.end\". Any non-relative cue may end in an offset: \"vo:l2.w3+0.2\", \"end-1.5\".",
+      "oneOf": [
+        { "type": "number" },
+        { "type": "string", "pattern": "^(?:\\+\\d+(?:\\.\\d+)?|(?:\\d+(?:\\.\\d+)?|end|vo:[A-Za-z0-9_-]+(?:\\.w\\d+)?(?:\\.end)?|beat:\\d+|bar:\\d+|scene:[A-Za-z0-9_-]+(?:\\.end)?)(?:[+-]\\d+(?:\\.\\d+)?)?)$" }
+      ]
+    },
+    "cueMap": { "type": "object", "additionalProperties": { "$ref": "#/$defs/cue" } },
+    "ease": { "enum": ["linear", "in", "out", "inOut", "sine", "back", "elastic", "spring", "cubic"] },
+    "meta": {
+      "type": "object", "additionalProperties": false, "required": ["duration"],
+      "properties": {
+        "duration": { "type": "number", "exclusiveMinimum": 0, "description": "Film length in seconds." },
+        "fps": { "type": "integer", "minimum": 1, "default": 30 },
+        "size": { "$ref": "#/$defs/pair", "default": [1920, 1080], "description": "Output size in px, even integers: [1920,1080] 16:9, [1080,1920] 9:16, [1080,1080] 1:1. Wins over web/film/config.json." },
+        "seed": { "type": "integer", "default": 1, "description": "Base seed for boil, tilt and texture randomness." },
+        "title": { "type": "string" }
+      }
+    },
+    "layout": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["stage", "board"], "default": "stage", "description": "stage: one full-frame scene at a time. board: a scrapbook grid of panels with a travelling camera." },
+        "grid": { "$ref": "#/$defs/pair", "description": "Board [columns, rows]; default fits the panel scenes." },
+        "panel": { "$ref": "#/$defs/pair", "description": "Board panel size in px (default about 92.7% x 92.6% of the frame)." },
+        "gutter": { "$ref": "#/$defs/pair", "description": "Board gap between panels in px (default 35% and 40% of the panel)." },
+        "caption": {
+          "description": "Board caption written in the top-left gutter (visible in the finale pull-back).",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "object", "additionalProperties": false, "required": ["text"],
+              "properties": { "text": { "type": "string" }, "size": { "type": "number" }, "font": { "type": "string" }, "color": { "$ref": "#/$defs/color" } } }
+          ]
+        },
+        "color": { "$ref": "#/$defs/color", "description": "Board / stage background (default palette 'board')." },
+        "arrows": { "type": "boolean", "default": true, "description": "Board: ink arrows linking panels in viewing order, drawn during the finale." },
+        "doodles": { "type": "boolean", "default": true, "description": "Board: a ring stain and pencil sparkles in the gutters." },
+        "finale": {
+          "description": "Board: pull back to the whole board at the end. false disables it.",
+          "oneOf": [
+            { "const": false },
+            { "type": "object", "additionalProperties": false,
+              "properties": { "at": { "$ref": "#/$defs/cue", "description": "Default: duration - dur - 0.6 s." }, "dur": { "type": "number", "default": 2.1 } } }
+          ]
+        },
+        "whoosh": { "type": "boolean", "default": true, "description": "Add a whoosh sfx to every camera move." },
+        "handheld": { "type": "number", "default": 1, "description": "Hand-held camera drift amount; 0 = locked off." }
+      }
+    },
+    "music": {
+      "type": "object", "additionalProperties": false,
+      "description": "The music bed. Needs asset or synth. The bed ducks under the voice with an envelope derived from each gap (gaps under 0.8 s stay ducked), rises after the last line and fades at the end.",
+      "properties": {
+        "asset": { "type": "string", "description": "Path under web/, e.g. audio/music.mp3. A missing file is silence." },
+        "synth": {
+          "type": "object", "additionalProperties": false, "description": "A deterministic synthesized pad/pulse bed ($0 drafts). Beat k is at music.at + k*60/bpm.",
+          "properties": {
+            "bpm": { "type": "number", "default": 92 }, "key": { "type": "string", "default": "C" }, "mode": { "enum": ["major", "minor"] },
+            "progression": { "type": "array", "items": { "type": "integer" }, "description": "Scale degrees, 0-based, one per bar. Default [0,5,3,4]." },
+            "pad": { "type": "number" }, "pulse": { "type": "number" }, "kick": { "type": "number" }
+          }
+        },
+        "gain_db": { "type": "number", "default": -12, "description": "Bed level between lines." },
+        "duck_db": { "type": "number", "default": -8, "description": "Extra attenuation under the voice." },
+        "intro_db": { "type": "number", "default": 5, "description": "Boost before the first line." },
+        "outro_db": { "type": "number", "default": 6, "description": "Boost after the last line." },
+        "duck_under": { "enum": ["vo", "none"], "default": "vo" },
+        "at": { "$ref": "#/$defs/cue", "description": "When the bed starts (default 0)." },
+        "offset": { "type": "number", "description": "Seconds into the asset to start from." },
+        "end_at": { "$ref": "#/$defs/cue", "description": "Where the synth bed resolves (default: 0.15 s after the last line ends)." }
+      },
+      "anyOf": [{ "required": ["asset"] }, { "required": ["synth"] }]
+    },
+    "voLine": {
+      "type": "object", "additionalProperties": false, "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "description": "A src/script.json line id with a src/words.json entry." },
+        "at": { "$ref": "#/$defs/cue", "description": "Override the line start (default words.json t). Word cues move with it." },
+        "asset": { "type": "string", "description": "Default: web/audio/vo_<id>.(mp3|wav|ogg|m4a) if it exists, else no audio (captions only)." },
+        "gain_db": { "type": "number" }
+      }
+    },
+    "sfx": {
+      "type": "object", "additionalProperties": false, "required": ["at", "type"],
+      "patternProperties": { "^[$_]": {} },
+      "properties": {
+        "at": { "$ref": "#/$defs/cue" },
+        "type": { "enum": ["pop", "tap", "thud", "stamp", "rustle", "scribble", "whoosh", "swish", "twinkle", "sparkleburst", "ding", "chime", "tick", "click", "boing", "boink", "snooze", "whistle", "latch", "beep", "thunder", "buzz", "power-on", "ring", "rumble"] },
+        "gain": { "type": "number", "default": 1 },
+        "pan": { "type": "number", "minimum": -1, "maximum": 1 },
+        "dur": { "type": "number", "description": "Length for sustained sounds (rustle, scribble, whoosh, swish, ring, rumble)." },
+        "pitch": { "type": "number", "description": "Small integer variation for tap, tick, boing, boink." },
+        "note": { "type": "integer", "description": "Pentatonic step for ding." },
+        "notes": { "type": "string" }
+      }
+    },
+    "cameraKey": {
+      "type": "object", "additionalProperties": false, "required": ["at"],
+      "properties": {
+        "at": { "$ref": "#/$defs/cue" },
+        "scene": { "$ref": "#/$defs/id", "description": "Frame this scene (its panel on a board)." },
+        "focus": { "$ref": "#/$defs/pair", "description": "Point in the scene box (fractions) to centre on; default the centre." },
+        "x": { "type": "number", "description": "World x in px when no scene is given." },
+        "y": { "type": "number" },
+        "z": { "type": "number", "default": 1, "description": "Zoom; 1 = the box fills the frame." },
+        "r": { "type": "number", "description": "Roll in degrees." },
+        "ease": { "enum": ["sine", "cubic", "linear"], "default": "sine" },
+        "cut": { "type": "boolean", "description": "Jump here instead of moving." },
+        "zoomTo": { "type": "boolean", "description": "Zoom about a fixed point (for pull-backs)." }
+      }
+    },
+    "scene": {
+      "type": "object", "additionalProperties": false, "required": ["id"],
+      "patternProperties": { "^[$_]": {} },
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "at": { "$ref": "#/$defs/cue", "description": "Required except on the first scene (default 0). \"+s\" is relative to the previous scene's start." },
+        "until": { "$ref": "#/$defs/cue", "description": "Default: the next non-overlay scene's start, or the film end. \"+s\" is relative to this scene's start." },
+        "overlay": { "type": "boolean", "description": "Screen-space scene drawn above the camera (title cards, lower thirds); shown from at to until." },
+        "hold": { "type": "boolean", "description": "Overlay: stay after until." },
+        "dim": { "type": "number", "description": "Overlay: darken the picture behind it (0..1)." },
+        "reads": { "type": "array", "items": { "type": "string" }, "description": "What the viewer must understand here, in order; each read needs >= 1.2 s." },
+        "cell": { "$ref": "#/$defs/pair", "description": "Board [column, row]; default: scene order, row by row." },
+        "panel": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "color": { "$ref": "#/$defs/color", "description": "Default: config palette.panels in turn." },
+            "r": { "type": "number", "description": "Tilt in degrees." },
+            "seed": { "type": "integer" },
+            "enter": { "enum": ["drop", "none"] },
+            "enter_at": { "$ref": "#/$defs/cue" }
+          }
+        },
+        "bg": { "$ref": "#/$defs/color", "description": "Stage: background colour." },
+        "texture": { "type": "boolean", "description": "Stage: paper grain on the background (default true)." },
+        "transition": {
+          "description": "Stage: how this scene enters.",
+          "oneOf": [
+            { "enum": ["cut", "fade", "slide"] },
+            { "type": "object", "additionalProperties": false, "required": ["type"],
+              "properties": { "type": { "enum": ["cut", "fade", "slide"] }, "dur": { "type": "number", "default": 0.5 }, "dir": { "enum": ["left", "right"] } } }
+          ]
+        },
+        "elements": { "type": "array", "items": { "$ref": "#/$defs/element" } },
+        "beats": { "type": "array", "items": { "$ref": "#/$defs/beat" } },
+        "custom": {
+          "description": "Escape hatch: a shot drawn over the scene's elements. A string is the canvas shot id; an object maps engine -> code reference, and \"layer\": \"under\" draws the shot beneath the elements instead.",
+          "oneOf": [
+            { "$ref": "#/$defs/id" },
+            { "type": "object", "required": ["canvas"], "properties": { "canvas": { "$ref": "#/$defs/id" }, "layer": { "enum": ["over", "under"], "description": "over (default): on top of the scene's elements; under: beneath them." } }, "additionalProperties": { "type": "string" } }
+          ]
+        },
+        "params": { "type": "object", "description": "Passed to the scene's custom shot as api.params." },
+        "cues": { "$ref": "#/$defs/cueMap" },
+        "notes": { "type": "string" }
+      }
+    },
+    "element": {
+      "type": "object", "additionalProperties": false, "required": ["id", "kind"],
+      "patternProperties": { "^[$_]": {} },
+      "description": "One drawn thing. Common fields plus the fields of its kind. Canvas downgrades: equation renders as text, clip as its poster sprite.",
+      "properties": {
+        "id": { "$ref": "#/$defs/id", "description": "Unique across the storyboard; also the element's boil seed." },
+        "kind": { "enum": ["text", "sprite", "shape", "svg-path", "chart", "equation", "clip", "group", "custom"] },
+        "pos": { "$ref": "#/$defs/pair", "description": "Centre, as fractions of the scene box (or group box). Default [0.5, 0.5]." },
+        "scale": { "type": "number" }, "r": { "type": "number", "description": "Rotation in degrees." },
+        "alpha": { "type": "number" }, "flip": { "type": "boolean" },
+        "boil": { "type": "number", "description": "Stop-motion jitter amount (default 1; text and custom 0)." },
+        "idle": {
+          "description": "Gentle de-synced idle motion (bob, sway, breathe).",
+          "oneOf": [{ "type": "boolean" },
+            { "type": "object", "additionalProperties": false, "properties": { "bob": { "type": "number" }, "sway": { "type": "number" }, "breathe": { "type": "number" }, "rate": { "type": "number" } } }]
+        },
+        "cues": { "$ref": "#/$defs/cueMap", "description": "Named cues for a custom shot (api.cue(name))." },
+        "notes": { "type": "string" },
+
+        "text": { "type": "string", "description": "text / equation: the words (\\n for line breaks; {n} is replaced by a count-up value)." },
+        "style": { "enum": ["title", "heading", "body", "label", "caption"], "description": "title = ransom letters 110 px; heading = hand 80 px with underline; body = hand 48 px; label = print 32 px pencil; caption = print 40 px." },
+        "size": { "type": "number", "description": "Font px at 1080p (minimum 28 for anything the viewer must read)." },
+        "font": { "type": "string", "description": "hand | print | ui | a CSS font stack." },
+        "weight": { "type": ["integer", "string"] },
+        "color": { "$ref": "#/$defs/color" },
+        "align": { "enum": ["left", "center", "right"] },
+        "lh": { "type": "number", "description": "Line height factor (default 1.15)." },
+        "w": { "type": "number", "description": "text: wrap width px. sprite / clip / shape / group / custom: width px." },
+        "sub": { "type": "string", "description": "text: a smaller, fainter second line (e.g. the technical name in brackets)." },
+        "sub_color": { "$ref": "#/$defs/color" },
+        "card": {
+          "description": "text: a torn paper card behind the text.",
+          "oneOf": [{ "type": "boolean" },
+            { "type": "object", "additionalProperties": false, "properties": { "color": { "$ref": "#/$defs/color" }, "pad": { "type": "number" }, "tail": { "$ref": "#/$defs/pair" }, "shadow": { "type": "number" } } }]
+        },
+        "underline": { "type": ["boolean", "string"], "description": "text: ink underline after the write-on (colour name or true)." },
+        "cps": { "type": "number", "description": "text: write-on speed in characters per second (sets the default type-on length)." },
+        "tex": { "type": "string", "description": "equation: TeX source." },
+
+        "src": { "type": "string", "description": "sprite: sticker name from web/img/manifest.json. clip: video path." },
+        "poster": { "type": "string", "description": "clip: sticker shown on engines that cannot play clips." },
+        "shadow": { "type": "number" },
+
+        "shape": { "enum": ["rect", "ellipse", "circle", "triangle", "diamond", "star", "heart", "blob", "arrow", "line", "ring", "check", "sparkle", "tape"], "description": "Paper cut-outs: rect ellipse circle triangle diamond star heart blob. Ink marks: arrow line ring check sparkle. tape: a strip of tape." },
+        "h": { "type": "number" },
+        "stroke": { "$ref": "#/$defs/color" },
+        "stroke_w": { "type": "number" },
+        "dash": { "$ref": "#/$defs/pair", "description": "[on, off] px." },
+        "outline": { "type": "boolean", "description": "paper shapes: ink outline on top." },
+        "from": { "$ref": "#/$defs/pair", "description": "arrow: start, fractions of the scene box." },
+        "to": { "$ref": "#/$defs/pair", "description": "arrow: end, fractions of the scene box." },
+        "bend": { "type": "number", "description": "arrow: curvature (default 0.2)." },
+        "head": { "type": "number", "description": "arrow: head size px." },
+        "points": { "type": "array", "items": { "$ref": "#/$defs/pair" }, "description": "line: points, fractions of the scene box." },
+        "turns": { "type": "number", "description": "ring: pen turns (default 1.13)." },
+        "twinkle": { "type": "boolean" }, "rate": { "type": "number" },
+        "spikes": { "type": "integer", "description": "star: number of points." },
+        "inner": { "type": "number", "description": "star: inner radius ratio." },
+        "amp": { "type": "number", "description": "paper shapes: torn-edge roughness px." },
+        "rim": { "type": "boolean", "description": "paper shapes: light torn rim (default true)." },
+        "wob": { "type": "number", "description": "ink: wobble amount." },
+
+        "d": { "type": "string", "description": "svg-path: SVG path data (M L H V C S Q T A Z)." },
+        "unit": { "type": "number", "description": "svg-path: px per path unit (default 1)." },
+        "fill": { "$ref": "#/$defs/color" },
+
+        "chart": { "enum": ["bar", "line"] },
+        "data": { "type": "array", "items": { "type": "number" } },
+        "labels": { "type": "array" },
+        "max": { "type": "number" },
+        "colors": { "type": "array", "items": { "$ref": "#/$defs/color" } },
+        "values": { "type": "boolean", "description": "chart: write each value." },
+        "label_size": { "type": "number" },
+        "axis": { "$ref": "#/$defs/color" },
+        "bar_w": { "type": "number", "description": "chart: bar width as a fraction of its slot." },
+
+        "children": { "type": "array", "items": { "$ref": "#/$defs/element" }, "description": "group: children positioned in the group's box (w x h, default the scene box)." },
+
+        "shot": { "$ref": "#/$defs/id", "description": "custom: the shot id registered by web/film/shots/<id>.js." },
+        "params": { "type": "object", "description": "custom: passed to the shot as api.params." }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "text" } } }, "then": { "required": ["text"] } },
+        { "if": { "properties": { "kind": { "const": "equation" } } }, "then": { "anyOf": [{ "required": ["tex"] }, { "required": ["text"] }] } },
+        { "if": { "properties": { "kind": { "enum": ["sprite", "clip"] } } }, "then": { "required": ["src"] } },
+        { "if": { "properties": { "kind": { "const": "shape" } } }, "then": { "required": ["shape"] } },
+        { "if": { "properties": { "kind": { "const": "svg-path" } } }, "then": { "required": ["d"] } },
+        { "if": { "properties": { "kind": { "const": "chart" } } }, "then": { "required": ["data"] } },
+        { "if": { "properties": { "kind": { "const": "group" } } }, "then": { "required": ["children"] } },
+        { "if": { "properties": { "kind": { "const": "custom" } } }, "then": { "required": ["shot"] } }
+      ]
+    },
+    "beat": {
+      "type": "object", "additionalProperties": false, "required": ["at", "do"],
+      "patternProperties": { "^[$_]": {} },
+      "description": "A timed change to one element (or the camera). Beats run on stop-motion time (15 fps). An element whose first beat on a channel is an entrance (fade in, pop, slide in, type-on, draw-on, scale from 0) is hidden until that beat.",
+      "properties": {
+        "at": { "$ref": "#/$defs/cue", "description": "\"+s\" is relative to the previous beat in this scene (the first: the scene start)." },
+        "do": { "enum": ["fade", "pop", "slide", "move", "scale", "type-on", "draw-on", "count-up", "morph", "camera"] },
+        "target": { "$ref": "#/$defs/id", "description": "Element id; required except for camera beats." },
+        "dur": { "type": "number", "description": "Seconds. Defaults: fade 0.4, pop 0.3, slide 0.45, move 0.6, scale 0.35, draw-on 0.5, count-up 1.0, morph 0.5, camera 1.2, type-on = characters / cps." },
+        "until": { "$ref": "#/$defs/cue", "description": "Alternative to dur: end cue (\"+s\" relative to at)." },
+        "ease": { "$ref": "#/$defs/ease" },
+        "from": { "description": "fade/scale/count-up: start value. slide: [dx, dy] px offset to enter from (default [-240, 0])." },
+        "to": { "description": "fade/scale/count-up: end value. slide: [dx, dy] px to exit to. move: [x, y] fractions of the box. morph: id of the element to become." },
+        "by": { "$ref": "#/$defs/pair", "description": "move: relative [dx, dy] px." },
+        "arc": { "type": "number", "description": "move: hop height px (adds stretch in flight and a landing squash)." },
+        "squash": { "type": "boolean", "description": "move with arc: false turns the squash off." },
+        "k": { "type": "number", "description": "pop: overshoot (default 2.3)." },
+        "spin": { "type": "number", "description": "pop: entry spin in degrees (default 12)." },
+        "cps": { "type": "number", "description": "type-on: characters per second." },
+        "decimals": { "type": "integer", "description": "count-up: decimals shown." },
+        "focus": { "$ref": "#/$defs/pair", "description": "camera: point in the scene box to frame." },
+        "z": { "type": "number", "description": "camera: zoom (default 1.3)." },
+        "r": { "type": "number", "description": "camera: roll in degrees." },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        { "if": { "properties": { "do": { "not": { "const": "camera" } } } }, "then": { "required": ["target"] } },
+        { "if": { "properties": { "do": { "enum": ["fade", "scale"] } }, "required": ["do"] }, "then": { "properties": { "from": { "type": "number" }, "to": { "type": "number" } } } },
+        { "if": { "properties": { "do": { "const": "count-up" } }, "required": ["do"] }, "then": { "required": ["to"], "properties": { "from": { "type": "number" }, "to": { "type": "number" } } } },
+        { "if": { "properties": { "do": { "enum": ["slide", "move"] } }, "required": ["do"] }, "then": { "properties": { "from": { "$ref": "#/$defs/pair" }, "to": { "$ref": "#/$defs/pair" } } } },
+        { "if": { "properties": { "do": { "const": "morph" } }, "required": ["do"] }, "then": { "required": ["to"], "properties": { "to": { "$ref": "#/$defs/id" } } } }
+      ]
+    }
+  }
+}

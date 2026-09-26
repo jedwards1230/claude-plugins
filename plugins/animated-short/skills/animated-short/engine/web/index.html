@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film</title>
+<meta name="description" content="A short animated film, drawn and animated in code.">
+<link rel="icon" href="data:,">
+<!-- Live player for one film. Everything film-specific (title, notes, credits, palette, fonts,
+     size) comes from film/config.json and film/storyboard.json; see js/main.js. -->
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #1B1D24; --ground-2: #262A34; --line: #3A4050; --text: #F3EEE4; --muted: #B5AFA4;
+    --accent: #D9A441; --accent-ink: #2A1F06; --paper: #E8E0CF;
+    --display: "Segoe Print", "Comic Sans MS", "Trebuchet MS", sans-serif;
+    --ui: system-ui, "Segoe UI", "Noto Sans", sans-serif;
+    --ar: 16 / 9; --arw: 16; --arh: 9;
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--ground); color: var(--text); }
+  body {
+    font-family: var(--ui); font-size: 18px; line-height: 1.45;
+    padding: 28px 16px 40px; min-height: 100vh; box-sizing: border-box;
+    background: radial-gradient(1200px 500px at 50% -120px, var(--ground-2) 0%, transparent 70%), var(--ground);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; }
+  header { display: grid; gap: 4px; }
+  h1 {
+    font-family: var(--display); font-weight: 700; margin: 0; overflow-wrap: anywhere;
+    font-size: clamp(34px, 6vw, 64px); line-height: 1.05; text-wrap: balance;
+  }
+  .sub { margin: 0; color: var(--muted); font-size: clamp(16px, 2.2vw, 21px); max-width: 60ch; }
+
+  #stage {
+    position: relative; aspect-ratio: var(--ar); margin-inline: auto;
+    width: min(100%, calc(78vh * var(--arw) / var(--arh)));
+    border-radius: 10px; overflow: hidden; background: var(--paper); container-type: inline-size;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.4);
+  }
+  #film { display: block; width: 100%; height: 100%; }
+  #stage:fullscreen { border-radius: 0; background: #000; display: grid; place-items: center; width: 100vw; max-width: none; }
+  #stage:fullscreen #film { width: 100vw; height: 100vh; object-fit: contain; }
+
+  #poster {
+    position: absolute; inset: 0; border: 0; margin: 0; cursor: pointer; color: var(--text); font: inherit;
+    display: grid; place-items: end center; padding: 0 0 7%;
+    background: linear-gradient(180deg, transparent 45%, rgba(0,0,0,0.45) 100%);
+  }
+  #poster:disabled { cursor: progress; }
+  .play-chip {
+    display: inline-flex; align-items: center; gap: 14px;
+    background: var(--accent); color: var(--accent-ink);
+    padding: 12px 26px 12px 16px; border-radius: 999px;
+    font-family: var(--display); font-weight: 700; font-size: clamp(20px, 5cqi, 34px);
+    box-shadow: 0 8px 0 rgba(0,0,0,0.25), 0 16px 30px rgba(0,0,0,0.35);
+    transform: rotate(-1.5deg); transition: transform .15s ease;
+  }
+  .play-chip svg { width: 1.3em; height: 1.3em; }
+  .play-chip circle { fill: var(--accent-ink); }
+  .play-chip path { fill: var(--accent); }
+  #poster:hover .play-chip, #poster:focus-visible .play-chip { transform: rotate(0deg) translateY(-2px); }
+  #poster:focus-visible { outline: none; }
+  #poster:focus-visible .play-chip { box-shadow: 0 8px 0 rgba(0,0,0,0.25), 0 0 0 4px var(--text); }
+  .hint { display: block; margin-top: 10px; font-size: clamp(13px, 2.6cqi, 18px); text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+
+  #captions {
+    position: absolute; left: 50%; bottom: 5%; transform: translateX(-50%);
+    width: min(88%, 980px); text-align: center; pointer-events: none; box-sizing: border-box;
+    font-family: var(--ui); font-size: clamp(13px, 3.2cqi, 30px); line-height: 1.3;
+    color: #FFFAF0; background: rgba(20,22,34,0.8); padding: 0.35em 0.8em; border-radius: 8px; text-wrap: balance;
+  }
+
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+  .bar button {
+    font: inherit; font-size: 18px; color: var(--text); background: var(--ground-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 8px 18px; cursor: pointer; min-height: 44px;
+  }
+  .bar button:hover { border-color: var(--muted); }
+  .bar button:focus-visible, #scrub:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .bar button[aria-pressed="true"] { border-color: var(--accent); }
+  #play { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); min-width: 8.5em; font-weight: 700; }
+  #play:disabled, #poster:disabled { opacity: .7; }
+  .seek { flex: 1 1 260px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  #scrub { flex: 1; min-width: 0; accent-color: var(--accent); height: 28px; }
+  #time { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+
+  .notes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 6px; }
+  .notes:empty { display: none; }
+  .note { border-top: 2px dashed var(--line); padding-top: 10px; margin: 0; color: var(--muted); font-size: 16px; }
+  .note b { display: block; color: var(--text); font-family: var(--display); font-size: 24px; line-height: 1.15; margin-bottom: 2px; }
+  #credits { border-top: 2px dashed var(--line); padding-top: 10px; color: var(--muted); font-size: 15px; }
+  #credits h2 { font-size: 16px; margin: 0 0 4px; color: var(--text); }
+  #credits ul { margin: 0; padding-left: 1.2em; }
+  #credits p { margin: 8px 0 0; }
+  .keys { color: var(--muted); font-size: 14px; margin: 0; }
+  kbd { font-family: var(--ui); background: var(--ground-2); border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; color: var(--text); }
+  @media (prefers-reduced-motion: reduce) { .play-chip { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="title">Loading&hellip;</h1>
+    <p class="sub" id="subtitle" hidden></p>
+  </header>
+
+  <div id="stage">
+    <canvas id="film" width="1920" height="1080" aria-label="Animated film"></canvas>
+    <div id="captions" hidden aria-live="polite"></div>
+    <button id="poster" type="button" disabled aria-label="Play the film">
+      <span>
+        <span class="play-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M10 7.5v9l7-4.5z"/></svg><span id="poster-label">Loading&hellip;</span></span>
+        <span class="hint" id="hint"></span>
+      </span>
+    </button>
+  </div>
+
+  <div class="bar" role="group" aria-label="Player controls">
+    <button id="play" type="button" disabled>Play</button>
+    <button id="restart" type="button">Restart</button>
+    <button id="cc" type="button" aria-pressed="false">Captions</button>
+    <button id="fs" type="button">Full screen</button>
+    <div class="seek">
+      <input id="scrub" type="range" min="0" max="100" step="1" value="0" aria-label="Seek">
+      <span id="time">0:00 / 0:00</span>
+    </div>
+  </div>
+  <p class="keys">Keys: <kbd>space</kbd> play or pause, <kbd>c</kbd> captions, <kbd>f</kbd> full screen, <kbd>&larr;</kbd> <kbd>&rarr;</kbd> seek 5 s, <kbd>0</kbd> restart.</p>
+
+  <div class="notes" id="notes"></div>
+  <section id="credits" hidden>
+    <h2>Credits</h2>
+    <ul id="credit-list"></ul>
+    <p id="disclosure-note" hidden></p>
+  </section>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/draw.js"></script>
+<script src="js/acting.js"></script>
+<script src="js/storyboard.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/main.js"></script>
+</html>

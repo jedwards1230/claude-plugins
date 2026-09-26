@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "animated-short/film.schema.json",
+  "title": "Film",
+  "description": "Inputs for one animated short (film.json). Intake asks for anything missing in one batched round and writes this file; scaffold.py fills the defaults and derives web/film/config.json from it. Three inputs are required: topic, goal and message.",
+  "type": "object",
+  "required": ["topic", "goal", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "Optional path or URL of this schema, for editors." },
+    "topic": { "type": "string", "minLength": 1, "description": "What the film is about, in a few words." },
+    "goal": { "type": "string", "minLength": 1, "description": "What viewers should understand or do afterwards." },
+    "message": { "type": "string", "minLength": 1, "description": "The one sentence viewers should repeat back. Persona takeaways are scored against it by the comparer." },
+    "title": { "type": "string", "description": "Title on the page, the poster and file metadata. Default: the topic." },
+    "subtitle": { "type": "string", "default": "", "description": "One line under the title on the page." },
+    "form": {
+      "enum": ["explainer", "story", "promo", "music_video", "data_story"],
+      "default": "explainer",
+      "description": "Structure template. Explainers must pass the quiz and learnings gates."
+    },
+    "audience": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/persona" },
+      "default": [{ "name": "curious non-expert", "knows": "Nothing specific about the topic; watches carefully and wants the gist." }],
+      "description": "Personas with their prior knowledge. Each one becomes a persona reviewer and quiz-taker."
+    },
+    "depth": {
+      "enum": ["overview", "lived-in"],
+      "default": "lived-in",
+      "description": "overview = broad tour; lived-in = follow one concrete thing through, with real routines and numbers."
+    },
+    "style": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Look: a preset plus per-film overrides. Every film needs its own motif, palette and banned-pattern list.",
+      "properties": {
+        "preset": { "enum": ["collage"], "default": "collage", "description": "Style preset (references/style-presets/)." },
+        "palette": {
+          "anyOf": [
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/color" } },
+            { "type": "object" }
+          ],
+          "description": "Either a list of hex colours (first = accent; the list also colours board panels and ransom letters) or an object of engine palette keys (ground, board, paper, ink, accent, swatches, panels, ransom, ...) copied to config.json as is. Absent = engine defaults."
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Font families or CSS stacks. A bare family name gets a generic fallback appended.",
+          "properties": {
+            "display": { "type": "string", "description": "Titles; used for the engine's hand slot when hand is not given." },
+            "body": { "type": "string", "description": "Printed labels and page text (engine print and ui slots)." },
+            "hand": { "type": "string", "description": "Handwriting write-ons (engine hand slot)." },
+            "faces": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/face" },
+              "description": "Local webfont files (web/fonts/*.woff2, OFL or similar) so renders never depend on system fonts."
+            }
+          }
+        },
+        "texture": { "type": "string", "default": "paper grain, torn edges, tape", "description": "Surface texture words for art prompts and the style bible." },
+        "motif": { "type": "string", "description": "The one central image or motif that escalates and pays off." },
+        "banned_patterns": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Overused looks or moves this film must not use; the originality reviewer checks them." },
+        "references_to_use": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Cultural references or gags that fit the audience." },
+        "references_to_avoid": { "type": "array", "items": { "type": "string" }, "default": [], "description": "References that must not appear." }
+      }
+    },
+    "tone": { "type": "string", "default": "warm", "description": "whimsical, warm, calm, wry, documentary, or your own words." },
+    "duration": { "type": "number", "minimum": 5, "maximum": 180, "default": 90, "description": "Runtime in seconds, 15-180 for a real film (5 is allowed for tests such as the 10 s golden example); sets the word budget (about 2.5 words per second)." },
+    "aspect": { "enum": ["16:9", "9:16", "1:1"], "default": "16:9", "description": "Frame shape: 16:9 -> 1920x1080, 9:16 -> 1080x1920, 1:1 -> 1080x1080." },
+    "language": { "type": "string", "pattern": "^[a-z]{2}(-[A-Za-z0-9]+)?$", "default": "en", "description": "Narration language (ISO 639-1), passed to TTS checks and alignment." },
+    "voice": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Narration.",
+      "properties": {
+        "mode": { "enum": ["audition", "named", "none"], "default": "audition", "description": "audition = try several voices on one line and judge; named = use voice.name; none = no narration (captions can still come from script timings)." },
+        "name": { "type": "string", "description": "Voice name for the TTS model (for example a Gemini prebuilt voice). Required when mode is named." },
+        "style": { "type": "string", "description": "Delivery direction sent with every take (pace, warmth, diction)." },
+        "takes": { "type": "integer", "minimum": 1, "maximum": 8, "default": 3, "description": "Takes per line; every take is transcript-checked." },
+        "lead_in": { "type": "number", "minimum": 0, "default": 0.6, "description": "Seconds before the first line starts (voice.py words)." },
+        "gap": { "type": "number", "minimum": 0, "default": 0.57, "description": "Seconds between lines when voice.py words lays them out." }
+      }
+    },
+    "pronunciations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Word -> respelling the TTS reads correctly (applied to the tts text only; captions keep the real spelling)."
+    },
+    "music": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Music bed.",
+      "properties": {
+        "mode": { "enum": ["generated", "file", "synth", "none"], "default": "generated", "description": "generated = model-made candidates; file = your own track; synth = the engine's synthesized pad ($0); none = no music." },
+        "prompt": { "type": "string", "description": "Mood and instrumentation prompt for generated music." },
+        "file": { "type": "string", "description": "Path to your own track when mode is file (you must hold the rights)." },
+        "candidates": { "type": "integer", "minimum": 1, "maximum": 6, "default": 3, "description": "Generated candidates to judge." }
+      }
+    },
+    "sfx": { "enum": ["synthesized", "none"], "default": "synthesized", "description": "Sound effects: synthesized in the engine from the storyboard event list, or none." },
+    "art": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Artwork.",
+      "properties": {
+        "mode": { "enum": ["generated", "code"], "default": "generated", "description": "generated = image-model sticker sheets cut out into stickers; code = everything drawn in code ($0)." },
+        "sheets": { "type": "integer", "minimum": 0, "description": "Expected final sticker sheets (6-10 stickers each); used by the cost quote. Default: the duration in seconds / 15, rounded up, between 2 and 8 (45 s -> 3, 90 s -> 6), filled in when the film is scaffolded." },
+        "draft_first": { "type": "boolean", "default": true, "description": "Make cheap 1K draft sheets for the animatic before final art." }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["web", "docs", "repo", "live", "none"], "description": "Where facts come from; none = fiction (research is skipped)." },
+          "ref": { "type": "string", "description": "URL, path, repo or a description of the read-only system." }
+        }
+      },
+      "default": [],
+      "description": "Fact sources for the claims ledger. Empty (intake skipped or unanswered) = by form: web research for explainer, promo and data_story; none (fiction) for story and music_video."
+    },
+    "real_assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "what"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "description": "Screenshot, logo or photo path." },
+          "what": { "type": "string", "description": "What it shows and how it may be used." }
+        }
+      },
+      "default": [],
+      "description": "Real things stay real: these are used as-is or as references, never replaced with generated fakes."
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "kind", "consent"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "Name or nickname as it may appear on screen." },
+          "kind": { "type": "string", "description": "person, pet, place, organization, product, ..." },
+          "consent": { "type": "boolean", "description": "The subject (or their guardian or owner) agreed to be depicted." },
+          "notes": { "type": "string", "description": "Likeness notes; never invent behaviour, quotes or traits." }
+        }
+      },
+      "default": [],
+      "description": "Real people, pets or places to depict. No consent = do not depict."
+    },
+    "offscreen": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["street addresses", "IP addresses", "domain names", "credentials", "private names"],
+      "description": "What must never appear on screen or in narration; the fact-checker flags violations."
+    },
+    "hard_truths": { "enum": ["include", "soften", "omit", "ask"], "default": "ask", "description": "What to do when research finds uncomfortable facts." },
+    "jargon": { "enum": ["hide", "brackets", "show"], "default": "brackets", "description": "Technical names: hidden, faint and bracketed under the plain words, or shown." },
+    "disclosure": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "AI disclosure: the page's credits card and an end card inside the film.",
+      "properties": {
+        "card": { "type": "boolean", "default": true, "description": "Show the credits and the AI-made note on the page." },
+        "end_card": { "type": "boolean", "default": true, "description": "Draw a disclosure end card over the last seconds of the film." },
+        "seconds": { "type": "number", "minimum": 1, "maximum": 10, "default": 3.2, "description": "End card length (the engine caps it at 40% of the film). It is fully legible for this minus its 0.4 s fade-in and the film's fade-out (2% of the duration, 0.25-0.8 s); resolve.mjs warns under 2 s." },
+        "title": { "type": "string", "default": "Made with AI", "description": "End card title." },
+        "lines": { "type": "array", "items": { "type": "string" }, "default": [], "description": "End card lines. Empty = the credits." },
+        "note": { "type": "string", "default": "Made with AI. The credits list the models and tools used.", "description": "The AI-made note on the page, in the transcript and in the MP4 comment. An empty string turns it off." }
+      }
+    },
+    "credits": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "type": "string" },
+          { "type": "object", "required": ["role", "name"], "additionalProperties": false, "properties": { "role": { "type": "string" }, "name": { "type": "string" } } }
+        ]
+      },
+      "description": "Credits for the page and the end card: models and tools used, people, sources. Absent = keep what config.json has."
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "description": "Bold lead-in of the note." },
+          "text": { "type": "string", "description": "The note itself." }
+        }
+      },
+      "description": "Short notes shown under the player (how it was made, what it covers). Absent = keep what config.json has."
+    },
+    "captions": { "type": "boolean", "default": true, "description": "Captions on by default in the live player." },
+    "engine": { "enum": ["canvas"], "default": "canvas", "description": "Rendering adapter. canvas is the bundled engine." },
+    "providers": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Provider preset plus per-role overrides.",
+      "properties": {
+        "preset": { "enum": ["openrouter"], "default": "openrouter", "description": "Provider preset (scripts/providers/registry.json)." },
+        "commercial_safe": { "type": "boolean", "default": true, "description": "Filter out models and weights whose terms are non-commercial before anything else." },
+        "roles": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": false,
+          "description": "Model id (or registry candidate id) to use first for a role; null = registry order.",
+          "properties": {
+            "tts": { "type": ["string", "null"], "description": "Narration model." },
+            "align": { "type": ["string", "null"], "description": "Word-timing model (needs word timestamps)." },
+            "music": { "type": ["string", "null"], "description": "Music model." },
+            "image": { "type": ["string", "null"], "description": "Sticker-sheet model." },
+            "critic": { "type": ["string", "null"], "description": "Video/audio/image critic; a different model family from the builder." },
+            "video": { "type": ["string", "null"], "description": "Opt-in video clips; no tool uses this role yet." }
+          }
+        }
+      }
+    },
+    "budget_usd": { "type": "number", "minimum": 0, "default": 10, "description": "Hard cap across all paid calls for this film (ledger.jsonl). 0 = no paid calls." },
+    "account_ceiling_usd": { "type": ["number", "null"], "minimum": 0, "default": null, "description": "Optional hard stop on the whole account: refuse any paid call that would push the account's reported usage (GET /key) past this many USD. --account-ceiling and env ANIMATED_SHORT_ACCOUNT_CEILING win over it. null = no ceiling." },
+    "delivery": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["page", "mp4", "webm", "bundle"] },
+      "default": ["page", "mp4"],
+      "description": "Deliverables. The live page is always produced; mp4 uses ffmpeg or in-browser WebCodecs."
+    },
+    "autonomy": {
+      "enum": ["intake_once", "approve_animatic", "approve_each_phase"],
+      "default": "intake_once",
+      "description": "intake_once = one batched question round, then autonomous; approve_animatic = also stop at the animatic; approve_each_phase = stop after every phase."
+    },
+    "review": {
+      "type": "object",
+      "default": {},
+      "additionalProperties": false,
+      "description": "Review loop and ship thresholds.",
+      "properties": {
+        "rounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 4, "description": "Maximum review rounds." },
+        "director_min": { "type": "number", "minimum": 0, "maximum": 10, "default": 8.5, "description": "Director overall score needed to ship." },
+        "quiz_min": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.8, "description": "Fraction of quiz answers each persona must get right (explainers)." },
+        "learnings_min": { "type": "integer", "minimum": 0, "default": 5, "description": "Concrete new learnings each persona must list (explainers)." },
+        "originality_min": { "type": "number", "minimum": 0, "maximum": 10, "default": 7, "description": "Originality score needed to ship." }
+      }
+    },
+    "output_dir": { "type": "string", "default": "out", "description": "Where deliverables go, relative to the film directory." }
+  },
+  "$defs": {
+    "persona": {
+      "type": "object",
+      "required": ["name", "knows"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "Who they are, e.g. 'a new team member' or 'a grandparent'." },
+        "knows": { "type": "string", "description": "What they already know about the topic." },
+        "wants": { "type": "string", "description": "What they hope to get out of the film." }
+      }
+    },
+    "color": { "type": "string", "pattern": "^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$", "description": "Hex colour." },
+    "face": {
+      "type": "object",
+      "required": ["family", "src"],
+      "additionalProperties": false,
+      "properties": {
+        "family": { "type": "string", "description": "CSS family name." },
+        "src": { "type": "string", "description": "Path relative to web/, e.g. fonts/display.woff2." },
+        "weight": { "type": ["string", "integer"], "description": "CSS weight, e.g. 400 or '400 700'." },
+        "style": { "type": "string", "description": "normal or italic." }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "meta": { "fps": 30, "size": [1920, 1080], "duration": 5, "seed": 1, "title": "" },
+  "layout": { "type": "stage" },
+  "scenes": [],
+  "vo": [],
+  "sfx": [],
+  "shots": []
+}

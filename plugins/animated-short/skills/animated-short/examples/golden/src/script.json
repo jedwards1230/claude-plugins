@@ -1,0 +1,6 @@
+{
+  "lines": [
+    { "id": "l1", "text": "Three shapes share one small stage.", "reads": ["three shapes", "one small stage"] },
+    { "id": "l2", "text": "Each one waits, then takes its turn.", "reads": ["one at a time", "three turns"] }
+  ]
+}

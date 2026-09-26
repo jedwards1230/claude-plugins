@@ -1,0 +1,23 @@
+{
+ "reviewer": "frame_qa",
+ "cut": "r4-fix",
+ "scores": {
+  "reads": {"value": 9, "why": "one read at a time"},
+  "visual_polish": {"value": 9, "why": "no pops or stray rings"},
+  "character": {"value": 8, "why": "the press squashes"},
+  "accessibility": {"value": 8, "why": "short end card"}
+ },
+ "previous": [
+  {"check": "VIS-5", "at": "0:19.8", "status": "fixed", "note": "strip-t019.60.jpg: the same bubbles carry across the cut"},
+  {"check": "VIS-1", "at": "0:20.9", "status": "fixed", "note": "t020.90.jpg: the lid lies inside the frame"},
+  {"check": "VIS-2", "at": "0:26.0", "status": "fixed", "note": "crop-t026.00.jpg: the holes read as openings"},
+  {"check": "VIS-2", "at": "0:38.6", "status": "fixed", "note": "t038.60.jpg: no ring left"},
+  {"check": "CHAR-1", "at": "0:20.8", "status": "fixed", "note": "strip-t020.80.jpg: squash, press, settle"},
+  {"check": "READ-1", "at": "0:13.0", "status": "fixed", "note": "t013.00.jpg: the older label is dimmed"},
+  {"check": "A11Y-2", "at": "0:42.5", "status": "fixed", "note": "crop-t042.50.jpg: 12 words"}
+ ],
+ "defects": [
+  {"at": "0:44.5", "severity": "nit", "check": "READ-3", "issue": "the end card is fully legible for about 2 s before the fade (t044.50.jpg)", "fix": "hold the card longer"}
+ ],
+ "verdict": "ship"
+}

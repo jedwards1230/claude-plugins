@@ -1,0 +1,656 @@
+{
+ "version": 1,
+ "meta": {
+  "fps": 30,
+  "size": [
+   1920,
+   1080
+  ],
+  "seed": 7,
+  "title": "Shapes Take Turns",
+  "duration": 10
+ },
+ "layout": {
+  "type": "board",
+  "grid": [
+   2,
+   1
+  ],
+  "caption": "shapes take turns \u00b7 a ten-second test",
+  "finale": {
+   "dur": 1.6,
+   "at": 7.8
+  },
+  "panel": [
+   1780,
+   1000
+  ],
+  "gutter": [
+   623,
+   400
+  ],
+  "arrows": true,
+  "doodles": true,
+  "whoosh": true,
+  "handheld": 1
+ },
+ "timing": {
+  "beats": [
+   0,
+   0.625,
+   1.25,
+   1.875,
+   2.5,
+   3.125,
+   3.75,
+   4.375,
+   5,
+   5.625,
+   6.25,
+   6.875,
+   7.5,
+   8.125,
+   8.75,
+   9.375
+  ],
+  "downbeats": [
+   0,
+   2.5,
+   5,
+   7.5
+  ]
+ },
+ "music": {
+  "synth": {
+   "bpm": 96,
+   "key": "D",
+   "mode": "major"
+  },
+  "gain_db": -10
+ },
+ "vo": [
+  {
+   "id": "l1",
+   "at": 0.7,
+   "dur": 2.4,
+   "text": "Three shapes share one small stage.",
+   "asset": null,
+   "words": [
+    {
+     "w": "Three",
+     "s": 0.7,
+     "e": 1
+    },
+    {
+     "w": "shapes",
+     "s": 1.04,
+     "e": 1.48
+    },
+    {
+     "w": "share",
+     "s": 1.54,
+     "e": 1.86
+    },
+    {
+     "w": "one",
+     "s": 1.92,
+     "e": 2.12
+    },
+    {
+     "w": "small",
+     "s": 2.18,
+     "e": 2.54
+    },
+    {
+     "w": "stage.",
+     "s": 2.6,
+     "e": 3.1
+    }
+   ]
+  },
+  {
+   "id": "l2",
+   "at": 5,
+   "dur": 2.6,
+   "text": "Each one waits, then takes its turn.",
+   "asset": null,
+   "words": [
+    {
+     "w": "Each",
+     "s": 5,
+     "e": 5.26
+    },
+    {
+     "w": "one",
+     "s": 5.3,
+     "e": 5.5
+    },
+    {
+     "w": "waits,",
+     "s": 5.56,
+     "e": 6
+    },
+    {
+     "w": "then",
+     "s": 6.1,
+     "e": 6.3
+    },
+    {
+     "w": "takes",
+     "s": 6.36,
+     "e": 6.72
+    },
+    {
+     "w": "its",
+     "s": 6.76,
+     "e": 6.9
+    },
+    {
+     "w": "turn.",
+     "s": 6.96,
+     "e": 7.6
+    }
+   ]
+  }
+ ],
+ "scenes": [
+  {
+   "id": "stage",
+   "reads": [
+    "three shapes",
+    "one small stage"
+   ],
+   "panel": {
+    "index": 0,
+    "r": -0.4479780988069251,
+    "seed": 11,
+    "enter": "drop",
+    "enter_at": 0
+   },
+   "elements": [
+    {
+     "id": "h1",
+     "kind": "text",
+     "style": "heading",
+     "text": "taking turns",
+     "pos": [
+      0.06,
+      0.13
+     ],
+     "align": "left"
+    },
+    {
+     "id": "loop",
+     "kind": "svg-path",
+     "pos": [
+      0.8,
+      0.27
+     ],
+     "size": 170,
+     "stroke": "coral",
+     "stroke_w": 6,
+     "d": "M 0 60 C 40 60 70 40 70 10 A 30 30 0 1 0 40 40 C 60 70 100 60 130 40"
+    },
+    {
+     "id": "circle",
+     "kind": "shape",
+     "shape": "circle",
+     "w": 230,
+     "color": "coral",
+     "pos": [
+      0.25,
+      0.64
+     ],
+     "idle": true
+    },
+    {
+     "id": "square",
+     "kind": "shape",
+     "shape": "rect",
+     "w": 220,
+     "h": 220,
+     "color": "teal",
+     "pos": [
+      0.5,
+      0.65
+     ],
+     "idle": true
+    },
+    {
+     "id": "triangle",
+     "kind": "shape",
+     "shape": "triangle",
+     "w": 250,
+     "h": 230,
+     "color": "gold",
+     "pos": [
+      0.75,
+      0.64
+     ],
+     "idle": true
+    },
+    {
+     "id": "floor",
+     "kind": "shape",
+     "shape": "line",
+     "points": [
+      [
+       0.1,
+       0.8
+      ],
+      [
+       0.9,
+       0.8
+      ]
+     ],
+     "stroke_w": 6
+    },
+    {
+     "id": "spark",
+     "kind": "shape",
+     "shape": "sparkle",
+     "w": 70,
+     "color": "gold",
+     "pos": [
+      0.62,
+      0.4
+     ]
+    },
+    {
+     "id": "label1",
+     "kind": "text",
+     "style": "label",
+     "text": "one small stage",
+     "size": 36,
+     "pos": [
+      0.5,
+      0.9
+     ]
+    }
+   ],
+   "beats": [
+    {
+     "at": 0.25,
+     "target": "h1",
+     "do": "type-on",
+     "dur": 0.4
+    },
+    {
+     "at": 0.7,
+     "target": "loop",
+     "do": "draw-on",
+     "dur": 0.5
+    },
+    {
+     "at": 1.04,
+     "target": "circle",
+     "do": "pop",
+     "dur": 0.3
+    },
+    {
+     "at": 1.19,
+     "target": "square",
+     "do": "pop",
+     "dur": 0.3
+    },
+    {
+     "at": 1.34,
+     "target": "triangle",
+     "do": "pop",
+     "dur": 0.3
+    },
+    {
+     "at": 2.5,
+     "target": "spark",
+     "do": "pop",
+     "spin": 40,
+     "dur": 0.3
+    },
+    {
+     "at": 2.18,
+     "target": "floor",
+     "do": "draw-on",
+     "dur": 0.6
+    },
+    {
+     "at": 2.6,
+     "target": "label1",
+     "do": "type-on",
+     "dur": 0.375
+    }
+   ],
+   "at": 0,
+   "until": 4.6,
+   "cell": [
+    0,
+    0
+   ]
+  },
+  {
+   "id": "turns",
+   "at": 4.6,
+   "reads": [
+    "one at a time",
+    "three turns"
+   ],
+   "elements": [
+    {
+     "id": "h2",
+     "kind": "text",
+     "style": "heading",
+     "text": "one at a time",
+     "pos": [
+      0.06,
+      0.13
+     ],
+     "align": "left"
+    },
+    {
+     "id": "cast",
+     "kind": "custom",
+     "shot": "turns",
+     "pos": [
+      0.42,
+      0.6
+     ],
+     "w": 1100,
+     "h": 560,
+     "cues": {
+      "hop0": 5.56,
+      "hop1": 6.36,
+      "hop2": 6.96
+     }
+    },
+    {
+     "id": "count",
+     "kind": "text",
+     "style": "caption",
+     "text": "turns taken: {n}",
+     "size": 44,
+     "pos": [
+      0.82,
+      0.3
+     ],
+     "card": true
+    },
+    {
+     "id": "tick",
+     "kind": "shape",
+     "shape": "check",
+     "w": 70,
+     "stroke": "sage",
+     "stroke_w": 10,
+     "pos": [
+      0.82,
+      0.45
+     ]
+    }
+   ],
+   "beats": [
+    {
+     "at": 5.1,
+     "target": "h2",
+     "do": "type-on",
+     "dur": 0.433
+    },
+    {
+     "at": 5.3,
+     "target": "count",
+     "do": "fade",
+     "dur": 0.3
+    },
+    {
+     "at": 6.01,
+     "target": "count",
+     "do": "count-up",
+     "from": 0,
+     "to": 1,
+     "dur": 0.15
+    },
+    {
+     "at": 6.81,
+     "target": "count",
+     "do": "count-up",
+     "to": 2,
+     "dur": 0.15
+    },
+    {
+     "at": 7.41,
+     "target": "count",
+     "do": "count-up",
+     "to": 3,
+     "dur": 0.15
+    },
+    {
+     "at": 6.96,
+     "target": "tick",
+     "do": "draw-on",
+     "dur": 0.25
+    }
+   ],
+   "until": 10,
+   "cell": [
+    1,
+    0
+   ],
+   "panel": {
+    "index": 1,
+    "r": 0.35145448667462914,
+    "seed": 21
+   }
+  }
+ ],
+ "camera": {
+  "resolved": true,
+  "auto": true,
+  "keys": [
+   {
+    "t": 0,
+    "x": 1181.5,
+    "y": 710,
+    "z": 1.03,
+    "r": 0,
+    "ease": "sine",
+    "scene": "stage",
+    "role": "start"
+   },
+   {
+    "t": 3.6273,
+    "x": 1231.5,
+    "y": 690,
+    "z": 1.075,
+    "r": 0.2,
+    "ease": "sine",
+    "scene": "stage",
+    "role": "leave"
+   },
+   {
+    "t": 4.9783,
+    "x": 3604.5,
+    "y": 700,
+    "z": 1,
+    "r": -0.3,
+    "ease": "sine",
+    "scene": "turns",
+    "role": "arrive"
+   },
+   {
+    "t": 7.8,
+    "x": 3644.5,
+    "y": 730,
+    "z": 1.07,
+    "r": 0.3,
+    "ease": "sine",
+    "scene": "turns",
+    "role": "leave"
+   },
+   {
+    "t": 9.4,
+    "x": 2403,
+    "y": 700,
+    "z": 0.40749063670411984,
+    "r": 0,
+    "ease": "cubic",
+    "zoomTo": true,
+    "role": "finale"
+   },
+   {
+    "t": 10,
+    "x": 2403,
+    "y": 700,
+    "z": 0.4258277153558052,
+    "r": 0,
+    "ease": "sine",
+    "role": "hold"
+   }
+  ],
+  "moves": [
+   {
+    "from": 3.6273,
+    "to": 4.9783,
+    "scene": "stage",
+    "next": "turns"
+   },
+   {
+    "from": 7.8,
+    "to": 9.4,
+    "scene": "turns",
+    "finale": true
+   }
+  ]
+ },
+ "sfx": [
+  {
+   "at": 0.05,
+   "type": "rustle",
+   "gain": 0.7
+  },
+  {
+   "at": 0.25,
+   "type": "scribble",
+   "dur": 0.4,
+   "gain": 0.5
+  },
+  {
+   "at": 0.7,
+   "type": "scribble",
+   "dur": 0.5,
+   "gain": 0.4,
+   "pan": 0.45
+  },
+  {
+   "at": 1.04,
+   "type": "pop",
+   "pan": -0.4
+  },
+  {
+   "at": 1.19,
+   "type": "pop",
+   "pan": 0
+  },
+  {
+   "at": 1.34,
+   "type": "pop",
+   "pan": 0.4
+  },
+  {
+   "at": 2.18,
+   "type": "scribble",
+   "dur": 0.6,
+   "gain": 0.35
+  },
+  {
+   "at": 2.5,
+   "type": "twinkle",
+   "gain": 0.4,
+   "pan": 0.2
+  },
+  {
+   "at": 2.6,
+   "type": "scribble",
+   "dur": 0.4,
+   "gain": 0.3
+  },
+  {
+   "at": 3.6773,
+   "type": "whoosh",
+   "gain": 0.8,
+   "dur": 1.351,
+   "pan": 0,
+   "auto": true
+  },
+  {
+   "at": 5.1,
+   "type": "scribble",
+   "dur": 0.45,
+   "gain": 0.5
+  },
+  {
+   "at": 5.56,
+   "type": "boing",
+   "pitch": 0,
+   "gain": 0.5,
+   "pan": -0.3
+  },
+  {
+   "at": 6.01,
+   "type": "ding",
+   "note": 0,
+   "gain": 0.5
+  },
+  {
+   "at": 6.36,
+   "type": "boing",
+   "pitch": 1,
+   "gain": 0.5,
+   "pan": 0
+  },
+  {
+   "at": 6.81,
+   "type": "ding",
+   "note": 2,
+   "gain": 0.5
+  },
+  {
+   "at": 6.96,
+   "type": "boing",
+   "pitch": 2,
+   "gain": 0.5,
+   "pan": 0.3
+  },
+  {
+   "at": 6.96,
+   "type": "click",
+   "pan": 0.5
+  },
+  {
+   "at": 7.41,
+   "type": "ding",
+   "note": 4,
+   "gain": 0.5
+  },
+  {
+   "at": 7.5,
+   "type": "twinkle",
+   "gain": 0.3
+  },
+  {
+   "at": 7.85,
+   "type": "whoosh",
+   "gain": 0.5,
+   "dur": 1.6,
+   "pan": 0,
+   "auto": true
+  },
+  {
+   "at": 8.5,
+   "type": "sparkleburst",
+   "gain": 0.5
+  }
+ ],
+ "shots": [
+  "film/shots/turns.js"
+ ],
+ "downgrades": [],
+ "_comment": "Golden example: ten seconds of code-drawn shapes on a 2x1 board. Every element, beat and cue form here is deliberate; see README.md. Schema: references/storyboard.schema.json."
+}

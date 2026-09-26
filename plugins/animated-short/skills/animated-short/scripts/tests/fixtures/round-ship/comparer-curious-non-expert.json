@@ -1,0 +1,9 @@
+{
+ "reviewer": "comparer",
+ "cut": "r1",
+ "persona": "curious non-expert",
+ "scores": {},
+ "matches_message": true,
+ "defects": [],
+ "verdict": "ship"
+}
