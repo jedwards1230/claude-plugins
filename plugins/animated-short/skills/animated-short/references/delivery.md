@@ -64,11 +64,18 @@ full screen (`f`), keyboard seeking, a poster frame, the notes and the credits c
 - The page shows `credits` and `disclosure.note` (default "Made with AI. The credits list the
   models and tools used."). The same note goes into the transcript and the MP4 comment.
 - The end card (film.json `disclosure.end_card`, default true) draws "Made with AI" and the
-  credits over the last `disclosure.seconds` (2.5 s) of the film itself, inside the duration:
+  credits over the last `disclosure.seconds` (3.2 s) of the film itself, inside the duration:
   end the story before it, and leave narration at least `seconds + 0.5` s clear of the end
   (`voice.py words` checks exactly that by default; `resolve.mjs` warns when the narration
   ends less than 0.3 s before the card). Set `end_card: false` to keep the disclosure on the
   page only.
+- The card's legible window is shorter than `seconds`: the card fades in over 0.4 s and the
+  film's fade-out (2% of the duration, 0.25-0.8 s) closes it, so it is fully visible for
+  `seconds - 0.4 - fade-out`: 2.0 s at the default 3.2 s on a film of 40 s or more.
+  `resolve.mjs` warns when that window is under 2.0 s (it names the `seconds` that fixes it).
+  Keep the card short enough to read in its window (a slow reader included): the title and
+  two or three short lines via `disclosure.lines`; the page, the transcript and the MP4
+  comment carry the full credits.
 - This section is where the credits are defined. Fill film.json `credits` before the first
   review round (the end card draws them, so every reviewed cut must carry them), complete from
   the start so no later round changes the end card:
@@ -83,9 +90,12 @@ full screen (`f`), keyboard seeking, a poster frame, the notes and the credits c
   - provenance for watermarked media, worded as what the model does, not as a claim about the
     edited file: "Google Gemini TTS, which adds a SynthID watermark to what it makes".
   Candidates that were generated but not used (a music candidate that lost the pick, a
-  discarded sheet) are not credited. Then
-  `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"`; `report.py` flags a
-  model in the ledger that the credits do not seem to name.
+  discarded sheet) and preflight probes are not credited. Then
+  `python3 "$SKILL/scripts/scaffold.py" sync-config --film "$FILM"`. `report.py` flags a model
+  whose output is in the film that the credits do not seem to name (the pinned voice and image
+  models in `work/state.json`, the aligner in `work/vo/words-detail.json`, the music candidate
+  `work/music/edit.json` uses, per `work/music/candidates.json`), and only lists the other
+  ledger models it does not find: fine when they were probes or unused candidates.
 
 ## The phone copy
 

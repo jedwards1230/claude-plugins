@@ -275,6 +275,28 @@ def new_film(root, **overrides):
     return d
 
 
+def fix_pass_film(root, **overrides):
+    """A film at the fix pass after its last round (fixtures/round-fix): round 4 holds the shipping reviews
+    of fixtures/round-ship plus frame QA with 7 counted defects, a fact-check with 3 and a sign-off; r4-fix
+    holds a new technical review, frame QA and fact-check whose "previous" lists judge those defects."""
+    film = new_film(root, **overrides)
+    reviews = film / "work" / "reviews"
+    for label in ("4", "4-fix"):
+        (reviews / f"r{label}").mkdir(parents=True, exist_ok=True)
+    for f in (FIXTURES / "round-ship").glob("*.json"):
+        doc = json.loads(f.read_text())
+        doc["cut"] = "r4"
+        (reviews / "r4" / f.name).write_text(json.dumps(doc))
+    tech = json.loads((FIXTURES / "round-ship" / "technical.json").read_text())
+    tech["cut"] = "r4-fix"
+    (reviews / "r4-fix" / "technical.json").write_text(json.dumps(tech))
+    for label in ("4", "4-fix"):
+        for f in (FIXTURES / "round-fix" / f"r{label}").glob("*.json"):
+            shutil.copy(f, reviews / f"r{label}" / f.name)
+    (film / "work" / "direction" / "quiz.json").write_text((FIXTURES / "quiz.json").read_text())
+    return film
+
+
 def write_script(film_dir, lines):
     (Path(film_dir) / "src").mkdir(parents=True, exist_ok=True)
     (Path(film_dir) / "src" / "script.json").write_text(json.dumps({"lines": lines}))

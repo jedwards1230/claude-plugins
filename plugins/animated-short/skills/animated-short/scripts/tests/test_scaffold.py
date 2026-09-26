@@ -59,7 +59,7 @@ class ScaffoldTest(TempDirTest):
             cfg["disclosure"],
             {
                 "end_card": True,
-                "seconds": 2.5,
+                "seconds": 3.2,
                 "title": "Made with AI",
                 "note": "Made with AI. The credits list the models and tools used.",
             },
@@ -107,7 +107,7 @@ class ScaffoldTest(TempDirTest):
     @unittest.skipUnless(audiolib.which("node"), "needs node")
     def test_resolve_warns_when_narration_runs_into_the_end_card(self):
         d = self.tmp / "card"
-        run_tool(scaffold, ["new", str(d), "--duration", "12"] + REQ)  # end card on: the last 2.5 s (from 9.5 s)
+        run_tool(scaffold, ["new", str(d), "--duration", "12"] + REQ)  # end card on: the last 3.2 s (from 8.8 s)
         (d / "src" / "script.json").write_text(json.dumps({"lines": [{"id": "l1", "text": "Two words."}]}))
         sb = json.loads((d / "src" / "storyboard.json").read_text())
         sb["scenes"] = [{"id": "a", "elements": [], "custom": {"canvas": "a", "layer": "sideways"}}]
@@ -129,11 +129,24 @@ class ScaffoldTest(TempDirTest):
         (d / "src" / "storyboard.json").write_text(json.dumps(sb))
         code, out = resolve(0.6, 2.0)
         self.assertEqual(code, 0, out)
-        self.assertNotIn("end card", out)
-        code, out = resolve(6.0, 3.4)  # ends at 9.4 s, 0.1 s before the card
-        self.assertIn("0.10 s before the end card starts at 9.50 s", out)
-        code, out = resolve(6.0, 4.0)
+        self.assertNotIn("end card", out)  # 3.2 - 0.4 - 0.25 = 2.55 s fully visible: no legibility warning
+        code, out = resolve(6.0, 2.7)  # ends at 8.7 s, 0.1 s before the card
+        self.assertIn("0.10 s before the end card starts at 8.80 s", out)
+        code, out = resolve(6.0, 3.3)
         self.assertIn("0.50 s after the end card starts", out)
+        # a 45 s film with the old 2.5 s card: 2.5 - 0.4 fade-in - 0.8 fade-out = 1.3 s to read it
+        film = json.loads((d / "film.json").read_text())
+        film.update(duration=45)
+        film["disclosure"]["seconds"] = 2.5
+        (d / "film.json").write_text(json.dumps(film))
+        run_tool(scaffold, ["sync-config", "--film", str(d)])
+        code, out = resolve(0.6, 2.0)
+        self.assertIn("the end card is fully visible for 1.30 s", out)
+        self.assertIn("raise disclosure.seconds in film.json to at least 3.2", out)
+        film["disclosure"]["seconds"] = 3.2
+        (d / "film.json").write_text(json.dumps(film))
+        run_tool(scaffold, ["sync-config", "--film", str(d)])
+        self.assertNotIn("end card", resolve(0.6, 2.0)[1])
 
     def test_golden_matches_a_plain_copy(self):
         d = self.tmp / "golden"
@@ -198,6 +211,54 @@ class ScaffoldTest(TempDirTest):
         )  # ... but the end card keeps them
         self.assertEqual(cfg["notes"][0]["title"], "Sources")
         self.assertEqual(json.loads((d / "src" / "storyboard.json").read_text())["meta"]["size"], [1080, 1080])
+
+    def test_sync_engine_updates_the_engine_copy_and_nothing_else(self):
+        d = self.tmp / "old"
+        run_tool(scaffold, ["new", str(d)] + REQ)
+        engine = SKILL_DIR / "engine"
+        # an older engine: a changed player script, a missing tool, an old dependency; plus the film's own files
+        (d / "web" / "js" / "main.js").write_text("// an older player\n")
+        (d / "tools" / "qa.mjs").unlink()
+        (d / "tools" / "notes.mjs").write_text("// a film-only helper\n")
+        pkg = json.loads((d / "package.json").read_text())
+        pkg["dependencies"].update(mediabunny="^0.1.0", extra="^1.0.0")
+        (d / "package.json").write_text(json.dumps(pkg))
+        (d / "web" / "film" / "shots").mkdir(parents=True, exist_ok=True)
+        (d / "web" / "film" / "shots" / "a.js").write_text("FILM.shot('a', function () {});\n")
+        owned = {p: p.read_bytes() for sub in ("src", "web/film") for p in (d / sub).rglob("*") if p.is_file()}
+        owned[d / "film.json"] = (d / "film.json").read_bytes()
+
+        code, out, err = run_tool(scaffold, ["sync-engine", "--film", str(d), "--dry-run"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("changed  web/js/main.js (+", out)
+        self.assertIn("new      tools/qa.mjs", out)
+        self.assertIn("kept     tools/notes.mjs", out)
+        self.assertIn("package.json dependency mediabunny ^0.1.0 -> ", out)
+        self.assertIn("dry run: nothing written", out)
+        self.assertEqual((d / "web" / "js" / "main.js").read_text(), "// an older player\n")
+        self.assertFalse((d / "tools" / "qa.mjs").exists())
+
+        code, out, err = run_tool(scaffold, ["sync-engine", "--film", str(d)])
+        self.assertEqual(code, 0, err)
+        for rel in ("web/js/main.js", "tools/qa.mjs", "web/index.html"):
+            self.assertTrue(filecmp.cmp(engine / rel, d / rel, shallow=False), rel)
+        self.assertTrue((d / "tools" / "notes.mjs").exists())
+        pkg = json.loads((d / "package.json").read_text())
+        want = json.loads((engine / "package.json").read_text())["dependencies"]
+        self.assertEqual(pkg["dependencies"], dict(want, extra="^1.0.0"))  # engine versions win, extras stay
+        backups = list((d / "work").glob("engine-backup-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual((backups[0] / "web" / "js" / "main.js").read_text(), "// an older player\n")
+        self.assertIn("mediabunny", (backups[0] / "package.json").read_text())
+        self.assertIn("npm install --prefix", out)
+        self.assertIn("resolve.mjs", out)
+        for p, b in owned.items():
+            self.assertEqual(p.read_bytes(), b, p)  # film content untouched
+
+        code, out, _ = run_tool(scaffold, ["sync-engine", "--film", str(d)])
+        self.assertIn("up to date", out)
+        self.assertEqual(len(list((d / "work").glob("engine-backup-*"))), 1)  # no empty backup
+        self.assertEqual(run_tool(scaffold, ["sync-engine", "--film", str(self.tmp / "nothing")])[0], 2)
 
     @unittest.skipUnless(audiolib.which("node"), "needs node")
     def test_new_film_resolves(self):

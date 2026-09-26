@@ -76,14 +76,15 @@
   };
 
   // ---------- disclosure end card ----------
-  // config.disclosure = {end_card, seconds (2.5), title ("Made with AI"), lines (default: the
-  // credits), note}. The card sits inside the film's duration: it fades in over the last
-  // `seconds` (at most 40% of the film) and the normal fade-out closes it.
+  // config.disclosure = {end_card, seconds (3.2), title ("Made with AI"), lines (default: the
+  // credits), note}. The card sits inside the film's duration: it covers the last `seconds` (at
+  // most 40% of the film), fades in over 0.4 s and the normal fade-out closes it, so it is fully
+  // visible for seconds - 0.4 - FILM.fades(dur).out (tools/resolve.mjs warns under 2 s).
   const creditText = (c) => (typeof c === 'string' ? c : `${c.role}: ${c.name}`);
   function endCardPlan(cfg) {
     const dc = cfg.disclosure || {};
     if (dc.end_card !== true) return null;
-    const secs = clamp(dc.seconds || 2.5, Math.min(1.6, R.dur * 0.4), R.dur * 0.4);
+    const secs = clamp(dc.seconds || 3.2, Math.min(1.6, R.dur * 0.4), R.dur * 0.4);
     let lines = (dc.lines || (cfg.credits || []).map(creditText)).map(String);
     if (!dc.lines && lines.length > 5) lines = lines.slice(0, 4).concat([`and ${lines.length - 4} more: see the credits`]);
     return { at: R.dur - secs, title: dc.title || 'Made with AI', lines };

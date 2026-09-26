@@ -34,7 +34,7 @@ skill's base directory and `$FILM` the film directory.
   animation; spend review effort there first.
 - Budget words from the voice's measured pace, not a round number: (speech window - the gaps
   between lines) x the words per second `voice.py audition` prints. A 45 s film of 8 lines
-  with the end card holds about 90 words for a calm 2.4 words/s voice; the formula and the
+  with the end card holds about 88 words for a calm 2.4 words/s voice; the formula and the
   worked example are in `phases.md`, phase 5.
 - One read at a time, each held at least 1.2 s after it is complete; hold the big ones longer.
   Fast actions, slow meanings.

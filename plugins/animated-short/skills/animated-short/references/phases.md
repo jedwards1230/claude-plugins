@@ -207,9 +207,9 @@ Inputs: concept, research ledger, personas.
    `disclosure.seconds` + 0.5 s when it is on); the gap is `voice.gap` (0.57 s). Draft with
    2.5 words/s, then use the pace the chosen voice really has: `voice.py audition` prints each
    voice's words/s and the budget at that pace (phase 6), and slow, calm voices run near 2.4.
-   Worked example: a 45 s film with the default 2.5 s end card and 8 lines has a speech window
-   of 45 - 0.6 - 3.0 = 41.4 s; the gaps take 7 x 0.57 = 4.0 s, leaving 37.4 s; at a measured
-   2.4 words/s that is 37.4 x 2.4, about 90 words (not the 103 that 41.4 x 2.5 suggests). Put
+   Worked example: a 45 s film with the default 3.2 s end card and 8 lines has a speech window
+   of 45 - 0.6 - 3.7 = 40.7 s; the gaps take 7 x 0.57 = 4.0 s, leaving 36.7 s; at a measured
+   2.4 words/s that is 36.7 x 2.4, about 88 words (not the 102 that 40.7 x 2.5 suggests). Put
    a respelling in `tts` only when the model misreads a word the caption must keep.
 2. Reads sheet: each line's `reads` lists what the viewer must understand while it plays, in
    order, one at a time. Every read shows a mechanism (what moves, what causes what), not a
@@ -580,8 +580,9 @@ python3 "$SKILL/scripts/review.py" run --film "$FILM" [P] --round N --reviewer d
 python3 "$SKILL/scripts/review.py" gates --film "$FILM" --round N
 ```
 
-  After a fix pass, run the sign-off and the gates with `--round N-fix` instead. A sign-off
-  that fails the gates is an ordinary `iterate` (or `stop` on the last round).
+  After a fix pass, run the sign-off and the gates with `--round N-fix` instead, so the
+  sign-off watches the fixed cut. A sign-off that fails the gates is an ordinary `iterate` (or
+  `stop` on the last round).
 - `iterate`: fix every counted defect (`gates.json` lists them with the review that found
   them) and every failed gate (table below), re-resolve, re-run frame QA, and start round
   N+1. Fix causes, not symptoms.
@@ -590,22 +591,44 @@ python3 "$SKILL/scripts/review.py" gates --film "$FILM" --round N
   Otherwise deliver the best cut and list every open gate and counted defect in the report for
   the user to decide.
 
-The fix pass ($0, once per round, and the only change allowed after the last round): fix only
-the round's counted defects, re-export, re-run the technical check and frame QA on the changed
-frames (a fresh Claude subagent with the frame_qa template, given the round's counted defects
-so it reports each as fixed or still present in `previous`), and store both in
-`work/reviews/rN-fix/`:
+The fix pass (once per round, and the only change allowed after the last round; $0 apart from
+the sign-off):
+
+1. Fix the round's counted defects, in picture and text only, at their cause, not at the cited
+   moment. A cause often shows elsewhere too (the same helper, sticker, colour pair or shot
+   drawn at other times): find every frame the fix changes, cited or not (the shots and helper
+   functions you touched and the times they draw), and render stills of all of them.
+2. Re-export and re-run the technical check.
+3. Send each counted defect back to a fresh Claude subagent of the kind that can judge it,
+   with those defects pasted into its template's fix-pass part (`review-prompts.md`) so it
+   reports each as fixed or still present in `previous`:
+   - frame QA, on the stills of every changed frame: the defects whose check id starts with
+     `TEXT`, `READ`, `VIS` or `CHAR`, or is `A11Y-2`, whoever found them. Never the `ACC` ones:
+     frame QA cannot judge a fact from an image.
+   - the fact-checker, whenever the fix changed on-screen text, a label, the credits or the
+     end card: the round's `ACC-*` defects plus a check of the changed text.
+4. The sign-off, when the film has a key and budget (`budget_usd` > 0): the director again on
+   the stronger model, on the fixed cut (about $0.10 for a 45 s film). Without it, the gates
+   still read round N's sign-off but mark the director gate `stale` ("it watched the pre-fix
+   cut"), print it, and the report lists it under "Not verified".
+5. Store everything in `work/reviews/rN-fix/` and compute the gates:
 
 ```bash
 node "$FILM/tools/export.mjs" --film "$FILM"
 python3 "$SKILL/scripts/review.py" technical --film "$FILM" --round N-fix
 python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round N-fix --file "$FILM/work/reviews/incoming/frame_qa.json"
+python3 "$SKILL/scripts/review.py" ingest --film "$FILM" --round N-fix --file "$FILM/work/reviews/incoming/fact_checker.json"   # when text changed
+python3 "$SKILL/scripts/review.py" run --film "$FILM" [P] --round N-fix --reviewer director --tier signoff --prompt-file "$FILM/work/reviews/prompts/director.md" --video "$FILM/out/<slug>-phone.mp4"   # budget_usd > 0
 python3 "$SKILL/scripts/review.py" gates --film "$FILM" --round N-fix
 ```
 
-The fix pass's gates read round N with the pass's own reviews in place of round N's; a counted
-defect that a fix-pass review reports fixed (and none reports still present) moves to
-`fixed_defects`. `report.py` reports the fix pass when it exists.
+The fix pass's gates read round N with the pass's own reviews in place of round N's, and
+settle each of round N's counted defects against the pass's `previous` verdicts: reported
+fixed (and never still present) -> `fixed_defects`; still present -> still counted, once;
+not mentioned by the review that replaced its reviewer's (the fix pass re-ran that reviewer)
+-> `unverified_fixes`, printed and listed in the report but not counted; not mentioned and its
+reviewer not re-run -> still counted. `report.py` reports the fix pass when it exists, with the
+fixed and unverified lists.
 
 When a gate fails, change this:
 
@@ -623,8 +646,11 @@ On a $0 film every review in the round is a Claude subagent (SKILL.md, "$0 films
 
 ## 12. Deliver
 
-1. Check that film.json `credits` still name every model used (`delivery.md`); `report.py`
-   flags a model in the ledger that the credits do not seem to name. They were complete before
+1. Check that film.json `credits` still name every model whose output is in the film
+   (`delivery.md`); `report.py` flags one the credits do not seem to name (the pinned voice and
+   image models, the aligner, the music candidate the cut uses) and only lists the other
+   ledger models it does not find (probes and losing candidates need no credit; reviewers go
+   under "reviewed by"). They were complete before
    the reviewed cut; if one is still missing, adding it changes the end card: add it,
    `scaffold.py sync-config`, then re-export, re-run `review.py technical` for the last round
    and read a still of the end card. Nothing else changes after the sign-off except through the
@@ -662,3 +688,26 @@ left to the user.
 On failure: a TECH defect at delivery (for example a missing mode's file, loudness after a
 re-export, a page that does not load) is fixed at its cause and exported again; a change that
 touches picture or sound beyond the credits needs another review round, not a silent fix.
+
+## Updating a film's engine
+
+A film carries its own copy of the engine (`web/index.html`, `web/js/*.js`, `tools/*`), so a
+plugin update changes nothing in an existing film until that copy is synced. Render reference
+stills first, sync, then check that nothing you did not want changed:
+
+```bash
+node "$FILM/tools/render.mjs" stills <t,t,... one per scene> --film "$FILM" --out "$FILM/work/qa/sync-before"
+python3 "$SKILL/scripts/scaffold.py" sync-engine --film "$FILM" --dry-run
+python3 "$SKILL/scripts/scaffold.py" sync-engine --film "$FILM"
+npm install --prefix "$FILM"                                        # only when it says the dependencies changed
+node "$FILM/tools/resolve.mjs" --film "$FILM" --strict
+node "$FILM/tools/render.mjs" stills <the same times> --film "$FILM" --out "$FILM/work/qa/sync-after"
+```
+
+`sync-engine` backs up every file it replaces to `work/engine-backup-<UTC time>/`, adds engine
+files the film lacks, keeps the film's own extra files, merges the engine's dependencies into
+`package.json`, and never touches `web/film/`, `web/img/`, `web/audio/`, `web/fonts/`, `src/`
+or the rest of `work/`. Compare the two still folders (identical files mean nothing drawn
+changed); a difference you did not want means a shot relied on the old behaviour: adapt the
+shot, or copy the file back from the backup. New checks in the synced tools (a new resolve
+warning, a new TECH check) apply from the next run on.

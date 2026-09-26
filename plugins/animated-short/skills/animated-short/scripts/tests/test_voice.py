@@ -109,8 +109,8 @@ class VoiceTest(TempDirTest):
         spans = json.loads((self.film / "work" / "takes" / "audition" / "spans.json").read_text())
         kore = spans["voices"]["Kore"]
         self.assertAlmostEqual(kore["spoken"], 0.6, delta=0.05)  # the fake take is 0.6 s of tone
-        # 15 s film: 15 - 0.6 lead-in - 3.0 ending = 11.4 s window; 2 lines -> one 0.57 s gap
-        self.assertEqual(kore["budget_words"], int((11.4 - 0.57) * kore["words_per_second"]))
+        # 15 s film: 15 - 0.6 lead-in - 3.7 ending (3.2 s end card + 0.5) = 10.7 s window; 2 lines -> one 0.57 s gap
+        self.assertEqual(kore["budget_words"], int((10.7 - 0.57) * kore["words_per_second"]))
         self.assertIn("words/s -> the 2-line script fits about", out)
         self.assertEqual(
             voice.word_budget(
@@ -165,8 +165,8 @@ class VoiceTest(TempDirTest):
         self._vo("l2", [(0.1, 5.9)], 6.0)
         with FakeOpenRouter():
             code, out, _ = run_tool(voice, ["words", "--film", str(self.film)])
-            self.assertEqual(code, 1, out)  # the end card is on by default: the ending needs 3.0 s
-            self.assertIn("need 3.0", out)
+            self.assertEqual(code, 1, out)  # the end card is on by default: the ending needs 3.2 + 0.5 s
+            self.assertIn("need 3.7", out)
             code, out, _ = run_tool(voice, ["words", "--film", str(self.film), "--tail", "1.5"])
             self.assertEqual(code, 0, out)
             f = json.loads((self.film / "film.json").read_text())

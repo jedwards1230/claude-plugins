@@ -2,7 +2,7 @@
 
 import json
 
-from helpers import FIXTURES, TempDirTest, new_film, run_tool
+from helpers import FIXTURES, TempDirTest, fix_pass_film, new_film, run_tool
 
 # isort: split
 import common
@@ -99,14 +99,83 @@ class ReportTest(TempDirTest):
             "ledger spent $0.1050 in 3 calls",
             "Account usage since the film's first paid call: $0.0400",
             "- tts: google/gemini-3.8-flash-tts",
-            "- CHECK: the credits do not seem to name google/lyria-3-pro-preview",
+            # no record says the music was used, so the unnamed music model is listed, not flagged
+            "unused candidates; reviewers go under a reviewed-by credit): google/lyria-3-pro-preview",
             "Pronunciation of line l3: only the coarse aligner heard it",
             "- The tide times",
             "- Publish the page or keep it private",
         ):
             self.assertIn(want, text)
-        self.assertNotIn("CHECK: the credits do not seem to name google/gemini", text)  # named in the voice credit
+        self.assertNotIn("CHECK:", text)  # gemini is named in the voice credit; lyria made nothing in the film
         self.assertTrue(text.isascii())
+
+    def test_fix_pass_report_credits_and_legacy_originality(self):
+        film = fix_pass_film(
+            self.tmp,
+            credits=[
+                {"role": "Voice", "name": "Google Gemini 3.8 Flash TTS"},
+                {"role": "Stickers", "name": "Google Gemini 3 Pro Image"},
+                "Reviewed by: Google Gemini 3.8 Flash",
+            ],
+        )
+        qa_path = film / "work" / "reviews" / "r4-fix" / "frame_qa.json"
+        qa = json.loads(qa_path.read_text())
+        qa["previous"] = [p for p in qa["previous"] if p["check"] != "READ-1"]  # one fix nobody re-checked
+        qa_path.write_text(json.dumps(qa))
+        self.assertEqual(run_tool(review, ["gates", "--film", str(film), "--round", "4-fix"])[0], 0)
+        work = film / "work"
+        (work / "state.json").write_text(
+            json.dumps(
+                {
+                    "sticky": {
+                        "tts/final": {"model": "google/gemini-3.8-flash-tts", "voice": "Kore"},
+                        "image/final": {"model": "google/gemini-3-pro-image"},
+                    }
+                }
+            )
+        )
+        (work / "vo" / "words-detail.json").write_text(json.dumps({"l1": {"model": "openai/whisper-1"}}))
+        (work / "music" / "candidates.json").write_text(
+            json.dumps(
+                {
+                    "cand_0.mp3": {"model": "google/lyria-3-pro-preview"},
+                    "cand_1.mp3": {"model": "google/lyria-3-clip-preview"},
+                }
+            )
+        )
+        (work / "music" / "edit.json").write_text(json.dumps({"source": str(work / "music" / "cand_0.mp3")}))
+        led = Ledger(film / "ledger.jsonl", 10)
+        for role, model in (
+            ("tts", "google/gemini-3.8-flash-tts"),
+            ("align", "openai/whisper-1"),
+            ("image", "google/gemini-3-pro-image"),
+            ("music", "google/lyria-3-pro-preview"),
+            ("music", "google/lyria-3-clip-preview"),
+            ("critic", "google/gemini-3.8-flash"),
+        ):
+            led.reserve(role, "assets", 0.01, "openrouter", model).record(0.01)
+        (work / "direction" / "originality.md").write_text("7\nan older, unversioned check\n")
+        code, out, err = run_tool(report, ["--film", str(film)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("(round 4-fix)", out)
+        text = (film / "out" / "report.md").read_text()
+        for want in (
+            "Fixed in the fix pass (a fix-pass review reported each one fixed):",
+            "- major VIS-5 at 0:19.8 (frame_qa): the bubbles jump in size at the cut",
+            "- nit ACC-1 at 0:42.0 (fact_checker): the voice credit calls the shipped file watermarked",
+            "Fixes nobody confirmed (not counted:",
+            "- nit READ-1 at 0:13.0 (frame_qa): two labels read dark at once",
+            "- nit ACC-1 at 0:32.8 (fact_checker): still present",  # the one still counted
+            "The director gate rests on a review of the cut before the fix pass (director-signoff 9.5): "
+            "nobody signed off the fixed cut r4-fix.",
+            "- CHECK: the credits do not seem to name google/lyria-3-pro-preview, which made the music (cand_0.mp3)",
+            "- CHECK: the credits do not seem to name openai/whisper-1, which made the word timings",
+            "unused candidates; reviewers go under a reviewed-by credit): google/lyria-3-clip-preview",
+            "score 7 (`work/direction/originality.md`, latest check)",
+        ):
+            self.assertIn(want, text)
+        self.assertNotIn("name google/lyria-3-clip-preview,", text)  # the losing candidate is not flagged
+        self.assertNotIn("name google/gemini", text)
 
     def test_the_fix_pass_is_the_latest_round_and_a_film_without_rounds_still_gets_a_report(self):
         film = new_film(self.tmp, budget_usd=0)

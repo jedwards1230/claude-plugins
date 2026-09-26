@@ -25,7 +25,8 @@ node "$FILM/tools/resolve.mjs" --film "$FILM" --strict   # before builds and rev
 Errors (exit 1): bad shapes, unresolvable cues, unknown targets, missing shot files. Warnings:
 a write-on ending less than 0.3 s before its scene's camera move, a beat outside its scene,
 text under 28 px at zoom 1, reads shorter than 1.2 s each, overlapping pans, missing stickers,
-narration ending less than 0.3 s before the disclosure end card starts, config/meta
+narration ending less than 0.3 s before the disclosure end card starts, an end card fully
+visible for less than 2.0 s (`delivery.md`, "Credits and disclosure"), config/meta
 mismatches, unknown fields. `--json` prints the plan (scenes, vo, moves, shots, downgrades,
 warnings) for scripts.
 
@@ -214,6 +215,22 @@ Rules for shot code:
 - JavaScript source is ASCII-only: write the escape `\u00b7` for a middle dot (`qa.mjs ascii`, TECH-13).
 - Draw all text through `api.text` or `D.text` so it reaches the size, dwell and repeat
   checks.
+- Helpers replace the current path. `D.*` helpers (and helpers in a shared file) call
+  `ctx.beginPath()` and leave their own shape as the current path; a canvas cannot save and
+  restore a path, so this cannot be made safe inside them. A `ctx.stroke()`, `fill()` or
+  `clip()` after a helper call acts on the helper's last shape, not yours. Build your own shape
+  as a `Path2D` and pass it (`ctx.stroke(p)`, `ctx.fill(p)`, `ctx.clip(p)`), or finish your
+  path before calling any helper:
+
+```js
+const ring = new Path2D();
+ring.arc(0, 0, 120, 0, Math.PI * 2);
+ctx.save(); ctx.clip(ring);                       // clip to the ring
+D.paperShape(ctx, 'circle', 200, 200, 'teal', 7); // the helper builds and fills its own path
+ctx.restore();
+ctx.lineWidth = 6; ctx.stroke(ring);              // strokes the ring, not the helper's circle
+```
+
 - Keep one shot per file so parallel builders never edit the same file; shared drawing code
   goes in a helper file (below).
 

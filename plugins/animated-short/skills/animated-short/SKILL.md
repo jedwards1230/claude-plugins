@@ -72,7 +72,7 @@ Details, exact commands and failure handling for every phase: `references/phases
 | 8 | Assets: final sticker sheets, music cut on downbeats, sound-effect list | clean cutouts; the music's final chord lands after the last word |
 | 9 | Build: storyboard, one file per custom shot, cues on words and beats | `resolve --strict`, purity, ASCII and glyph checks clean |
 | 10 | Frame QA: contact sheets, strips, crops, text-at-time assertions | text-check clean; no blocking frame defect left; majors fixed when possible |
-| 11 | Film review: technical, director, personas + quiz, comparer, originality, audio, fact-checker, frame QA | every ship gate, then the stronger-model director sign-off; at most `review.rounds` (4) rounds, plus a $0 fix pass |
+| 11 | Film review: technical, director, personas + quiz, comparer, originality, audio, fact-checker, frame QA | every ship gate, then the stronger-model director sign-off; at most `review.rounds` (4) rounds, plus a fix pass ($0 but its sign-off) |
 | 12 | Deliver: page, MP4s, captions, transcript, credits, report (`report.py`), editable sources | technical check ships; report lists every open decision |
 
 Ship gates, in short: the director's overall score, no counted blocking defect, every persona's
@@ -81,9 +81,9 @@ claims, and the round's technical review (reads, text size, narration repeats, d
 loudness, true peak, captions, transcript). `review.py gates` computes them from the round's
 reviews with the thresholds in film.json `review`; the authoritative table is "Ship gates" in
 `references/review-prompts.md`. Only counted blocking defects block; counted majors are fixed
-when possible, through a $0 fix pass (`--round N-fix`) that is also the one change allowed
-after the last round. After `review.rounds` rounds without passing, stop and report the open
-gates.
+when possible, through a fix pass (`--round N-fix`; $0 apart from a sign-off on the fixed cut)
+that is also the one change allowed after the last round. After `review.rounds` rounds
+without passing, stop and report the open gates.
 
 ## Intake
 
@@ -138,7 +138,7 @@ and also takes `--help`):
 
 | Tool | Subcommands |
 | --- | --- |
-| `scaffold.py` | `new <dir> [--film-json F] [--from-example golden]`, `sync-config --film D` |
+| `scaffold.py` | `new <dir> [--film-json F] [--from-example golden]`, `sync-config --film D`, `sync-engine --film D [--dry-run]` (after a plugin update: refresh the film's engine copy, with a backup; `references/phases.md`, "Updating a film's engine") |
 | `preflight.py` | `[--film D] [--tier 0/1]` (free / sub-cent; without `--film` before the film exists) |
 | `quote.py`, `ledger.py` | cost quote per stage (`--stage`); `status`, `reconcile`, `release` |
 | `voice.py` | `audition`, `takes`, `check` (spans, words/s, `check-summary.md`), `pick`, `process`, `tighten`, `words`, `export` |
@@ -173,8 +173,8 @@ subagent never writes there. Prompt templates, the checklist ids defects must ci
 intent-notes block, the quiz format, the per-round order and the gate table:
 `references/review-prompts.md` and `references/phases.md` (phase 11). From round 2 on, every
 `review.py run` gets `--previous <N-1>`. Before shipping, re-run the director with
-`--tier signoff` (a stronger model; it confirms the round's counted defects) and compute the
-gates again; a failed sign-off means another round.
+`--tier signoff` (a stronger model; it confirms the round's counted defects; after a fix pass,
+on the fixed cut) and compute the gates again; a failed sign-off means another round.
 
 ## Briefing build subagents
 
@@ -194,8 +194,10 @@ ledger; a subagent never edits them. Brief every build subagent with:
   `Date`, `performance.now` or state kept between frames); animate acting on `api.ts`;
   ASCII-only source (`\u` escapes); all text through `api.text` or `D.text`, at least 28 px;
   never a narration sentence on screen; characters act (anticipation, squash, takes); stickers
-  through `api.sticker` (anchors from the manifest, placeholders while missing); write only its
-  own file; no network, no new dependencies, no scratch files outside `$FILM/work/`.
+  through `api.sticker` (anchors from the manifest, placeholders while missing); draw helpers
+  replace the current path, so build its own shapes as `Path2D` objects and pass them to
+  `fill`/`stroke`/`clip` (or finish a path before calling a helper); write only its own file; no
+  network, no new dependencies, no scratch files outside `$FILM/work/`.
 - The check before reporting back: `node "$FILM/tools/resolve.mjs" --film "$FILM" --strict`,
   `node "$FILM/tools/render.mjs" stills <t,t,...> --film "$FILM"`, `node "$FILM/tools/qa.mjs" strip <t> --film "$FILM"` around each action,
   `node "$FILM/tools/render.mjs" purity --film "$FILM"`, `node "$FILM/tools/qa.mjs" ascii --film "$FILM"`,

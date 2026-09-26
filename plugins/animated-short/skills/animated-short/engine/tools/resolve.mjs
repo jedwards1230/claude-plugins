@@ -337,12 +337,16 @@ if (man) SB.forEachElement(out, (el) => { const n = el.kind === 'clip' ? el.post
 for (let i = 1; i < vo.length; i++) if (vo[i].at < vo[i - 1].at + vo[i - 1].dur) warn(`voice lines "${vo[i - 1].id}" and "${vo[i].id}" overlap`);
 if (vo.length && vo[vo.length - 1].at + vo[vo.length - 1].dur > duration) warn(`the last voice line ends after the film (${duration} s)`);
 // the disclosure end card covers the last seconds (the engine's rule: disclosure.seconds, 1.6 s to 40% of
-// the film); narration must be over at least 0.3 s before it starts
-const dc = cfg.disclosure || {};
-if (dc.end_card === true && vo.length) {
-  const secs = Math.min(duration * 0.4, Math.max(Math.min(1.6, duration * 0.4), dc.seconds || 2.5)), cardAt = duration - secs;
-  const last = vo.reduce((a, v) => (v.at + v.dur > a.at + a.dur ? v : a)), end = last.at + last.dur;
-  if (end > cardAt - 0.3) warn(`narration ends at ${end.toFixed(2)} s (line "${last.id}"), ${end > cardAt ? `${(end - cardAt).toFixed(2)} s after` : `${(cardAt - end).toFixed(2)} s before`} the end card starts at ${cardAt.toFixed(2)} s (want >= 0.3 s before): shorten the narration or disclosure.seconds, then voice.py words`);
+// the film); narration must be over at least 0.3 s before it starts. The card is fully visible only from
+// the end of its own fade-in (CARD_FADE_IN, as in main.js drawEndCard) to the start of the film's
+// fade-out (FILM.fades), and needs at least 2 s there to be read.
+const dc = cfg.disclosure || {}, CARD_FADE_IN = 0.4;
+if (dc.end_card === true) {
+  const secs = Math.min(duration * 0.4, Math.max(Math.min(1.6, duration * 0.4), dc.seconds || 3.2)), cardAt = duration - secs;
+  const fadeOut = sandbox.FILM.fades(duration).out, legible = secs - CARD_FADE_IN - fadeOut;
+  if (legible < 2.0 - 1e-6) warn(`the end card is fully visible for ${legible.toFixed(2)} s (${secs.toFixed(2)} s minus its ${CARD_FADE_IN} s fade-in and the film's ${fadeOut.toFixed(2)} s fade-out; want >= 2.0 s): raise disclosure.seconds in film.json to at least ${(Math.ceil((2.0 + CARD_FADE_IN + fadeOut) * 10 - 1e-6) / 10).toFixed(1)}, then scaffold.py sync-config (the narration must still end before the card)`);
+  const last = vo.length ? vo.reduce((a, v) => (v.at + v.dur > a.at + a.dur ? v : a)) : null, end = last ? last.at + last.dur : 0;
+  if (last && end > cardAt - 0.3) warn(`narration ends at ${end.toFixed(2)} s (line "${last.id}"), ${end > cardAt ? `${(end - cardAt).toFixed(2)} s after` : `${(cardAt - end).toFixed(2)} s before`} the end card starts at ${cardAt.toFixed(2)} s (want >= 0.3 s before): shorten the narration or disclosure.seconds, then voice.py words`);
 }
 for (const s of out.sfx) if (s.at < 0 || s.at > duration) warn(`sfx ${s.type} at ${s.at} s is outside the film`);
 for (const k of ['size', 'fps', 'duration']) {

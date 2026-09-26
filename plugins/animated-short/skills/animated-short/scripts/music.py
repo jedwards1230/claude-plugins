@@ -2,7 +2,8 @@
 """Music: generate candidates, find the beat grid, and cut the chosen track to the film.
 
 gen [--n 3] [--prompt P | --prompt-file F] [--draft]
-      N candidates (Lyria via streaming chat audio) -> work/music/cand_<k>.<mp3|wav>
+      N candidates (Lyria via streaming chat audio) -> work/music/cand_<k>.<mp3|wav>, and the model that
+      made each one in work/music/candidates.json (report.py credits the one the cut uses)
 beats <file> [--out F]
       beats and downbeats -> JSON (librosa when installed, else a numpy onset + dynamic-programming
       tracker; downbeats = the beat phase with the strongest low-band onsets, 4/4 assumed)
@@ -34,6 +35,7 @@ def cmd_gen(a):
         raise UsageError("no music prompt: pass --prompt/--prompt-file or set music.prompt in film.json")
     out_dir = Path(a.film) / "work" / "music"
     n = a.n or film["music"]["candidates"]
+    made = read_json(out_dir / "candidates.json", default={})  # file name -> the model that made it
     for k in range(n):
         res = run_role(
             ctx,
@@ -52,6 +54,8 @@ def cmd_gen(a):
         cost = "cached" if res.basis == "cache" else (usd(res.usd) if res.usd is not None else "estimated")
         after = "".join(f" (after {cid} failed: {why[:120]})" for cid, why in res.fallbacks)
         print(f"  {f.relative_to(Path(a.film))}: {secs}  {res.candidate['model']}  {cost}{after}")
+        made[f.name] = {"model": res.candidate["model"], "candidate": res.candidate["id"]}
+    write_json(out_dir / "candidates.json", made)
     print("  next: judge the candidates (critic.py ask --audio ...), then music.py beats <file>")
     return 0
 

@@ -174,7 +174,7 @@
       "properties": {
         "card": { "type": "boolean", "default": true, "description": "Show the credits and the AI-made note on the page." },
         "end_card": { "type": "boolean", "default": true, "description": "Draw a disclosure end card over the last seconds of the film." },
-        "seconds": { "type": "number", "minimum": 1, "maximum": 10, "default": 2.5, "description": "End card length (the engine caps it at 40% of the film)." },
+        "seconds": { "type": "number", "minimum": 1, "maximum": 10, "default": 3.2, "description": "End card length (the engine caps it at 40% of the film). It is fully legible for this minus its 0.4 s fade-in and the film's fade-out (2% of the duration, 0.25-0.8 s); resolve.mjs warns under 2 s." },
         "title": { "type": "string", "default": "Made with AI", "description": "End card title." },
         "lines": { "type": "array", "items": { "type": "string" }, "default": [], "description": "End card lines. Empty = the credits." },
         "note": { "type": "string", "default": "Made with AI. The credits list the models and tools used.", "description": "The AI-made note on the page, in the transcript and in the MP4 comment. An empty string turns it off." }

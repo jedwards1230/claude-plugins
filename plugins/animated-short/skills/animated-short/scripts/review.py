@@ -16,10 +16,13 @@
   gates --round N
         merge the round and compute every ship gate -> work/reviews/r<N>/gates.json; exit 0 ship, 1 iterate
 
-Rounds are numbers; "<N>-fix" (work/reviews/r<N>-fix/) is the $0 fix pass after round N: it holds the new
-technical review, frame QA of the changed frames and the sign-off; its gates read round N with those reviews
-in place, and a counted defect of round N that a fix-pass review reports as fixed (and none as still
-present) no longer counts.
+Rounds are numbers; "<N>-fix" (work/reviews/r<N>-fix/) is the fix pass after round N: it holds the new
+technical review, frame QA of the changed frames, a fact-check when on-screen text changed, and the sign-off
+when the film can pay for it; its gates read round N with those reviews in place of round N's. Each counted
+defect of round N is settled against the fix-pass reviews' "previous" verdicts: reported fixed (and never
+still present) -> fixed_defects; still present -> still counted (once); not mentioned by the fix-pass review
+that replaced its reviewer's -> unverified_fixes (listed, not counted); not mentioned and its reviewer not
+re-run -> still counted. A director gate that rests on a review of the pre-fix cut is marked "stale".
 
 Review names: <reviewer>[-<persona slug>][-signoff]. The gates read only files named that way in
 work/reviews/r<N>/ (other files there are reported and ignored): Claude subagents write their JSON to
@@ -567,23 +570,40 @@ def to_confirm(discounted):
     ]
 
 
-def fixed_in_pass(counted, fix_reviews):
-    """Split round N's counted defects by the fix pass's verdicts: -> (still counted, fixed). A defect is
-    fixed when a fix-pass review reports it fixed (same check, within 2 s) and none reports it present."""
+def same_defect(a, b):
+    """The same check id within 2 s (a missing time matches any time)."""
+    t, u = secs(a.get("at")), secs(b.get("at"))
+    return a["check"] == b["check"] and (t is None or u is None or abs(t - u) <= 2)
+
+
+def defect_key(d):
+    return d.get("review"), d["check"], d.get("at"), d.get("issue")
+
+
+def settle_fix_pass(carried, fix_reviews, fix_counted):
+    """Round N's counted defects against the fix pass -> (still counted, fixed, unverified fixes).
+
+    Fixed: a fix-pass review reports it fixed in "previous" and none reports it still present. Still
+    present: it stays counted, once (a fix-pass review that lists it again already counts it). Not
+    mentioned: it stays counted when its reviewer was not re-run; when the fix pass re-ran that reviewer
+    (its review replaced round N's) and the new review neither marks nor lists it, nobody confirmed the
+    fix, so it is listed as unverified and not counted."""
     marks = [(name, p) for name, doc in fix_reviews.items() for p in doc.get("previous") or []]
-
-    def match(p, d):
-        t, pt = secs(d.get("at")), secs(p.get("at"))
-        return p["check"] == d["check"] and (t is None or pt is None or abs(t - pt) <= 2)
-
-    still, fixed = [], []
-    for d in counted:
-        hits = [(name, p) for name, p in marks if match(p, d)]
+    still, fixed, unverified = [], [], []
+    for d in carried:
+        hits = [(name, p) for name, p in marks if same_defect(p, d)]
+        who = ", ".join(sorted({name for name, _ in hits}))
         if hits and all(p["status"] == "fixed" for _, p in hits):
-            fixed.append(dict(d, why=f"fixed in the fix pass ({', '.join(sorted({n for n, _ in hits}))})"))
+            fixed.append(dict(d, why=f"fixed in the fix pass ({who})"))
+        elif any(same_defect(c, d) for c in fix_counted):
+            continue  # listed again by a fix-pass review, which counts it
+        elif hits:
+            still.append(dict(d, why=f"still present in the fix pass ({who})"))
+        elif d["review"] in fix_reviews:
+            unverified.append(dict(d, why=f"the fix pass re-ran {d['review']} and its review does not mention it"))
         else:
             still.append(d)
-    return still, fixed
+    return still, fixed, unverified
 
 
 def quiz_questions(film_dir):
@@ -616,33 +636,44 @@ def compute_gates(film, film_dir, n):
     base_n, fix = round_parts(n)
     reviews, invalid, ignored = load_round(film, film_dir, n)
     confirmed, accepted = round_extras(round_dir(film_dir, n))
-    fix_reviews = {}
+    fixed, unverified = [], []
     if fix:  # the fix pass: round N's reviews, with the pass's own reviews in place of theirs
         base, base_invalid, base_ignored = load_round(film, film_dir, base_n)
+        base_confirmed, base_accepted = round_extras(round_dir(film_dir, base_n))
         fix_reviews, reviews = reviews, dict(base, **reviews)
         invalid, ignored = base_invalid + invalid, base_ignored + ignored
-        more_confirmed, more_accepted = round_extras(round_dir(film_dir, base_n))
-        confirmed, accepted = more_confirmed + confirmed, more_accepted + accepted
+        confirmed, accepted = base_confirmed + confirmed, base_accepted + accepted
+        # round N's counted defects (a replaced review's included), plus any the fix pass's stills confirm
+        base_counted, _ = judge_defects(base, base_confirmed)
+        merged, discounted = judge_defects(reviews, confirmed)
+        seen = {defect_key(d) for d in base_counted}
+        carried = base_counted + [d for d in merged if d["review"] not in fix_reviews and defect_key(d) not in seen]
+        fix_counted = [d for d in merged if d["review"] in fix_reviews]
+        still, fixed, unverified = settle_fix_pass(carried, fix_reviews, fix_counted)
+        counted = still + fix_counted
+        seen = {defect_key(d) for d in carried}
+        discounted = [d for d in discounted if defect_key(d) not in seen]
+    else:
+        counted, discounted = judge_defects(reviews, confirmed)
     accepted = set(accepted)
-    counted, discounted = judge_defects(reviews, confirmed)
-    fixed = []
-    if fix:
-        still, fixed = fixed_in_pass([c for c in counted if c["review"] not in fix_reviews], fix_reviews)
-        counted = still + [c for c in counted if c["review"] in fix_reviews]
     gates = []
 
-    def gate(gid, name, ok, evidence):
-        gates.append({"id": gid, "name": name, "pass": bool(ok), "evidence": evidence})
+    def gate(gid, name, ok, evidence, **extra):
+        gates.append({"id": gid, "name": name, "pass": bool(ok), "evidence": evidence, **extra})
 
     rv = film["review"]
     directors = {k: v for k, v in reviews.items() if v["reviewer"] == "director"}
     decisive = {k: v for k, v in directors.items() if k.endswith("-signoff")} or directors
     overall = [(k, v.get("scores", {}).get("overall", {}).get("value")) for k, v in decisive.items()]
+    # after a fix pass, a director review of round N watched the cut before the fixes
+    stale = sorted(k for k, v in decisive.items() if fix and v.get("cut") != f"r{n}")
     gate(
         "director",
         f"director overall >= {rv['director_min']}",
         overall and all(o is not None and o >= rv["director_min"] for _, o in overall),
-        ", ".join(f"{k} {o}" for k, o in overall) or "no director review",
+        (", ".join(f"{k} {o}" for k, o in overall) or "no director review")
+        + (f" (stale: {', '.join(stale)} watched the pre-fix cut r{base_n}, not r{n})" if stale else ""),
+        **({"stale": True} if stale else {}),
     )
     blocking = [c for c in counted if c["severity"] == "blocking"]
     gate(
@@ -745,7 +776,9 @@ def compute_gates(film, film_dir, n):
         "note": ("max review rounds reached: stop and report the open gates to the user" if last and not ship else ""),
     }
     if fix:
-        out.update(base_round=base_n, fixed_defects=fixed, fix_pass_reviews=sorted(fix_reviews))
+        out.update(
+            base_round=base_n, fixed_defects=fixed, unverified_fixes=unverified, fix_pass_reviews=sorted(fix_reviews)
+        )
     return out
 
 
@@ -758,6 +791,12 @@ def cmd_gates(a):
     else:
         for g in res["gates"]:
             print(f"  {'PASS' if g['pass'] else 'FAIL'} {g['id']:12} {g['name']}: {g['evidence']}")
+        for g in res["gates"]:
+            if g.get("stale"):
+                print(
+                    f"  STALE {g['id']}: its review watched the cut before the fixes; run the sign-off on r{a.round} "
+                    "(about $0.10), or the report lists it as not verified"
+                )
         for i in res["invalid"]:
             print(f"  INVALID {i['file']}: {'; '.join(i['errors'])}")
         for name in res["ignored"]:
@@ -765,6 +804,13 @@ def cmd_gates(a):
         if res.get("fixed_defects"):
             print(f"  fixed in the fix pass ({len(res['fixed_defects'])}):")
             for d in res["fixed_defects"]:
+                print("    " + fmt_defect(d))
+        if res.get("unverified_fixes"):
+            print(
+                f"  UNVERIFIED FIXES ({len(res['unverified_fixes'])}, listed, not counted): the fix pass re-ran their "
+                "reviewer and its review does not mention them"
+            )
+            for d in res["unverified_fixes"]:
                 print("    " + fmt_defect(d))
         if res["counted_defects"]:
             print(f"  counted defects ({len(res['counted_defects'])}): fix the blocking ones; fix majors when you can")

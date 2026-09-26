@@ -131,6 +131,10 @@ class GenTest(TempDirTest):
         self.assertEqual(sorted(p.name for p in (film / "work" / "music").glob("cand_*")), ["cand_0.wav", "cand_1.wav"])
         records = [json.loads(x) for x in (film / "ledger.jsonl").read_text().splitlines()]
         self.assertEqual({e["stage"] for e in records if e["op"] == "record"}, {"assets"})
+        made = json.loads((film / "work" / "music" / "candidates.json").read_text())  # which model made each one
+        self.assertEqual(
+            {k: v["model"] for k, v in made.items()}, dict.fromkeys(("cand_0.wav", "cand_1.wav"), bodies[0]["model"])
+        )
 
     def test_gen_says_why_it_fell_back(self):
         film = new_film(self.tmp, music={"mode": "generated", "prompt": "a quiet solo piano"})
@@ -141,6 +145,8 @@ class GenTest(TempDirTest):
             self.assertEqual(len(fake.calls("/chat/completions", "google/lyria-3-pro-preview")), 1)  # remembered
         self.assertIn("google/lyria-3-clip-preview", out)
         self.assertIn("after openrouter:google/lyria-3-pro-preview failed: HTTP 402", out)
+        made = json.loads((film / "work" / "music" / "candidates.json").read_text())
+        self.assertEqual({v["model"] for v in made.values()}, {"google/lyria-3-clip-preview"})  # the fallback made them
 
 
 if __name__ == "__main__":

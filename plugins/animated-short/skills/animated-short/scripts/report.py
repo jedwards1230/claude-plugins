@@ -3,12 +3,15 @@
 
 out/report.md (or --out) is assembled from data, so it does not depend on the agent being allowed to write
 a report file: film.json (what was made), out/export.json (deliverables and measurements), the final
-round's gates.json (gates, counted defects, fixed ones, defects still to confirm; the latest round, the
-fix pass when there is one, unless --round names another), that round's persona and comparer reviews
-(how each persona restated the message), work/research/claims.json (hard truths and what was decided),
-accepted_claims.json, ledger.jsonl and the last reconcile (spend, account delta, models), work/state.json
-(pinned choices, calibration), film.json credits (checked against the models in the ledger),
-work/takes/check.json (pronunciation left unverified) and the latest creative-direction originality check.
+round's gates.json (gates, counted defects, the ones the fix pass fixed or left unverified, defects still
+to confirm, a stale director gate; the latest round, the fix pass when there is one, unless --round names
+another), that round's persona and comparer reviews (how each persona restated the message),
+work/research/claims.json (hard truths and what was decided), accepted_claims.json, ledger.jsonl and the
+last reconcile (spend, account delta, models), work/state.json (pinned choices, calibration), film.json
+credits (a model whose output is in the film and that the credits do not name is flagged: the pinned voice
+and image models, the aligner in work/vo/words-detail.json, the music candidate work/music/edit.json uses;
+other ledger models the credits do not name are only listed), work/takes/check.json (pronunciation left
+unverified) and the latest creative-direction originality check.
 The agent adds what only it knows in work/report-notes.json: {"open_decisions": [...], "not_verified":
 [...], "notes": [...]} (all optional lists of strings). Exit 0 when written, 2 when the film is missing.
 """
@@ -35,14 +38,37 @@ def latest_round(film_dir):
 
 
 def originality_check(film_dir):
-    """(score line, version, file name) of the latest work/direction/originality[-v<N>].md, or None."""
+    """(score line, which check, file name) of the latest work/direction/originality-v<N>.md ("check N"),
+    else of an unversioned originality.md ("latest check": it does not say which check it was), or None."""
     d = Path(film_dir) / "work" / "direction"
     files = sorted(d.glob("originality-v*.md"), key=lambda p: int(re.sub(r"\D", "", p.stem) or 0))
-    f = files[-1] if files else (d / "originality.md" if (d / "originality.md").exists() else None)
-    if f is None:
+    if files:
+        f, which = files[-1], f"check {int(re.sub(r'[^0-9]', '', files[-1].stem) or 0)}"
+    elif (d / "originality.md").exists():
+        f, which = d / "originality.md", "latest check"
+    else:
         return None
     first = (f.read_text(encoding="utf-8").strip().splitlines() or [""])[0].strip()
-    return first, len(files) or 1, f.name
+    return first, which, f.name
+
+
+def picked_models(film_dir, state):
+    """Models whose output is in the film -> {model: what}: the pinned choices in work/state.json (voice,
+    images), the aligner behind src/words.json (work/vo/words-detail.json) and the music candidate the
+    cut uses (work/music/edit.json source, looked up in the work/music/candidates.json music.py gen writes)."""
+    film_dir = Path(film_dir)
+    out = {}
+    for key, pin in (state.get("sticky") or {}).items():
+        if pin.get("model"):
+            out.setdefault(pin["model"], f"pinned {key}")
+    for d in (read_json(film_dir / "work" / "vo" / "words-detail.json", default={}) or {}).values():
+        if isinstance(d, dict) and d.get("model"):
+            out.setdefault(d["model"], "the word timings")
+    src = (read_json(film_dir / "work" / "music" / "edit.json", default={}) or {}).get("source")
+    made = read_json(film_dir / "work" / "music" / "candidates.json", default={}) or {}
+    if src and (made.get(Path(src).name) or {}).get("model"):
+        out.setdefault(made[Path(src).name]["model"], f"the music ({Path(src).name})")
+    return out
 
 
 def model_mentioned(model, credits_text):
@@ -55,6 +81,10 @@ def model_mentioned(model, credits_text):
 
 def credit_text(c):
     return c if isinstance(c, str) else f"{c.get('role', '')}: {c.get('name', '')}"
+
+
+def defect_line(d):
+    return f"- {d['severity']} {d['check']} at {d.get('at')} ({d.get('review')}): {d.get('issue')}"
 
 
 def build(film, film_dir, label):
@@ -121,14 +151,21 @@ def build(film, film_dir, label):
         counted = gates.get("counted_defects") or []
         if counted:
             out.append("Counted (the defect rule confirmed them) and not fixed:")
-            out += [
-                f"- {d['severity']} {d['check']} at {d.get('at')} ({d.get('review')}): {d.get('issue')}"
-                for d in counted
-            ]
+            out += [defect_line(d) for d in counted]
         else:
             out.append("- No counted defect is open.")
-        for d in gates.get("fixed_defects") or []:
-            out.append(f"- fixed in the fix pass: {d['severity']} {d['check']} at {d.get('at')}: {d.get('issue')}")
+        for key, head in (
+            ("fixed_defects", "Fixed in the fix pass (a fix-pass review reported each one fixed)"),
+            (
+                "unverified_fixes",
+                "Fixes nobody confirmed (not counted: the fix pass re-ran their reviewer, whose review does not "
+                "mention them)",
+            ),
+        ):
+            if gates.get(key):
+                out += ["", f"{head}:"] + [defect_line(d) for d in gates[key]]
+        if gates.get("to_confirm"):
+            out.append("")
         for d in gates.get("to_confirm") or []:
             out.append(
                 f"- unconfirmed ({d.get('review')}): {d['severity']} {d['check']} at {d.get('at')}: {d.get('issue')}"
@@ -161,7 +198,7 @@ def build(film, film_dir, label):
         out.append("- No claim is marked hard_truth.")
     orig = originality_check(film_dir)
     if orig:
-        out.append(f"- Creative-direction originality: score {orig[0]} (`work/direction/{orig[2]}`, check {orig[1]})")
+        out.append(f"- Creative-direction originality: score {orig[0]} (`work/direction/{orig[2]}`, {orig[1]})")
     out += ["", "## Spend", ""]
     led = Ledger(film_dir / "ledger.jsonl", film["budget_usd"])
     t = led.status()
@@ -197,11 +234,27 @@ def build(film, film_dir, label):
     credits = film.get("credits") or []
     text = " ".join(credit_text(c) for c in credits)
     out += [f"- Credit: {credit_text(c)}" for c in credits] or ["- film.json has no credits."]
-    missing = [m for _, m in models if not model_mentioned(m, text)]
-    for m in sorted(set(missing)):
-        out.append(f"- CHECK: the credits do not seem to name {m} (a word match; read them)")
+    # a model whose output is in the film must be credited; any other ledger model (a probe, a judge, a
+    # candidate that lost the pick) may or may not be, so it is only listed
+    picked = picked_models(film_dir, state)
+    missing = sorted(m for m in {m for _, m in models} | set(picked) if not model_mentioned(m, text))
+    for m in (m for m in missing if m in picked):
+        out.append(f"- CHECK: the credits do not seem to name {m}, which made {picked[m]} (a word match; read them)")
+    others = [m for m in missing if m not in picked]
+    if others:
+        out.append(
+            "- Ledger models not named in the credits (fine if they were probes, judges or unused candidates; "
+            "reviewers go under a reviewed-by credit): " + ", ".join(others)
+        )
     out += ["", "## Not verified", ""]
     nv = list(notes.get("not_verified") or [])
+    for g in (gates or {}).get("gates", []):
+        if g.get("stale"):
+            nv.insert(
+                0,
+                f"The {g['id']} gate rests on a review of the cut before the fix pass "
+                f"({g['evidence'].split(' (stale:')[0]}): nobody signed off the fixed cut r{label}.",
+            )
     if zero:
         nv.insert(0, "No model watched the video: every review was a fresh Claude subagent working from stills.")
     chk = read_json(film_dir / "work" / "takes" / "check.json", default={})

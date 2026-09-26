@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from helpers import FIXTURES, FakeOpenRouter, TempDirTest, new_film, quiet, run_tool
+from helpers import FIXTURES, FakeOpenRouter, TempDirTest, fix_pass_film, new_film, quiet, run_tool
 
 # isort: split
 import audiolib
@@ -295,16 +295,24 @@ class RoundTest(TempDirTest):
         self.assertEqual(code, 0, out + err)
         g = json.loads((fix / "gates.json").read_text())
         self.assertEqual((g["verdict"], g["round"], g["base_round"]), ("ship", "1-fix", 1))
-        self.assertEqual([(c["review"], c["check"]) for c in g["fixed_defects"]], [("director", "SYNC-3")])
+        # the replaced frame QA's own defect is settled too, not dropped with the review it came from
+        self.assertEqual(
+            sorted((c["review"], c["check"]) for c in g["fixed_defects"]),
+            [("director", "SYNC-3"), ("frame_qa", "VIS-2")],
+        )
         self.assertFalse(any(c["check"] in ("SYNC-3", "VIS-2") for c in g["counted_defects"]))
         self.assertIn("director-signoff 9.0", self.gate(g, "director")["evidence"])
+        self.assertNotIn("stale", self.gate(g, "director"))  # the sign-off watched the fixed cut
         import quote
 
         self.assertEqual(quote.rounds_done(film), 1)  # the fix pass is not a review round
         film, fix = self.fix_pass_round("still_present")
         g = review.compute_gates(common.load_film(film), film, "1-fix")
         self.assertEqual(g["verdict"], "stop")
-        self.assertFalse(g["fixed_defects"])
+        self.assertEqual([(c["review"], c["check"]) for c in g["fixed_defects"]], [("frame_qa", "VIS-2")])
+        self.assertEqual(  # still present: counted once, through the sign-off that lists it again
+            [(c["review"], c["check"]) for c in g["counted_defects"]], [("director-signoff", "SYNC-3")]
+        )
         self.assertFalse(self.gate(g, "blocking")["pass"])
         doc = self.frame_qa("r1-fix")
         (self.tmp / "qa.json").write_text(json.dumps(doc))
@@ -313,6 +321,53 @@ class RoundTest(TempDirTest):
         )
         self.assertEqual(code, 0)
         self.assertEqual(run_tool(review, ["gates", "--film", str(film), "--round", "one"])[0], 2)
+
+    def test_fix_pass_settles_every_counted_defect_and_flags_a_stale_signoff(self):
+        film = fix_pass_film(self.tmp)
+        base = review.compute_gates(common.load_film(film), film, 4)
+        self.assertEqual(len(base["counted_defects"]), 10)  # 7 from frame QA, 3 from the fact-checker
+        code, out, err = run_tool(review, ["gates", "--film", str(film), "--round", "4-fix"])
+        self.assertEqual(code, 0, out + err)
+        g = json.loads((film / "work" / "reviews" / "r4-fix" / "gates.json").read_text())
+        fixed = sorted((d["review"], d["check"], d["at"]) for d in g["fixed_defects"])
+        self.assertEqual(len(fixed), 9)  # the re-run frame QA's 7 and 2 of the re-run fact-checker's 3
+        self.assertIn(("frame_qa", "VIS-5", "0:19.8"), fixed)
+        self.assertEqual([x for x in fixed if x[0] == "fact_checker"], [("fact_checker", "ACC-1", "0:42.0")] * 2)
+        # the still-present nit counts once (the fix-pass fact-check lists it again), plus the new nit
+        self.assertEqual(
+            sorted((d["review"], d["check"], d["at"]) for d in g["counted_defects"]),
+            [("fact_checker", "ACC-1", "0:32.8"), ("frame_qa", "READ-3", "0:44.5")],
+        )
+        self.assertEqual(g["unverified_fixes"], [])
+        director = self.gate(g, "director")
+        self.assertTrue(director["pass"] and director["stale"])  # still passes, but on the pre-fix cut
+        self.assertIn("director-signoff 9.5 (stale: director-signoff watched the pre-fix cut r4", director["evidence"])
+        self.assertIn("STALE director", out)
+        self.assertIn("fixed in the fix pass (9)", out)
+
+        # a fix-pass frame QA that does not mention one of its earlier defects: unverified, listed, not counted
+        qa_path = film / "work" / "reviews" / "r4-fix" / "frame_qa.json"
+        qa = json.loads(qa_path.read_text())
+        qa["previous"] = [p for p in qa["previous"] if p["check"] != "READ-1"]
+        qa_path.write_text(json.dumps(qa))
+        code, out, _ = run_tool(review, ["gates", "--film", str(film), "--round", "4-fix"])
+        g = json.loads((film / "work" / "reviews" / "r4-fix" / "gates.json").read_text())
+        self.assertEqual(
+            [(d["review"], d["check"], d["at"]) for d in g["unverified_fixes"]], [("frame_qa", "READ-1", "0:13.0")]
+        )
+        self.assertNotIn("READ-1", {d["check"] for d in g["counted_defects"]})
+        self.assertEqual(len(g["fixed_defects"]), 8)
+        self.assertIn("UNVERIFIED FIXES (1, listed, not counted)", out)
+
+        # a sign-off on the fixed cut is decisive and not stale
+        signoff = json.loads((FIXTURES / "round-fix" / "r4" / "director-signoff.json").read_text())
+        signoff.update(cut="r4-fix", previous=[{"check": "READ-1", "at": "0:13.0", "status": "fixed"}])
+        (film / "work" / "reviews" / "r4-fix" / "director-signoff.json").write_text(json.dumps(signoff))
+        g = review.compute_gates(common.load_film(film), film, "4-fix")
+        self.assertEqual(self.gate(g, "director")["evidence"], "director-signoff 9.5")
+        self.assertNotIn("stale", self.gate(g, "director"))
+        self.assertEqual(g["unverified_fixes"], [])  # the sign-off confirmed the fix frame QA left out
+        self.assertEqual(len(g["fixed_defects"]), 9)
 
     def test_previous_round_and_signoff_prompts(self):
         film = self.film()

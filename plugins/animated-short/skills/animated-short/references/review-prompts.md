@@ -26,7 +26,9 @@ from round M and asks for each defect: fixed or still present (the `previous` fi
 still-present one is listed again in `defects`), then any new defect. A sign-off
 (`--tier signoff`) gets the round's counted defects from `gates.json` the same way. Write only
 the reviewer-specific part (the templates below). Claude subagents get no such appendix: their
-templates include the context, and the main agent passes file paths.
+templates include the context, the main agent passes file paths, and each template ends by
+validating the JSON it wrote with the bundled `$SKILL/scripts/schema.py` (no other validator is
+needed).
 
 Every Claude subagent writes its JSON to `$FILM/work/reviews/incoming/<reviewer>[-<persona
 slug>].json` and nothing else; `review.py ingest` validates it and stores it in
@@ -50,6 +52,8 @@ Write ONLY one JSON object valid against $SKILL/references/rubric.schema.json to
 $FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json, with "reviewer":
 "<director|persona|comparer|originality|audio>", "cut": "r<N>" and, for persona and comparer,
 "persona": "<name exactly as in film.json>". Times are "m:ss" or "m:ss.s"; cite checklist ids.
+Before returning, validate the file: python3 $SKILL/scripts/schema.py validate
+$SKILL/references/rubric.schema.json <the file>; fix it until it prints "valid".
 ```
 
 ## Files
@@ -66,7 +70,7 @@ $FILM/work/reviews/incoming/<reviewer>[-<persona slug>].json, with "reviewer":
 | `work/reviews/r<N>/accepted_claims.json` | `["claim text", ...]`: claims the user accepted as they are. |
 | `work/reviews/r<N>/raw/` | Raw critic replies and validation errors. |
 | `work/reviews/r<N>/gates.json` | `review.py gates` output: the gates, counted and discounted defects, `to_confirm`. |
-| `work/reviews/r<N>-fix/` | The fix pass after round N: its technical review, frame QA of the changed frames, the sign-off, and its `gates.json` (with `fixed_defects`). |
+| `work/reviews/r<N>-fix/` | The fix pass after round N: its technical review, frame QA of the changed frames, a fact-check when on-screen text changed, the sign-off when the film can pay for it, and its `gates.json` (with `fixed_defects` and `unverified_fixes`). |
 
 ## The defect rule
 
@@ -337,6 +341,9 @@ Do not judge the art or sound; they do not exist yet.
 Quiz questions:
 <1. question one>
 <... every question in work/direction/quiz.json, without the answers>
+
+Before returning, validate the file: python3 $SKILL/scripts/schema.py validate
+$SKILL/references/rubric.schema.json <the file>; fix it until it prints "valid".
 ```
 
 Then, per persona, two more fresh subagents: the quiz grader (below) on
@@ -375,6 +382,14 @@ date), status}], defects with checklist ids ACC-1..6 (time of the line or label,
 blocking for anything false or off-screen), and a verdict. Never set maybe_intentional on a
 factual error, even when the intent notes describe the picture as deliberate: a deliberate
 picture that says something false is still false.
+<Fix pass only (cut "r<N>-fix"; run it whenever the fix changed on-screen text, a label, the
+credits or the end card): the text that changed: <list each change>. Check every changed text
+as above. These counted ACC defects of round N were to be fixed: <paste the entries of
+counted_defects in work/reviews/r<N>/gates.json whose check id starts with ACC>. For each,
+report it in "previous" as {"check", "at", "status": "fixed" or "still_present", "note"}; list
+every still-present one again in defects, then anything new.>
+Before returning, validate the file: python3 $SKILL/scripts/schema.py validate
+$SKILL/references/rubric.schema.json <the file>; fix it until it prints "valid".
 ```
 
 ### frame_qa
@@ -397,11 +412,15 @@ one JSON object valid against $SKILL/references/rubric.schema.json to
 $FILM/work/reviews/incoming/frame_qa.json: reviewer "frame_qa", cut "r<N>", scores reads,
 visual_polish, character and accessibility (0-10 with why), defects, verdict. Intent notes (not
 defects): <paste work/direction/intent-notes.md>.
-<Fix pass only (cut "r<N>-fix"): the images show the frames changed to fix these counted
-defects of round N: <paste counted_defects from work/reviews/r<N>/gates.json>. For each, report
-it in "previous" as {"check", "at", "status": "fixed" or "still_present", "note" naming the
-image}; list every still-present one again in defects, then anything new the changed frames
-show.>
+<Fix pass only (cut "r<N>-fix"): the images show every frame the fixes changed, including
+frames with the same cause that no reviewer cited: <list the times>. These counted defects of
+round N were to be fixed: <paste the counted_defects from work/reviews/r<N>/gates.json whose
+check id starts with TEXT, READ, VIS or CHAR, or is A11Y-2, whoever found them; never the ACC
+ones, which go to the fact-checker>. For each, report it in "previous" as {"check", "at", "status":
+"fixed" or "still_present", "note" naming the image}; list every still-present one again in
+defects, then anything new the changed frames show.>
+Before returning, validate the file: python3 $SKILL/scripts/schema.py validate
+$SKILL/references/rubric.schema.json <the file>; fix it until it prints "valid".
 ```
 
 ### quiz grader (after each persona review)
@@ -415,6 +434,8 @@ true when the answer matches the key in substance (wording may differ; "not in t
 did not answer, add {"q": "<the question>", "a": "not answered", "correct": false}. Change
 nothing else. Write the full review JSON to
 $FILM/work/reviews/incoming/<persona|script_persona>-<slug>.json.
+Before returning, validate the file: python3 $SKILL/scripts/schema.py validate
+$SKILL/references/rubric.schema.json <the file>; fix it until it prints "valid".
 ```
 
 Then store it over the ungraded one:
@@ -511,7 +532,7 @@ the round's reviews and writes `gates.json`; exit 0 = ship.
 
 | Gate | Passes when | Fed by |
 | --- | --- | --- |
-| director | overall >= 8.5 (`review.director_min`); a `-signoff` director review, when present, is decisive | director |
+| director | overall >= 8.5 (`review.director_min`); a `-signoff` director review, when present, is decisive. In a fix pass without its own sign-off it still reads round N's, marked `stale` (that review watched the pre-fix cut; the report lists it as not verified) | director |
 | blocking | no counted blocking defect (defect rule above); counted majors do not block, fix them when you can | every review + `confirmed.json` |
 | message | every persona's takeaway matches the message | comparer, one per persona |
 | quiz | every persona >= 80% (`review.quiz_min`) of the questions in `work/direction/quiz.json`, explainers only | graded persona reviews |
@@ -531,9 +552,15 @@ round; a failed sign-off is an ordinary iterate); `stop` at round `review.rounds
 without passing: stop iterating and report the open gates to the user in `out/report.md`. $0
 films have no sign-off pass.
 
-The fix pass (`--round <N>-fix`, stored in `work/reviews/r<N>-fix/`) is the one $0 change after
-a round, the last one included: fix only the round's counted defects, then a new technical
-review and frame QA of the changed frames (and the sign-off, when the round shipped). Its gates
-read round N with those reviews in place of round N's; a counted defect that a fix-pass review
-reports `fixed` in `previous` (and none reports `still_present`) moves to `fixed_defects`.
-Anything that changes narration or music is not a fix: it needs a round.
+The fix pass (`--round <N>-fix`, stored in `work/reviews/r<N>-fix/`; steps in `phases.md`,
+phase 11) is the one change after a round, the last one included, and costs nothing but the
+sign-off: fix the round's counted defects at their cause, then a new technical review, frame QA
+of every frame the fixes changed (given the frame defects), a fact-check when on-screen text,
+labels or credits changed (given the ACC defects), and the sign-off on the fixed cut when the
+film has a key and budget (about $0.10 for a 45 s film). Its gates read round N with those
+reviews in place of round N's and settle each of round N's counted defects: reported `fixed`
+in `previous` (and never `still_present`) -> `fixed_defects`; still present -> still counted,
+once; not mentioned by the review that replaced its reviewer's -> `unverified_fixes` (listed,
+not counted); not mentioned and its reviewer not re-run -> still counted. Without a sign-off
+on the fixed cut the director gate is marked `stale`. Anything that changes narration or music
+is not a fix: it needs a round.

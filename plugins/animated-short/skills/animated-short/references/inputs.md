@@ -66,7 +66,7 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `jargon` | `brackets` | Technical names `hide`, faint and bracketed under the plain words (`brackets`), or `show`. | `brackets` |
 | `disclosure.card` | true | Credits and the AI-made note on the page. | true |
 | `disclosure.end_card` | true | A disclosure card over the last `seconds` of the film itself (capped at 40% of the film). Finish the story before it. | false for a promo |
-| `disclosure.seconds` / `title` / `lines` | 2.5 / "Made with AI" / the credits | End card length, title, lines. | 3 |
+| `disclosure.seconds` / `title` / `lines` | 3.2 / "Made with AI" / the credits | End card length, title, lines. The card is fully legible for `seconds` minus its 0.4 s fade-in and the film's fade-out (2% of the duration, 0.25-0.8 s): 2.0 s at 3.2 on a film of 40 s or more; `resolve.mjs` warns under 2.0 s. Short `lines` read in that window. | 3.5 |
 | `disclosure.note` | "Made with AI. The credits list the models and tools used." | The note on the page, in the transcript and in the MP4 comment; `""` turns it off. | |
 | `credits` | keep config.json's | Models and tools used, people, sources: strings or `{role, name}`. What to list and when: `delivery.md`, "Credits and disclosure". | `[{"role": "Voice", "name": "a Gemini TTS model"}]` |
 | `notes` | keep config.json's | Short notes under the player: `[{title, text}]`. | `[{"title": "Sources", "text": "..."}]` |
