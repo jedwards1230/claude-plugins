@@ -157,10 +157,15 @@ class ScaffoldTest(TempDirTest):
         scaffold.copy_tree(SKILL_DIR / "engine", ref)
         scaffold.copy_tree(SKILL_DIR / "examples" / "golden", ref)
         for rel in tree(ref):
-            if rel == "film.json":
-                continue  # scaffold writes it back validated, with the defaults filled in
+            if rel in ("film.json", scaffold.PAGE):
+                continue  # film.json is written back validated with the defaults filled in; the page is titled
             self.assertTrue(filecmp.cmp(ref / rel, d / rel, shallow=False), rel)
         self.assertEqual(set(tree(d)) - set(tree(ref)), {".gitignore"})
+        cfg = json.loads((d / "web" / "film" / "config.json").read_text())
+        self.assertEqual(
+            (d / scaffold.PAGE).read_text(),
+            scaffold.page_tags((ref / scaffold.PAGE).read_text(), "Shapes Take Turns", cfg["description"]),
+        )
         film = json.loads((d / "film.json").read_text())
         self.assertEqual(
             (film["duration"], film["budget_usd"], film["voice"]["mode"], film["music"]["mode"]),
@@ -240,8 +245,9 @@ class ScaffoldTest(TempDirTest):
 
         code, out, err = run_tool(scaffold, ["sync-engine", "--film", str(d)])
         self.assertEqual(code, 0, err)
-        for rel in ("web/js/main.js", "tools/qa.mjs", "web/index.html"):
+        for rel in ("web/js/main.js", "tools/qa.mjs"):
             self.assertTrue(filecmp.cmp(engine / rel, d / rel, shallow=False), rel)
+        self.assertEqual((d / scaffold.PAGE).read_bytes(), scaffold.engine_copy(d, scaffold.PAGE))
         self.assertTrue((d / "tools" / "notes.mjs").exists())
         pkg = json.loads((d / "package.json").read_text())
         want = json.loads((engine / "package.json").read_text())["dependencies"]
@@ -268,6 +274,108 @@ class ScaffoldTest(TempDirTest):
             ["node", str(d / "tools" / "resolve.mjs"), "--film", str(d), "--check"], capture_output=True, text=True
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class PageTagsTest(TempDirTest):
+    """The film's title and description in web/index.html's static <title> and <meta name="description">."""
+
+    ENGINE_PAGE = SKILL_DIR / "engine" / "web" / "index.html"
+    MESSAGE = "The moon pulls the ocean into two bulges."
+
+    def page(self, d):
+        return (d / scaffold.PAGE).read_text(encoding="utf-8")
+
+    def edit_film(self, d, **fields):
+        film = json.loads((d / "film.json").read_text())
+        film.update(fields)
+        (d / "film.json").write_text(json.dumps(film))
+
+    def test_new_writes_the_title_and_the_message_as_description(self):
+        d = self.tmp / "tides"
+        self.assertEqual(run_tool(scaffold, ["new", str(d)] + REQ)[0], 0)
+        self.assertEqual(json.loads((d / "web" / "film" / "config.json").read_text())["description"], self.MESSAGE)
+        html = self.page(d)
+        self.assertIn("<title>Tides</title>", html)
+        self.assertIn(f'<meta name="description" content="{self.MESSAGE}">', html)
+        # only those two lines differ from the engine's page, and applying the tags again changes nothing
+        engine = self.ENGINE_PAGE.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(engine), len(html.splitlines()))
+        self.assertEqual(
+            [a for a, b in zip(engine, html.splitlines(), strict=True) if a != b],
+            [
+                "<title>Film</title>",
+                '<meta name="description" content="A short animated film, drawn and animated in code.">',
+            ],
+        )
+        self.assertFalse(scaffold.write_page_tags(d))
+
+    def test_sync_config_escapes_the_tags_and_derives_the_description(self):
+        d = self.tmp / "f"
+        run_tool(scaffold, ["new", str(d)] + REQ)
+        self.edit_film(d, title='Salt & "Sea" <Tides>\tcaf\u00e9 \U0001f30a', subtitle="It's  two\nbulges, not one.")
+        code, out, err = run_tool(scaffold, ["sync-config", "--film", str(d)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("web/index.html: <title> and description set from config.json", out)
+        html = self.page(d)
+        self.assertIn("<title>Salt &amp; &quot;Sea&quot; &lt;Tides&gt; caf&#233; &#127754;</title>", html)
+        self.assertIn('<meta name="description" content="It&#x27;s two bulges, not one.">', html)
+        html.encode("ascii")  # everything outside ASCII became an entity
+        self.assertEqual(html.count("<title>"), 1)
+        # no subtitle: the message, on one line, cut at a word boundary
+        long_message = "The moon " + "pulls the ocean " * 20 + "into two bulges."
+        self.edit_film(d, subtitle="", message=long_message)
+        run_tool(scaffold, ["sync-config", "--film", str(d)])
+        desc = json.loads((d / "web" / "film" / "config.json").read_text())["description"]
+        self.assertLessEqual(len(desc), 160)
+        self.assertTrue(desc.endswith("...") and long_message.startswith(desc[:-3]), desc)
+        self.assertEqual(long_message[len(desc) - 3], " ")
+        self.assertIn(f'<meta name="description" content="{desc}">', self.page(d))
+        code, out, _ = run_tool(scaffold, ["sync-config", "--film", str(d)])
+        self.assertNotIn("web/index.html", out)  # idempotent
+
+    def test_sync_engine_keeps_the_tags(self):
+        d = self.tmp / "e"
+        run_tool(scaffold, ["new", str(d)] + REQ)
+        code, out, _ = run_tool(scaffold, ["sync-engine", "--film", str(d), "--dry-run"])
+        self.assertIn("the film's engine is up to date", out)  # the tags alone are no difference
+        engine = self.ENGINE_PAGE.read_text(encoding="utf-8")
+        older = engine.replace('<p class="keys">', '<p class="keys older">')
+        self.assertNotEqual(older, engine)
+        (d / scaffold.PAGE).write_text(older, encoding="utf-8")  # an older engine page, untitled
+        code, out, err = run_tool(scaffold, ["sync-engine", "--film", str(d)])
+        self.assertEqual(code, 0, err)
+        self.assertIn("changed  web/index.html (+", out)
+        self.assertEqual(self.page(d), scaffold.page_tags(engine, "Tides", self.MESSAGE))
+        backup = next((d / "work").glob("engine-backup-*")) / scaffold.PAGE
+        self.assertEqual(backup.read_text(encoding="utf-8"), older)
+        self.assertIn("up to date", run_tool(scaffold, ["sync-engine", "--film", str(d)])[1])
+
+    def test_an_empty_description_leaves_its_tag(self):
+        html = self.ENGINE_PAGE.read_text(encoding="utf-8")
+        out = scaffold.page_tags(html, "Only a title", "")
+        self.assertIn("<title>Only a title</title>", out)
+        self.assertIn('content="A short animated film, drawn and animated in code."', out)
+
+    @unittest.skipUnless(audiolib.which("node"), "needs node")
+    def test_python_and_javascript_write_the_same_tags(self):
+        html = self.ENGINE_PAGE.read_text(encoding="utf-8")
+        cases = [
+            ["Tides", self.MESSAGE],
+            ['A & B <"x"> it\'s', "caf\u00e9\t \u2014 \U0001f30a  $& $1 $$ end "],
+            ["  spaced\n title ", ""],
+            ["\u00a0kept\u00a0", "\u2028separator\r\nand\fform feed"],
+        ]
+        url = (SKILL_DIR / "engine" / "tools" / "export.mjs").as_uri()
+        code = (
+            f"import {{ pageTags }} from {json.dumps(url)};"
+            "const [html, cases] = JSON.parse(process.argv[1]);"
+            "process.stdout.write(JSON.stringify(cases.map(([t, d]) => pageTags(html, t, d))));"
+        )
+        r = subprocess.run(
+            ["node", "--input-type=module", "-e", code, json.dumps([html, cases])], capture_output=True, text=True
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [scaffold.page_tags(html, t, d) for t, d in cases])
 
 
 if __name__ == "__main__":

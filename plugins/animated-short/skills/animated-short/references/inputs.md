@@ -17,8 +17,8 @@ Print it with defaults: `python3 "$SKILL/scripts/schema.py" defaults "$SKILL/ref
 | `topic` | required | What the film is about, in a few words. | "How bread rises" |
 | `goal` | required | What viewers should understand or do afterwards. | "Understand why dough needs time and warmth, and what yeast actually does." |
 | `message` | required | The one sentence viewers should repeat back. The comparer scores every persona's takeaway against it. | "Yeast eats sugar and breathes out gas, and the gluten net traps it like a balloon." |
-| `title` | the topic | Title on the page, the poster and file metadata; also the output file slug. | "Why Bread Rises" |
-| `subtitle` | `""` | One line under the title on the page. | "Ninety seconds inside a bowl of dough." |
+| `title` | the topic | Title on the page (its static `<title>` too), the poster and file metadata; also the output file slug. | "Why Bread Rises" |
+| `subtitle` | `""` | One line under the title on the page; also the page's description tag (empty: the `message`). | "Ninety seconds inside a bowl of dough." |
 | `form` | `explainer` | `explainer`, `story`, `promo`, `music_video`, `data_story`. Explainers must pass the quiz and learnings gates. | `promo` for a fictional app launch |
 | `audience` | one "curious non-expert" who knows nothing specific | Personas: `[{name, knows, wants?}]`. Each becomes a persona reviewer and quiz-taker. `knows` is the prior knowledge: the film must teach them something new. | `[{"name": "a home baker", "knows": "Follows recipes; has never heard the word gluten.", "wants": "to stop making flat loaves"}]` |
 | `depth` | `lived-in` | `overview` (broad tour) or `lived-in` (follow one concrete thing through, with real numbers and routines). Lived-in teaches more. | follow one loaf from mixing to oven |

@@ -19,7 +19,8 @@ mixes with the null test (`node "$FILM/tools/qa.mjs" null --film "$FILM"`, part 
 under -60 dBFS passes), not by checksum. `<slug>` is the title in lower-case words joined by hyphens; read
 `out/export.json` for the exact file names. Options: `--mode`, `--variants master,share,phone`,
 `--lufs -14.5`, `--tp`, `--lra 11`, `--workers n`, `--keep-frames`, `--out <dir>` (use it for
-the animatic, so `out/` holds only deliverables), `--chromium <path>`.
+the animatic, so `out/` holds only deliverables), `--host web|artifact` (see "Artifact-ready
+page"), `--chromium <path>`.
 
 ## Modes
 
@@ -38,7 +39,8 @@ in film.json `delivery` (for example `webm` or `bundle` in addition to the MP4s)
 Targets checked by `qa.mjs check` (TECH ids): duration within 1 s (TECH-1), integrated
 loudness -14.5 +- 0.5 LUFS (TECH-2), true peak <= -1 dBTP (TECH-3), phone copy under 30 MiB
 (TECH-4), SRT and VTT present (TECH-5), transcript with every line (TECH-6), expected streams
-and frame sizes (TECH-14), a hostable page (TECH-15).
+and frame sizes (TECH-14), a hostable page with the film's title in its static `<title>`, and
+`page-artifact/` artifact-ready when it exists (TECH-15).
 
 ## The live page
 
@@ -49,6 +51,50 @@ printed URL. To publish: copy `out/page/` to any static host, or hand it to what
 publishing the environment offers; if that target only accepts files from certain folders,
 copy the page there first. The page has play/pause, restart, a scrubber, captions (key `c`),
 full screen (`f`), keyboard seeking, a poster frame, the notes and the credits card.
+
+Hosts that never run the page's script (link previews, gallery cards, a browser tab before the
+player loads) read the static `<title>` and `<meta name="description">` in `index.html`. Both
+carry the film: `title`, and `description` (film.json `subtitle`, else its `message`, else its
+`goal`, on one line of at most 160 characters) from `web/film/config.json`, HTML-escaped with
+anything outside ASCII as numeric entities. `scaffold.py` writes them into `web/index.html`
+(`new`, `sync-config`, and `sync-engine` after replacing the page); every export writes them
+again from `config.json`, into both `web/index.html` and `out/page/index.html`, so a film
+scaffolded before this existed still delivers its own title and the live and delivered pages
+agree. Only those two tags change.
+
+## Artifact-ready page
+
+For a host that wraps a page in its own document and serves only the files uploaded with it,
+such as a Claude artifact viewer:
+
+```bash
+node "$FILM/tools/export.mjs" --film "$FILM" --host artifact
+```
+
+`--host artifact` (the default is `--host web`) does everything a normal export does, with
+`out/page/` unchanged, and also writes `out/page-artifact/`: the same files, except that
+`index.html` is a fragment.
+
+- No `<!doctype>`, `<html>`, `<head>` or `<body>` tags: the host adds its own document. The
+  head's `<meta>`, `<title>` and `<style>` become top-level elements and the player markup and
+  scripts follow; the favicon link is dropped (the host sets the icon).
+- Only relative, same-origin file references (`js/`, `film/`, `img/`, `audio/`, `fonts/`): no
+  absolute URLs, no other hosts, no protocol-relative (`//host/...`) or root-relative (`/file`)
+  paths. The export stops before rendering, naming each file and line, when the page's HTML,
+  JavaScript or CSS holds one, or when a file the page fetches (a font face `src`, an audio
+  `asset`, a shot) points anywhere else, and it leaves no `page-artifact/` behind. Put fonts,
+  audio and images inside `web/` instead. Credits and notes may mention a web address (they are
+  only shown as text), but shot code that draws one counts: drop its `https://`.
+- The film's title and description stay in the static tags (above), so the host's card and link
+  preview name the film before any script runs.
+
+What to upload: `out/page-artifact/index.html` as the page, and every other file under
+`out/page-artifact/` as a supporting file at the same relative path (`js/main.js`,
+`film/config.json`, `film/storyboard.json`, `film/shots/<id>.js`, `img/...`, `audio/...`,
+`fonts/...`); `out/export.json` lists them under `page_artifact.files`. Mind the host's limits on
+file count and size: `.mp3` audio and `.webp` stickers keep a film small. `qa.mjs check` (TECH-15)
+checks `page-artifact/` again whenever it exists: no wrapper, nothing outside the page, and no
+file missing that `page/` has.
 
 ## Captions and transcript
 
@@ -105,7 +151,8 @@ file must travel by message.
 
 ## What to hand over
 
-1. `out/page/` (or its published link), the MP4s, captions and `transcript.md`.
+1. `out/page/` (or its published link; `out/page-artifact/` for a Claude artifact viewer), the
+   MP4s, captions and `transcript.md`.
 2. `out/report.md`, written by `python3 "$SKILL/scripts/report.py" --film "$FILM"` from the
    film's records (so it works inside a subagent that may not write report files itself):
    what was made and the deliverables with their measurements, how each persona restated the

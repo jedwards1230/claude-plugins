@@ -145,6 +145,7 @@ skill's base directory and `$FILM` the film directory.
   localhost page the tools serve. Never render from `about:blank`.
 - Chat attachments are capped (30 MiB is common): send the phone copy.
 - Some page-publishing tools accept files only from certain folders: copy `out/page/` there
-  first.
+  first. A host that wraps pages in its own document and serves only the uploaded files (a
+  Claude artifact viewer) needs `export.mjs --host artifact` and `out/page-artifact/`.
 - Parallel builders editing one file overwrite each other: one writer per file, one file per
   shot.

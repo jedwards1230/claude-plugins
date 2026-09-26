@@ -659,7 +659,7 @@ On a $0 film every review in the round is a Claude subagent (SKILL.md, "$0 films
 
 ```bash
 node "$FILM/tools/resolve.mjs" --film "$FILM" --strict
-node "$FILM/tools/export.mjs" --film "$FILM"                       # plus --mode webm / bundle if film.json delivery lists them
+node "$FILM/tools/export.mjs" --film "$FILM"                       # plus --mode webm / bundle if film.json delivery lists them; --host artifact for a Claude artifact viewer
 node "$FILM/tools/qa.mjs" check --film "$FILM"                     # exit 0 = ship
 python3 "$SKILL/scripts/ledger.py" status --film "$FILM"
 python3 "$SKILL/scripts/ledger.py" reconcile --film "$FILM" [P]                # skip on a $0 film
@@ -679,8 +679,9 @@ python3 "$SKILL/scripts/report.py" --film "$FILM"                  # -> out/repo
 ```
 
    Read `out/report.md`, then hand over: the page (`out/page/`, published if the environment
-   offers it), the MP4s (the phone copy for messages), captions, transcript, the report, and
-   the film directory as editable source.
+   offers it; when that host is a Claude artifact viewer, export with `--host artifact` and
+   publish `out/page-artifact/`: `delivery.md`, "Artifact-ready page"), the MP4s (the phone copy
+   for messages), captions, transcript, the report, and the film directory as editable source.
 
 Gate: `qa.mjs check` exits 0; the report lists spend, models, gate results and every decision
 left to the user.
@@ -705,7 +706,8 @@ node "$FILM/tools/render.mjs" stills <the same times> --film "$FILM" --out "$FIL
 ```
 
 `sync-engine` backs up every file it replaces to `work/engine-backup-<UTC time>/`, adds engine
-files the film lacks, keeps the film's own extra files, merges the engine's dependencies into
+files the film lacks (a replaced `web/index.html` gets the film's title and description tags
+back), keeps the film's own extra files, merges the engine's dependencies into
 `package.json`, and never touches `web/film/`, `web/img/`, `web/audio/`, `web/fonts/`, `src/`
 or the rest of `work/`. Compare the two still folders (identical files mean nothing drawn
 changed); a difference you did not want means a shot relied on the old behaviour: adapt the

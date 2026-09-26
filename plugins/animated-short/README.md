@@ -103,8 +103,10 @@ bash plugins/animated-short/skills/animated-short/scripts/test-golden.sh --scaff
 
 Each run builds a fresh film from `examples/golden`, then resolves, renders stills, checks
 glyphs, frame purity and text rules, makes QA images, runs an engine self-test (sticker
-placeholders and anchors, a font face that fails to load), exports every deliverable and runs
-the technical gate (with the audio null test); it prints a PASS/FAIL table. The Python tools have offline unit tests (a fake
+placeholders and anchors, a font face that fails to load), exports every deliverable (with the
+artifact-ready page), runs a page self-test (the film's title in the page's static tags; the
+artifact page has no document wrapper and loads nothing from another host) and the technical
+gate (with the audio null test); it prints a PASS/FAIL table. The Python tools have offline unit tests (a fake
 provider server, $0); CI runs them through this script:
 
 ```bash

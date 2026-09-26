@@ -73,5 +73,6 @@ URL (the page needs HTTP; it does not work from `file://`).
 - 300 frames at 30 fps; the offline mix peaks around -5 dBFS before loudness normalization.
 - `export.mjs` with ffmpeg: `out/shapes-take-turns.mp4` (1920x1080), `-share.mp4` (1920x1080,
   a smaller file) and `-phone.mp4` (1280x720), each about -14.6 LUFS with true peak at or below
-  -1.3 dBTP, plus `.srt`, `.vtt`, `transcript.md`, `page/` and `export.json`. `qa.mjs check`
-  prints verdict ship.
+  -1.3 dBTP, plus `.srt`, `.vtt`, `transcript.md`, `page/` (its static `<title>` is "Shapes Take
+  Turns") and `export.json`; with `--host artifact` also `page-artifact/`, the same 10 files with
+  `index.html` as a fragment. `qa.mjs check` prints verdict ship.

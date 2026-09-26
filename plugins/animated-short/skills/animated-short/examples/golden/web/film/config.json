@@ -1,6 +1,7 @@
 {
   "title": "Shapes Take Turns",
   "subtitle": "A ten-second golden example: code-drawn shapes, synthesized sound, no media files and no paid calls.",
+  "description": "A ten-second golden example: code-drawn shapes, synthesized sound, no media files and no paid calls.",
   "size": [1920, 1080],
   "fps": 30,
   "duration": 10,

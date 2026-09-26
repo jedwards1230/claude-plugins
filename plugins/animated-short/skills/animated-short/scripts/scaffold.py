@@ -7,9 +7,10 @@ film's engine copy in sync with the plugin.
                  <dir> must not exist, be empty, or hold only the film.json passed with --film-json
                  (write <dir>/film.json first, then scaffold it in place).
                  --from-example <name> overlays examples/<name>/ (its config.json is kept as is).
-  sync-config    regenerate the film.json-owned keys of web/film/config.json (title, subtitle, size,
-                 fps, duration, captions, palette, fonts, notes, credits, disclosure) and the size,
-                 fps and duration in src/storyboard.json meta; other config keys are kept.
+  sync-config    regenerate the film.json-owned keys of web/film/config.json (title, subtitle,
+                 description, size, fps, duration, captions, palette, fonts, notes, credits,
+                 disclosure) and the size, fps and duration in src/storyboard.json meta; other config
+                 keys are kept.
   sync-engine    bring the film's copy of the engine up to date after a plugin update: web/index.html,
                  web/js/*.js and tools/* that differ from engine/ are backed up to
                  work/engine-backup-<UTC time>/ and replaced (missing ones are added; film-only files
@@ -20,15 +21,24 @@ film's engine copy in sync with the plugin.
                  stills rendered before and after (phases.md, "Updating a film's engine").
 
 film.json -> config.json: aspect 16:9 -> [1920, 1080], 9:16 -> [1080, 1920], 1:1 -> [1080, 1080];
-fps 30; style.palette (list: first colour = accent, the list colours panels and ransom letters;
-object: engine palette keys as is); style.fonts {display, body, hand, faces} -> {hand, print, ui,
-faces}; disclosure {card, end_card, seconds, title, lines, note} -> config.disclosure (card false
-blanks the page note and credits). notes and credits are copied only when film.json has them.
+fps 30; description = subtitle, else message, else goal (one line, at most 160 characters);
+style.palette (list: first colour = accent, the list colours panels and ransom letters; object:
+engine palette keys as is); style.fonts {display, body, hand, faces} -> {hand, print, ui, faces};
+disclosure {card, end_card, seconds, title, lines, note} -> config.disclosure (card false blanks the
+page note and credits). notes and credits are copied only when film.json has them.
+
+The page's static tags: all three commands write config.title into web/index.html's <title> and
+config.description (else config.subtitle) into its <meta name="description">, HTML-escaped with
+non-ASCII as numeric entities, for hosts that read them without running the page (link previews,
+galleries). Only those two tags change; sync-engine re-applies them to the engine's index.html, and
+tools/export.mjs writes the same tags the same way.
 """
 
 import datetime
 import difflib
+import html
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -52,6 +62,9 @@ SKIP = {"node_modules", "__pycache__", ".DS_Store"}
 # build output, provider cache and anything that may hold a secret or account details (preflight.json keeps
 # the account's usage and limit); keep a key file outside the film directory anyway
 GITIGNORE = "node_modules/\ncache/\nwork/frames/\nwork/export-frames/\nwork/preflight.json\n*.lock\n.env\n*.key\n"
+PAGE = "web/index.html"
+TITLE_TAG = re.compile(r"<title>[^<]*</title>", re.I)
+DESCRIPTION_TAG = re.compile(r'<meta\s+name="description"\s+content="[^"]*"\s*/?>', re.I)
 
 
 def copy_tree(src, dst):
@@ -82,12 +95,59 @@ def palette_cfg(p):
     }
 
 
+def one_line(text, limit=160):
+    """Whitespace runs collapsed; longer than limit: cut at a word boundary and ended with '...'."""
+    s = " ".join(str(text or "").split())
+    if len(s) <= limit:
+        return s
+    return s[: limit - 3].rsplit(" ", 1)[0].rstrip(" ,;:.-") + "..."
+
+
+def html_text(s):
+    """Text for an HTML element or attribute: ASCII whitespace runs become one space, & < > " ' are
+    escaped and non-ASCII becomes numeric entities (tools/export.mjs htmlText does exactly the same)."""
+    s = re.sub(r"[\t\n\r\f\v ]+", " ", str(s)).strip(" ")
+    return html.escape(s, quote=True).encode("ascii", "xmlcharrefreplace").decode("ascii")
+
+
+def page_tags(text, title, description):
+    """index.html text with the title in <title> and the description in <meta name="description">.
+    Only those two tags change; an empty description leaves its tag as it is."""
+    out = TITLE_TAG.sub(lambda _: f"<title>{html_text(title)}</title>", text, count=1)
+    if description:
+        tag = f'<meta name="description" content="{html_text(description)}">'
+        out = DESCRIPTION_TAG.sub(lambda _: tag, out, count=1)
+    return out
+
+
+def page_meta(film_dir):
+    """(title, description) for the static tags, read from web/film/ the way tools/export.mjs reads them."""
+    web = Path(film_dir) / "web" / "film"
+    cfg = read_json(web / "config.json", default={})
+    meta = read_json(web / "storyboard.json", default={}).get("meta") or {}
+    title = cfg.get("title") or meta.get("title") or "Untitled film"
+    return title, cfg.get("description") or cfg.get("subtitle") or ""
+
+
+def write_page_tags(film_dir):
+    """Apply page_meta to the film's web/index.html -> True when the file changed."""
+    p = Path(film_dir) / PAGE
+    if not p.exists():
+        return False
+    old = p.read_text(encoding="utf-8")
+    new = page_tags(old, *page_meta(film_dir))
+    if new != old:
+        p.write_text(new, encoding="utf-8")
+    return new != old
+
+
 def config_from_film(film, base):
     """base config.json + the keys film.json owns."""
     cfg = dict(base)
     cfg.update(
         title=film["title"],
         subtitle=film["subtitle"],
+        description=one_line(film["subtitle"] or film["message"] or film["goal"]),
         size=SIZES[film["aspect"]],
         fps=30,
         duration=film["duration"],
@@ -236,6 +296,7 @@ def cmd_new(a):
     if not ex_dir or a.film_json or a.aspect is not None or a.duration is not None:
         write_json(cfg_path, config_from_film(film, read_json(cfg_path, default={})))
         patch_storyboard_meta(dst, film)
+    write_page_tags(dst)
     print(f"scaffold: {dst} ({n} files from the engine{' + examples/' + a.from_example if ex_dir else ''})")
     print(f"  film.json: {film['title']!r}, {film['aspect']}, {film['duration']} s, budget ${film['budget_usd']}")
     print(f"  next: npm install --prefix {dst}   then   python3 {Path(__file__).parent}/preflight.py --film {dst}")
@@ -251,6 +312,8 @@ def cmd_sync(a):
     write_json(cfg_path, after)
     meta = patch_storyboard_meta(a.film, film)
     print(f"sync-config: {cfg_path} ({', '.join(changed) if changed else 'no changes'})")
+    if write_page_tags(a.film):
+        print(f"  {PAGE}: <title> and description set from config.json")
     for c in meta:
         print(f"  src/storyboard.json {c}  (run node tools/resolve.mjs again)")
     return 0
@@ -269,6 +332,13 @@ def engine_files():
             if rel.as_posix() != "package.json" and not rel.as_posix().startswith(FILM_OWNED):
                 out.append(rel.as_posix())
     return out
+
+
+def engine_copy(film_dir, rel):
+    """What the film's copy of an engine file should hold: the engine's bytes, with the film's title and
+    description in web/index.html (so the tags alone never make the page look out of date)."""
+    data = (ENGINE / rel).read_bytes()
+    return page_tags(data.decode("utf-8"), *page_meta(film_dir)).encode("utf-8") if rel == PAGE else data
 
 
 def line_counts(old, new):
@@ -298,11 +368,12 @@ def cmd_sync_engine(a):
     film_dir = Path(a.film)
     load_film(film_dir)  # a film directory with a valid film.json
     files, changed, added = engine_files(), [], []
+    want = {rel: engine_copy(film_dir, rel) for rel in files}
     for rel in files:
         dst = film_dir / rel
         if not dst.exists():
             added.append(rel)
-        elif dst.read_bytes() != (ENGINE / rel).read_bytes():
+        elif dst.read_bytes() != want[rel]:
             changed.append(rel)
     ours = set(files)
     film_only = sorted(
@@ -322,7 +393,7 @@ def cmd_sync_engine(a):
     for rel in changed:
         plus, minus = line_counts(
             (film_dir / rel).read_text(encoding="utf-8", errors="replace"),
-            (ENGINE / rel).read_text(encoding="utf-8", errors="replace"),
+            want[rel].decode("utf-8", errors="replace"),
         )
         print(f"  changed  {rel} (+{plus} -{minus} lines)")
     for rel in added:
@@ -346,6 +417,8 @@ def cmd_sync_engine(a):
     for rel in changed + added:
         (film_dir / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ENGINE / rel, film_dir / rel)
+        if rel == PAGE:
+            (film_dir / rel).write_bytes(want[rel])  # the film's title and description, re-applied
     if dep_changes:
         pkg_path.write_text(json.dumps(pkg, indent=2) + "\n", encoding="utf-8")
     if saved:

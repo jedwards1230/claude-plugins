@@ -7,7 +7,8 @@
 //   webm       MediaRecorder real-time capture (VP9/VP8 + Opus). Not frame-exact; last resort.
 //   bundle     JPEG frames + normalized mix.wav + captions + a README with the ffmpeg command.
 // Every mode also writes <out>/<slug>.srt and .vtt, transcript.md, page/ (the live player, ready
-// to host) and export.json (what was made, how, the measured loudness and the mix's SHA-256).
+// to host, with the film's title and description in its static tags) and export.json (what was
+// made, how, the measured loudness and the mix's SHA-256); --host artifact adds page-artifact/.
 // The functions exported here are shared with tools/qa.mjs; importing this file runs nothing.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -45,6 +46,11 @@ Options
   --lra <x>           loudness range target for ffmpeg loudnorm (default 11)
   --workers <n>       parallel pages for frame rendering (ffmpeg and bundle modes)
   --keep-frames       keep work/export-frames after an ffmpeg export
+  --host <h>          web (default): page/ is a whole HTML document for any static host.
+                      artifact: also page-artifact/, the same files with index.html as a
+                      fragment (no doctype, html, head or body tags) and only relative
+                      same-origin file references, for hosts that wrap a page in their own
+                      document (a Claude artifact viewer); fails if the page uses another host
   --probe             print what this machine can do (JSON) and exit
   --chromium <path>   Chromium binary (else env CHROMIUM_PATH, playwright's own, ~/.cache/ms-playwright)
   --verbose           print page messages
@@ -197,6 +203,81 @@ export const RENDER_ONLY = ['js/export.js', 'js/loudness.js'];
 function copyPage(web, dest) {
   fs.rmSync(dest, { recursive: true, force: true });
   fs.cpSync(web, dest, { recursive: true, filter: (src) => !RENDER_ONLY.includes(path.relative(web, src).split(path.sep).join('/')) });
+}
+export const listFiles = (dir, base = dir) => fs.readdirSync(dir, { withFileTypes: true })
+  .flatMap((e) => (e.isDirectory() ? listFiles(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name)).split(path.sep).join('/')])).sort();
+
+// ---------------------------------------------------------------- the page's static tags
+// Hosts that never run the page's script (link previews, galleries, a tab before main.js loads)
+// read index.html's <title> and <meta name="description">. scripts/scaffold.py writes the same two
+// tags with the same escaping (page_tags, html_text there): ASCII whitespace runs become one space,
+// & < > " ' are escaped, anything outside ASCII becomes a numeric entity.
+const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' };
+export const htmlText = (s) => Array.from(String(s).replace(/[\t\n\r\f\v ]+/g, ' ').replace(/^ +| +$/g, ''))
+  .map((c) => ENTITIES[c] || (c.codePointAt(0) > 127 ? `&#${c.codePointAt(0)};` : c)).join('');
+// Only those two tags change; an empty description leaves its tag as it is.
+export function pageTags(html, title, description) {
+  const out = html.replace(/<title>[^<]*<\/title>/i, () => `<title>${htmlText(title)}</title>`);
+  return description ? out.replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>/i, () => `<meta name="description" content="${htmlText(description)}">`) : out;
+}
+export const pageMeta = (f) => ({ title: f.title, description: f.cfg.description || f.cfg.subtitle || '' });
+
+// ---------------------------------------------------------------- the artifact-ready page
+// Some hosts (a Claude artifact viewer) wrap a page in their own document and serve only the files
+// uploaded with it. page-artifact/ is page/ with index.html as a fragment: the doctype and the
+// html, head and body tags go (the head's meta, title and style stay, as top-level elements; the
+// favicon link goes too, the host sets its own), and nothing may point outside the page's files.
+export function artifactFragment(html) {
+  return html.replace(/<!doctype[^>]*>[ \t]*\n?/gi, '').replace(/<\/?(?:html|head|body)(?:\s[^>]*)?>[ \t]*\n?/gi, '')
+    .replace(/<link\s[^>]*rel=["']?icon["']?[^>]*>[ \t]*\n?/gi, '');
+}
+// XML namespace names are identifiers, never fetched
+const NAMESPACE = /^https?:\/\/www\.w3\.org\/(?:2000\/svg|1999\/xlink|1999\/xhtml|XML\/1998\/namespace)$/;
+// JSON keys whose values the page fetches (fonts.faces[].src, vo[].asset, music.asset, shots,
+// img/manifest.json file); other strings (credits, notes) are only shown as text
+const REF_KEYS = new Set(['src', 'asset', 'file', 'url', 'href', 'poster', 'shots']);
+// artifactIssues(dir) -> [{where: 'file:line', issue}]: a document wrapper in index.html; an
+// absolute or protocol-relative URL anywhere in its HTML, JavaScript or CSS; a root-relative path
+// in an HTML attribute or CSS url(); a fetched JSON reference that is not relative to the page.
+export function artifactIssues(dir) {
+  const files = listFiles(dir), issues = [];
+  const add = (rel, text, i, issue) => issues.push({ where: `${rel}:${text.slice(0, i).split('\n').length}`, issue });
+  if (!files.includes('index.html')) return [{ where: 'index.html', issue: 'missing' }];
+  const index = fs.readFileSync(path.join(dir, 'index.html'), 'utf8'), w = /<!doctype|<\/?(?:html|head|body)(?:\s[^>]*)?>/i.exec(index);
+  if (w) add('index.html', index, w.index, `has its own document wrapper (${w[0]}); the host adds one`);
+  for (const rel of files.filter((r) => /\.(?:html?|m?js|css|json)$/i.test(r))) {
+    const text = fs.readFileSync(path.join(dir, rel), 'utf8');
+    if (!rel.toLowerCase().endsWith('.json')) {
+      for (const m of text.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s'"`<>()]*/gi)) if (!NAMESPACE.test(m[0])) add(rel, text, m.index, `absolute URL ${m[0]}`);
+      for (const m of text.matchAll(/["'`(=]\s*(\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+[^\s'"`<>()]*)/gi)) add(rel, text, m.index, `protocol-relative URL ${m[1]}`);
+      if (!/\.m?js$/i.test(rel)) for (const m of text.matchAll(/(?:\b(?:src|href|action|poster)\s*=\s*["']?|url\(\s*["']?)(\/(?!\/)[^\s'"<>()]*)/gi)) add(rel, text, m.index, `root-relative path ${m[1]}`);
+    } else {
+      let doc;
+      try { doc = JSON.parse(text); } catch { continue; }
+      const walk = (v, key) => {
+        if (Array.isArray(v)) v.forEach((x) => walk(x, key));
+        else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, k);
+        else if (typeof v === 'string' && REF_KEYS.has(key)) {
+          const bad = /^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? 'absolute URL' : v.startsWith('//') ? 'protocol-relative URL' : v.startsWith('/') ? 'root-relative path' : null;
+          if (bad) issues.push({ where: rel, issue: `"${key}": ${bad} ${v}` });
+        }
+      };
+      walk(doc, '');
+    }
+  }
+  return issues;
+}
+// page/ -> page-artifact/; throws, leaving no page-artifact/, when the result would not work there.
+function artifactPage(page, dest) {
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.cpSync(page, dest, { recursive: true });
+  const index = path.join(dest, 'index.html');
+  if (fs.existsSync(index)) fs.writeFileSync(index, artifactFragment(fs.readFileSync(index, 'utf8')));
+  const issues = artifactIssues(dest);
+  if (!issues.length) return listFiles(dest);
+  fs.rmSync(dest, { recursive: true, force: true });
+  throw new Error(`--host artifact: the page would not work where the host serves only the uploaded files:\n${issues.map((x) => `  ${x.where}: ${x.issue}`).join('\n')}\n`
+    + 'Ship every file the page uses inside web/ and refer to it by a relative path (film/..., img/..., audio/..., fonts/...); text drawn on screen can leave out the scheme.');
 }
 
 // ---------------------------------------------------------------- the render page
@@ -524,7 +605,7 @@ function parseArgs(argv) {
     else if (a === '--keep-frames') o.keepFrames = true;
     else if (a.startsWith('--')) {
       const eq = a.indexOf('='), k = eq > 0 ? a.slice(2, eq) : a.slice(2), v = eq > 0 ? a.slice(eq + 1) : argv[++i];
-      if (!['film', 'out', 'mode', 'variants', 'lufs', 'tp', 'lra', 'workers', 'chromium'].includes(k)) throw new Error(`unknown option --${k}\n\n${HELP}`);
+      if (!['film', 'out', 'mode', 'variants', 'lufs', 'tp', 'lra', 'workers', 'chromium', 'host'].includes(k)) throw new Error(`unknown option --${k}\n\n${HELP}`);
       if (v == null) throw new Error(`option --${k} needs a value`);
       o[k] = v;
     } else throw new Error(`unexpected argument "${a}"\n\n${HELP}`);
@@ -545,6 +626,8 @@ async function main() {
   o.tp = o.tp == null ? null : Number(o.tp);
   o.lra = o.lra == null ? 11 : Number(o.lra);
   o.variants = (o.variants || 'master,share,phone').split(',').map((s) => s.trim()).filter(Boolean);
+  o.host = o.host || 'web';
+  if (!['web', 'artifact'].includes(o.host)) throw new Error(`unknown --host ${o.host} (use web or artifact)`);
   if (![o.lufs, o.lra].every(isFinite) || (o.tp != null && !isFinite(o.tp))) throw new Error('--lufs, --tp and --lra must be numbers');
   variantSizes([1920, 1080], o.variants);
   const f = loadFilm(o.film), out = path.resolve(o.out || path.join(f.film, 'out'));
@@ -556,15 +639,23 @@ async function main() {
   if (mode === 'ffmpeg' && !(which('ffmpeg') && which('ffprobe'))) throw new Error('--mode ffmpeg needs ffmpeg and ffprobe on PATH (try --mode webcodecs)');
   log(`export: mode ${mode} (${reason})`);
 
-  // captions, transcript and the hostable page come first: every mode ships them
+  // captions, transcript and the hostable page come first: every mode ships them. The live
+  // web/index.html gets the static title and description first, so page/ and web/ agree.
   const cues = captionCues(f.vo, f.duration);
   const files = { srt: path.join(out, `${f.slug}.srt`), vtt: path.join(out, `${f.slug}.vtt`), transcript: path.join(out, 'transcript.md'), page: path.join(out, 'page') };
   fs.writeFileSync(files.srt, toSRT(cues)); fs.writeFileSync(files.vtt, toVTT(cues));
   fs.writeFileSync(files.transcript, transcript(f));
+  const live = path.join(f.web, 'index.html');
+  if (fs.existsSync(live)) {
+    const { title, description } = pageMeta(f), html = fs.readFileSync(live, 'utf8'), tagged = pageTags(html, title, description);
+    if (tagged !== html) { fs.writeFileSync(live, tagged); log('export: web/index.html now carries the title and description from web/film/config.json'); }
+  }
   copyPage(f.web, files.page);
-  log(`export: ${cues.length} caption cues, transcript.md, page/ -> ${out}`);
+  let artifactFiles = null;
+  if (o.host === 'artifact') { files.pageArtifact = path.join(out, 'page-artifact'); artifactFiles = artifactPage(files.page, files.pageArtifact); }
+  log(`export: ${cues.length} caption cues, transcript.md, page/${artifactFiles ? ', page-artifact/' : ''} -> ${out}`);
 
-  const t0 = Date.now(), manifest = { mode, reason, title: f.title, slug: f.slug, duration: f.duration, size: f.size, fps: f.fps };
+  const t0 = Date.now(), manifest = { mode, reason, host: o.host, title: f.title, slug: f.slug, duration: f.duration, size: f.size, fps: f.fps };
   if (mode === 'ffmpeg') manifest.loudness = await modeFfmpeg(f, o, out, files);
   else if (mode === 'webcodecs') manifest.loudness = await modeWebcodecs(f, o, out, files);
   else if (mode === 'webm') manifest.loudness = await modeWebm(f, o, out);
@@ -577,6 +668,7 @@ async function main() {
   manifest.files = await measureDeliverables(f, out, o);
   Object.assign(manifest, { captions: { srt: path.relative(f.film, files.srt), vtt: path.relative(f.film, files.vtt), cues: cues.length }, transcript: path.relative(f.film, files.transcript),
     page: path.relative(f.film, files.page), seconds: +((Date.now() - t0) / 1000).toFixed(1) });
+  if (artifactFiles) manifest.page_artifact = { dir: path.relative(f.film, files.pageArtifact), files: artifactFiles };
   fs.writeFileSync(path.join(out, 'export.json'), JSON.stringify(manifest, null, 1) + '\n');
 
   const L = manifest.loudness;
@@ -589,6 +681,7 @@ async function main() {
   }
   if (manifest.bundle) console.log(`  ${manifest.bundle.dir}/ ${manifest.bundle.tar ? '+ ' + manifest.bundle.tar : '(tar not found: directory only)'}`);
   console.log(`  captions ${manifest.captions.srt}, ${manifest.captions.vtt} (${cues.length} cues); ${manifest.transcript}; ${manifest.page}/`);
+  if (artifactFiles) console.log(`  ${manifest.page_artifact.dir}/ (${artifactFiles.length} files: index.html is the page, the rest are its files at the same relative paths)`);
   return 0;
 }
 

@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadFilm, openFilm, measureDeliverables, variantSizes, loudness, PHONE_LIMIT, RENDER_ONLY } from './export.mjs';
+import { loadFilm, openFilm, measureDeliverables, variantSizes, loudness, PHONE_LIMIT, RENDER_ONLY, htmlText, artifactIssues, listFiles } from './export.mjs';
 
 const HELP = `Usage: node tools/qa.mjs <command> [options]
 
@@ -50,7 +50,8 @@ Check ids (defects cite them)
   TECH-2 loudness +-0.5 LU   TECH-7 frame + mix purity   TECH-12 write-on before move
   TECH-3 true peak <= -1     TECH-8 glyph test           TECH-13 ASCII-only JS
   TECH-4 phone < 30 MiB      TECH-9 text size            TECH-14 streams and frame size
-  TECH-5 captions            TECH-10 read dwell          TECH-15 hostable page`;
+  TECH-5 captions            TECH-10 read dwell          TECH-15 hostable page (its static
+                                                         <title>; page-artifact/ when present)`;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const log = (...a) => console.error(...a);
@@ -389,7 +390,17 @@ export async function check(f, o = {}) {
   const page = path.join(outDir, 'page'), pageIssues = [];
   for (const need of ['index.html', 'js/main.js', 'film/config.json', 'film/storyboard.json']) if (!fs.existsSync(path.join(page, need))) pageIssues.push({ severity: MAJ, issue: `page/${need} is missing`, fix: 'run tools/export.mjs' });
   for (const extra of RENDER_ONLY) if (fs.existsSync(path.join(page, extra))) pageIssues.push({ severity: MAJ, issue: `page/${extra} is render-only and should not be hosted`, fix: 'export again' });
-  add('TECH-15', 'hostable page bundle', !pageIssues.length, fs.existsSync(page) ? 'page/' : 'missing', pageIssues);
+  // the static title, read by hosts that never run the page's script
+  const index = path.join(page, 'index.html'), shown = fs.existsSync(index) && /<title>([^<]*)<\/title>/i.exec(fs.readFileSync(index, 'utf8'));
+  if (fs.existsSync(index) && !(shown && shown[1] === htmlText(f.title))) pageIssues.push({ severity: MAJ, issue: `page/index.html's static <title> is ${shown ? `"${shown[1]}"` : 'missing'}, not the film's title`, fix: 'export again (tools/export.mjs writes it from web/film/config.json)' });
+  // the artifact-ready variant (export --host artifact), when there is one
+  const art = path.join(outDir, 'page-artifact');
+  if (fs.existsSync(art)) {
+    const have = new Set(listFiles(art));
+    for (const rel of fs.existsSync(page) ? listFiles(page) : []) if (!have.has(rel)) pageIssues.push({ severity: MAJ, issue: `page-artifact/${rel} is missing (page/ has it)`, fix: 'export again with --host artifact' });
+    for (const x of artifactIssues(art)) pageIssues.push({ severity: MAJ, issue: `page-artifact/${x.where}: ${x.issue}`, fix: 'refer to every file by a relative path inside web/, then export again with --host artifact' });
+  }
+  add('TECH-15', 'hostable page bundle', !pageIssues.length, fs.existsSync(page) ? `page/${fs.existsSync(art) ? ', page-artifact/' : ''}` : 'missing', pageIssues);
 
   const blocking = defects.some((d) => d.severity === B), major = defects.some((d) => d.severity === MAJ);
   const order = { blocking: 0, major: 1, minor: 2, nit: 3 };

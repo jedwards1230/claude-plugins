@@ -153,7 +153,8 @@ and also takes `--help`):
 Film tools, copied into every film (`node "$FILM/tools/<tool>.mjs" --help`; run
 `npm install --prefix "$FILM"` first): `resolve.mjs` (cues to seconds, checks), `render.mjs`
 (`stills`, `video`, `audio`, `text`, `glyph`, `purity`, `serve`), `qa.mjs` (`contact`, `strip`,
-`crop`, `text-check`, `ascii`, `null`, `check`), `export.mjs` (every delivery mode; `--probe`).
+`crop`, `text-check`, `ascii`, `null`, `check`), `export.mjs` (every delivery mode; `--probe`;
+`--host artifact` adds a page for a Claude artifact viewer).
 
 Film directory: `film.json`, `src/` (script, words, beats, source storyboard), `web/` (the
 page: `film/config.json`, `film/storyboard.json` resolved, `film/shots/*.js`, `img/`, `audio/`,

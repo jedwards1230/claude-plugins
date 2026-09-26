@@ -2,9 +2,11 @@
 # End-to-end conformance run of the golden example, at $0: copy the engine and examples/golden
 # into a fresh film directory, npm install, then resolve, glyph test, purity, stills, text checks,
 # frame QA images, the engine self-test (scripts/tests/engine_selftest.mjs: sticker placeholder and
-# anchors, a font face that fails to load), the delivery probe, an export and the technical check
-# (which includes the audio null test). Prints a PASS/FAIL table and exits non-zero on any
-# failure. No provider calls; the only network use is npm install.
+# anchors, a font face that fails to load), the delivery probe, an export with --host artifact, the
+# page self-test (scripts/tests/page_selftest.mjs: the film's title and description in the page's
+# static tags, the artifact-ready page without a document wrapper or external URLs) and the
+# technical check (which includes the audio null test). Prints a PASS/FAIL table and exits
+# non-zero on any failure. No provider calls; the only network use is npm install.
 # --no-ffmpeg runs everything with ffmpeg and ffprobe hidden from PATH (shadow directories that
 # link every other program; nothing is deleted) and forces the in-browser WebCodecs export.
 set -uo pipefail
@@ -137,7 +139,8 @@ step 'delivery probe' node_film export.mjs --probe --film "$FILM"
 PROBE_LOG=$LAST_LOG
 MODE=auto
 (( NOFF )) && MODE=webcodecs
-step "export --mode $MODE" node_film export.mjs --film "$FILM" --mode "$MODE"
+step "export --mode $MODE --host artifact" node_film export.mjs --film "$FILM" --mode "$MODE" --host artifact
+step 'page self-test' node "$SKILL_DIR/scripts/tests/page_selftest.mjs" "$FILM"
 checkjson() { mkdir -p "$FILM/work/qa" && node_film qa.mjs check --film "$FILM" --json > "$FILM/work/qa/check.json"; }
 step 'technical check' checkjson
 
