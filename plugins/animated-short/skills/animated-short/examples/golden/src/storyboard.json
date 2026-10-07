@@ -1,0 +1,81 @@
+{
+  "_comment": "Golden example: ten seconds of code-drawn shapes on a 2x1 board. Every element, beat and cue form here is deliberate; see README.md. Schema: references/storyboard.schema.json.",
+  "version": 1,
+  "meta": { "duration": 10, "fps": 30, "size": [1920, 1080], "seed": 7, "title": "Shapes Take Turns" },
+  "layout": {
+    "type": "board",
+    "grid": [2, 1],
+    "caption": "shapes take turns \u00b7 a ten-second test",
+    "finale": { "at": "vo:l2.end+0.2", "dur": 1.6 }
+  },
+  "music": { "synth": { "bpm": 96, "key": "D", "mode": "major" }, "gain_db": -10 },
+  "scenes": [
+    {
+      "id": "stage",
+      "reads": ["three shapes", "one small stage"],
+      "panel": { "enter": "drop", "enter_at": 0.0 },
+      "elements": [
+        { "id": "h1", "kind": "text", "style": "heading", "text": "taking turns", "pos": [0.06, 0.13], "align": "left" },
+        { "id": "loop", "kind": "svg-path", "pos": [0.8, 0.27], "size": 170, "stroke": "coral", "stroke_w": 6,
+          "d": "M 0 60 C 40 60 70 40 70 10 A 30 30 0 1 0 40 40 C 60 70 100 60 130 40" },
+        { "id": "circle", "kind": "shape", "shape": "circle", "w": 230, "color": "coral", "pos": [0.25, 0.64], "idle": true },
+        { "id": "square", "kind": "shape", "shape": "rect", "w": 220, "h": 220, "color": "teal", "pos": [0.5, 0.65], "idle": true },
+        { "id": "triangle", "kind": "shape", "shape": "triangle", "w": 250, "h": 230, "color": "gold", "pos": [0.75, 0.64], "idle": true },
+        { "id": "floor", "kind": "shape", "shape": "line", "points": [[0.1, 0.8], [0.9, 0.8]], "stroke_w": 6 },
+        { "id": "spark", "kind": "shape", "shape": "sparkle", "w": 70, "color": "gold", "pos": [0.62, 0.4] },
+        { "id": "label1", "kind": "text", "style": "label", "text": "one small stage", "size": 36, "pos": [0.5, 0.9] }
+      ],
+      "beats": [
+        { "at": 0.25, "target": "h1", "do": "type-on" },
+        { "at": "vo:l1.w0", "target": "loop", "do": "draw-on", "dur": 0.5 },
+        { "at": "vo:l1.w1", "target": "circle", "do": "pop" },
+        { "at": "+0.15", "target": "square", "do": "pop" },
+        { "at": "+0.15", "target": "triangle", "do": "pop" },
+        { "at": "beat:4", "target": "spark", "do": "pop", "spin": 40 },
+        { "at": "vo:l1.w4", "target": "floor", "do": "draw-on", "dur": 0.6 },
+        { "at": "vo:l1.w5", "target": "label1", "do": "type-on" }
+      ]
+    },
+    {
+      "id": "turns",
+      "at": 4.6,
+      "reads": ["one at a time", "three turns"],
+      "elements": [
+        { "id": "h2", "kind": "text", "style": "heading", "text": "one at a time", "pos": [0.06, 0.13], "align": "left" },
+        { "id": "cast", "kind": "custom", "shot": "turns", "pos": [0.42, 0.6], "w": 1100, "h": 560,
+          "cues": { "hop0": "vo:l2.w2", "hop1": "vo:l2.w4", "hop2": "vo:l2.w6" } },
+        { "id": "count", "kind": "text", "style": "caption", "text": "turns taken: {n}", "size": 44, "pos": [0.82, 0.3], "card": true },
+        { "id": "tick", "kind": "shape", "shape": "check", "w": 70, "stroke": "sage", "stroke_w": 10, "pos": [0.82, 0.45] }
+      ],
+      "beats": [
+        { "at": "+0.5", "target": "h2", "do": "type-on" },
+        { "at": "vo:l2.w1", "target": "count", "do": "fade", "dur": 0.3 },
+        { "at": "vo:l2.w2+0.45", "target": "count", "do": "count-up", "from": 0, "to": 1, "dur": 0.15 },
+        { "at": "vo:l2.w4+0.45", "target": "count", "do": "count-up", "to": 2, "dur": 0.15 },
+        { "at": "vo:l2.w6+0.45", "target": "count", "do": "count-up", "to": 3, "dur": 0.15 },
+        { "at": "vo:l2.w6", "target": "tick", "do": "draw-on", "dur": 0.25 }
+      ]
+    }
+  ],
+  "sfx": [
+    { "at": 0.05, "type": "rustle", "gain": 0.7 },
+    { "at": 0.25, "type": "scribble", "dur": 0.4, "gain": 0.5 },
+    { "at": "vo:l1.w0", "type": "scribble", "dur": 0.5, "gain": 0.4, "pan": 0.45 },
+    { "at": "vo:l1.w1", "type": "pop", "pan": -0.4 },
+    { "at": "+0.15", "type": "pop", "pan": 0.0 },
+    { "at": "+0.15", "type": "pop", "pan": 0.4 },
+    { "at": "beat:4", "type": "twinkle", "gain": 0.4, "pan": 0.2 },
+    { "at": "vo:l1.w4", "type": "scribble", "dur": 0.6, "gain": 0.35 },
+    { "at": "vo:l1.w5", "type": "scribble", "dur": 0.4, "gain": 0.3 },
+    { "at": "scene:turns+0.5", "type": "scribble", "dur": 0.45, "gain": 0.5 },
+    { "at": "vo:l2.w2", "type": "boing", "pitch": 0, "gain": 0.5, "pan": -0.3 },
+    { "at": "vo:l2.w4", "type": "boing", "pitch": 1, "gain": 0.5, "pan": 0.0 },
+    { "at": "vo:l2.w6", "type": "boing", "pitch": 2, "gain": 0.5, "pan": 0.3 },
+    { "at": "vo:l2.w2+0.45", "type": "ding", "note": 0, "gain": 0.5 },
+    { "at": "vo:l2.w4+0.45", "type": "ding", "note": 2, "gain": 0.5 },
+    { "at": "vo:l2.w6+0.45", "type": "ding", "note": 4, "gain": 0.5 },
+    { "at": "vo:l2.w6", "type": "click", "pan": 0.5 },
+    { "at": "bar:3", "type": "twinkle", "gain": 0.3 },
+    { "at": "end-1.5", "type": "sparkleburst", "gain": 0.5 }
+  ]
+}

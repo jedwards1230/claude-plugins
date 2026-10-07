@@ -1,0 +1,11 @@
+{
+ "reviewer": "director",
+ "cut": "r4",
+ "scores": {
+  "story": {"value": 9, "why": "the kettle pays off"},
+  "originality": {"value": 8, "why": "its own motif"},
+  "overall": {"value": 9.5, "why": "ready once the frame defects are fixed"}
+ },
+ "defects": [],
+ "verdict": "ship"
+}

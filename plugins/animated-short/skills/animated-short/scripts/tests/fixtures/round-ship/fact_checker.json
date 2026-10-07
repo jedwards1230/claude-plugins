@@ -1,0 +1,20 @@
+{
+ "reviewer": "fact_checker",
+ "cut": "r1",
+ "scores": {
+  "accuracy": {
+   "value": 9,
+   "why": "ok"
+  }
+ },
+ "claims": [
+  {
+   "text": "Water boils at 100 C at sea level",
+   "where": "l2",
+   "source": "physics textbook, checked 2026-09-25",
+   "status": "verified"
+  }
+ ],
+ "defects": [],
+ "verdict": "ship"
+}

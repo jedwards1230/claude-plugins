@@ -1,0 +1,15 @@
+{
+ "reviewer": "fact_checker",
+ "cut": "r4",
+ "scores": {"accuracy": {"value": 9, "why": "three wording nits"}},
+ "claims": [
+  {"text": "Water boils at 100 C at sea level", "where": "l2", "source": "physics textbook, checked 2026-09-25", "status": "verified"},
+  {"text": "Most kettles switch off with a bimetal strip", "where": "l7", "source": "appliance standard summary, checked 2026-09-25", "status": "verified"}
+ ],
+ "defects": [
+  {"at": "0:32.8", "severity": "nit", "check": "ACC-1", "issue": "line l7 says every kettle; the source says most", "fix": "say most kettles"},
+  {"at": "0:42.0", "severity": "nit", "check": "ACC-1", "issue": "the voice credit calls the shipped file watermarked", "fix": "word it as what the model does"},
+  {"at": "0:42.0", "severity": "nit", "check": "ACC-1", "issue": "the credits do not name the model that built the film", "fix": "name it"}
+ ],
+ "verdict": "ship"
+}

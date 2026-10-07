@@ -1,0 +1,21 @@
+{
+  "name": "animated-short-film",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A film project for the animated-short engine: canvas player page plus headless render tools.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "resolve": "node tools/resolve.mjs",
+    "glyph": "node tools/render.mjs glyph",
+    "purity": "node tools/render.mjs purity",
+    "audio": "node tools/render.mjs audio",
+    "video": "node tools/render.mjs video",
+    "export": "node tools/export.mjs",
+    "qa": "node tools/qa.mjs"
+  },
+  "dependencies": {
+    "mediabunny": "^1.60.0",
+    "playwright-core": "^1.63.0"
+  }
+}

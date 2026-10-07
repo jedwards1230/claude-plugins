@@ -1,0 +1,99 @@
+{
+ "reviewer": "technical",
+ "cut": "r1",
+ "scores": {},
+ "defects": [],
+ "verdict": "ship",
+ "checks": [
+  {
+   "id": "TECH-1",
+   "name": "duration within 1 s of the film",
+   "ok": true,
+   "value": "master 10 s, share 10 s, phone 10 s"
+  },
+  {
+   "id": "TECH-2",
+   "name": "integrated loudness -14.5 +-0.5 LUFS",
+   "ok": true,
+   "value": "master -14.6 LUFS (ffmpeg ebur128), share -14.6 LUFS (ffmpeg ebur128), phone -14.6 LUFS (ffmpeg ebur128)"
+  },
+  {
+   "id": "TECH-3",
+   "name": "true peak <= -1 dBTP",
+   "ok": true,
+   "value": "master -1.6 dBTP, share -1.3 dBTP, phone -1.6 dBTP"
+  },
+  {
+   "id": "TECH-4",
+   "name": "phone copy under 30 MiB",
+   "ok": true,
+   "value": "master 14.63 MiB, share 2.52 MiB, phone 2.02 MiB"
+  },
+  {
+   "id": "TECH-5",
+   "name": "captions: SRT and VTT",
+   "ok": true,
+   "value": "2 cues"
+  },
+  {
+   "id": "TECH-6",
+   "name": "transcript with every narration line",
+   "ok": true,
+   "value": "2/2 lines"
+  },
+  {
+   "id": "TECH-7",
+   "name": "frames are a pure function of time",
+   "ok": true,
+   "value": "14 samples, 0 mismatches"
+  },
+  {
+   "id": "TECH-8",
+   "name": "every font advances every letter of a write-on",
+   "ok": true,
+   "value": "24 checks"
+  },
+  {
+   "id": "TECH-9",
+   "name": "text >= 28 px at 1080p",
+   "ok": true,
+   "value": "0 small texts"
+  },
+  {
+   "id": "TECH-10",
+   "name": "every text readable >= 1.2 s",
+   "ok": true,
+   "value": "0 short reads"
+  },
+  {
+   "id": "TECH-11",
+   "name": "no on-screen text repeating the narration",
+   "ok": true,
+   "value": "0 repeats"
+  },
+  {
+   "id": "TECH-12",
+   "name": "write-ons end >= 0.3 s before a camera move",
+   "ok": true,
+   "value": "0 late write-ons"
+  },
+  {
+   "id": "TECH-13",
+   "name": "film JavaScript is ASCII-only",
+   "ok": true,
+   "value": "9 files"
+  },
+  {
+   "id": "TECH-14",
+   "name": "streams and frame sizes",
+   "ok": true,
+   "value": "master 1920x1080 h264+aac+mov_text, share 1920x1080 h264+aac+mov_text, phone 1280x720 h264+aac+mov_text"
+  },
+  {
+   "id": "TECH-15",
+   "name": "hostable page bundle",
+   "ok": true,
+   "value": "page/"
+  }
+ ]
+}

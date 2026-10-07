@@ -1,0 +1,17 @@
+{
+ "topic": "Three paper shapes taking turns on a small stage",
+ "goal": "Exercise every engine feature in ten seconds at $0: board camera, write-ons, draw-ons, pops, a count-up, acting and synthesized sound.",
+ "message": "Three shapes share one small stage, and each one waits, then takes its turn.",
+ "title": "Shapes Take Turns",
+ "subtitle": "A ten-second golden example: code-drawn shapes, synthesized sound, no media files and no paid calls.",
+ "form": "story",
+ "duration": 10,
+ "aspect": "16:9",
+ "captions": true,
+ "voice": { "mode": "none" },
+ "music": { "mode": "synth" },
+ "art": { "mode": "code" },
+ "sources": [{ "kind": "none" }],
+ "budget_usd": 0,
+ "disclosure": { "end_card": false }
+}

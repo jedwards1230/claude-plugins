@@ -1,0 +1,20 @@
+{
+ "reviewer": "frame_qa",
+ "cut": "r4",
+ "scores": {
+  "reads": {"value": 8, "why": "one read at a time almost everywhere"},
+  "visual_polish": {"value": 7, "why": "a pop and two stray rings"},
+  "character": {"value": 7, "why": "one take snaps"},
+  "accessibility": {"value": 7, "why": "end card body is long"}
+ },
+ "defects": [
+  {"at": "0:19.8", "severity": "major", "check": "VIS-5", "issue": "the bubbles jump in size at the cut (strip-t019.60.jpg)", "fix": "carry the same bubble art across the cut"},
+  {"at": "0:20.9", "severity": "minor", "check": "VIS-1", "issue": "the lid slides in from the top edge, cut by the frame (t020.90.jpg)", "fix": "bring it in from inside the frame"},
+  {"at": "0:26.0", "severity": "minor", "check": "VIS-2", "issue": "the steam holes read as white buttons on the pale wall (crop-t026.00.jpg)", "fix": "darken the holes or the wall behind them"},
+  {"at": "0:38.6", "severity": "minor", "check": "VIS-2", "issue": "a leftover callout ring around the spout (t038.60.jpg)", "fix": "stroke only the spout outline"},
+  {"at": "0:20.8", "severity": "minor", "check": "CHAR-1", "issue": "the hand presses the switch with no squash (strip-t020.80.jpg)", "fix": "add an anticipation squash before the press"},
+  {"at": "0:13.0", "severity": "nit", "check": "READ-1", "issue": "two labels read dark at once (t013.00.jpg)", "fix": "dim the older label"},
+  {"at": "0:42.5", "severity": "minor", "check": "A11Y-2", "issue": "the end card body is too long to read in its hold (crop-t042.50.jpg)", "fix": "shorten the credit lines"}
+ ],
+ "verdict": "iterate"
+}

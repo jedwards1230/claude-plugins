@@ -1,0 +1,8 @@
+{
+  "name": "animated-short",
+  "version": "0.1.1",
+  "description": "Make short animated films about anything (explainers, stories, promos): one batched intake round, research with a claims ledger, script, generated voice, music and sticker art, a bundled deterministic canvas engine, multi-reviewer ship gates, and delivery as a live web page, MP4s, captions and a transcript, with every paid call capped by a spend ledger.",
+  "author": { "name": "jedwards1230" },
+  "license": "MIT",
+  "keywords": ["animation", "video", "explainer", "film", "canvas", "narration", "openrouter", "playwright"]
+}

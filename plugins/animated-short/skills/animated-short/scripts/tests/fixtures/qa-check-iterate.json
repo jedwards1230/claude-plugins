@@ -1,0 +1,177 @@
+{
+ "reviewer": "technical",
+ "cut": "r2",
+ "scores": {},
+ "defects": [
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-1",
+   "issue": "no MP4 or WebM in out",
+   "fix": "run tools/export.mjs (an MP4 mode) first"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-2",
+   "issue": "no audio to measure",
+   "fix": "export first"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-3",
+   "issue": "no audio to measure",
+   "fix": "export first"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-5",
+   "issue": "shapes-take-turns.srt is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-5",
+   "issue": "shapes-take-turns.vtt is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-6",
+   "issue": "transcript.md is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "blocking",
+   "check": "TECH-14",
+   "issue": "no video file",
+   "fix": "export first"
+  },
+  {
+   "at": "0:00",
+   "severity": "major",
+   "check": "TECH-15",
+   "issue": "page/index.html is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "major",
+   "check": "TECH-15",
+   "issue": "page/js/main.js is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "major",
+   "check": "TECH-15",
+   "issue": "page/film/config.json is missing",
+   "fix": "run tools/export.mjs"
+  },
+  {
+   "at": "0:00",
+   "severity": "major",
+   "check": "TECH-15",
+   "issue": "page/film/storyboard.json is missing",
+   "fix": "run tools/export.mjs"
+  }
+ ],
+ "verdict": "iterate",
+ "checks": [
+  {
+   "id": "TECH-1",
+   "name": "duration within 1 s of the film",
+   "ok": false,
+   "value": "no video file"
+  },
+  {
+   "id": "TECH-2",
+   "name": "integrated loudness -14.5 +-0.5 LUFS",
+   "ok": false,
+   "value": "nothing measured"
+  },
+  {
+   "id": "TECH-3",
+   "name": "true peak <= -1 dBTP",
+   "ok": false,
+   "value": "nothing measured"
+  },
+  {
+   "id": "TECH-4",
+   "name": "phone copy under 30 MiB",
+   "ok": true,
+   "value": "no files"
+  },
+  {
+   "id": "TECH-5",
+   "name": "captions: SRT and VTT",
+   "ok": false,
+   "value": "0 cues"
+  },
+  {
+   "id": "TECH-6",
+   "name": "transcript with every narration line",
+   "ok": false,
+   "value": "missing"
+  },
+  {
+   "id": "TECH-7",
+   "name": "frames are a pure function of time",
+   "ok": true,
+   "value": "14 samples, 0 mismatches"
+  },
+  {
+   "id": "TECH-8",
+   "name": "every font advances every letter of a write-on",
+   "ok": true,
+   "value": "24 checks"
+  },
+  {
+   "id": "TECH-9",
+   "name": "text >= 28 px at 1080p",
+   "ok": true,
+   "value": "0 small texts"
+  },
+  {
+   "id": "TECH-10",
+   "name": "every text readable >= 1.2 s",
+   "ok": true,
+   "value": "0 short reads"
+  },
+  {
+   "id": "TECH-11",
+   "name": "no on-screen text repeating the narration",
+   "ok": true,
+   "value": "0 repeats"
+  },
+  {
+   "id": "TECH-12",
+   "name": "write-ons end >= 0.3 s before a camera move",
+   "ok": true,
+   "value": "0 late write-ons"
+  },
+  {
+   "id": "TECH-13",
+   "name": "film JavaScript is ASCII-only",
+   "ok": true,
+   "value": "9 files"
+  },
+  {
+   "id": "TECH-14",
+   "name": "streams and frame sizes",
+   "ok": false,
+   "value": "no files"
+  },
+  {
+   "id": "TECH-15",
+   "name": "hostable page bundle",
+   "ok": false,
+   "value": "missing"
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "reviewer": "originality",
+ "cut": "r1",
+ "scores": {
+  "originality": {
+   "value": 7.5,
+   "why": "ok"
+  }
+ },
+ "banned_patterns_seen": [],
+ "defects": [],
+ "verdict": "ship"
+}

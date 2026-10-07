@@ -1,0 +1,9 @@
+{
+ "questions": [
+  {"q": "What are the bubbles?", "a": "Steam", "accept": ["steam", "water vapour"]},
+  {"q": "Where does the whistle come from?", "a": "The spout", "accept": ["spout", "the lid's hole"]},
+  {"q": "Which water heats first?", "a": "The water at the bottom", "accept": ["bottom"]},
+  {"q": "Why does the pitch rise?", "a": "Pressure builds", "accept": ["more pressure", "more steam"]},
+  {"q": "What starts the boil?", "a": "The heating element", "accept": ["element", "heater"]}
+ ]
+}

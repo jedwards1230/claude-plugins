@@ -1,0 +1,24 @@
+{
+  "title": "Shapes Take Turns",
+  "subtitle": "A ten-second golden example: code-drawn shapes, synthesized sound, no media files and no paid calls.",
+  "description": "A ten-second golden example: code-drawn shapes, synthesized sound, no media files and no paid calls.",
+  "size": [1920, 1080],
+  "fps": 30,
+  "duration": 10,
+  "poster_t": 9.6,
+  "captions": true,
+  "palette": {
+    "accent": "#E2AE3E",
+    "panels": ["#CFE3E0", "#F2D3C6"]
+  },
+  "fonts": { "faces": [] },
+  "notes": [
+    { "title": "What it tests", "text": "Board camera pan with motion blur, a zoom-out finale, type-on, draw-on, count-up, pops, idle motion, and a custom shot that uses the acting kit." },
+    { "title": "How it was made", "text": "Drawn and animated in plain JavaScript on a canvas; every sound is synthesized in the browser. The two narration lines have timings but no audio, so they appear as captions only." }
+  ],
+  "credits": [
+    "Animation: the animated-short canvas engine",
+    "Sound: synthesized with the Web Audio API",
+    "No generated images, voices or music in this example"
+  ]
+}

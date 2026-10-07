@@ -1,0 +1,52 @@
+{
+ "reviewer": "persona",
+ "cut": "r1",
+ "persona": "curious non-expert",
+ "scores": {
+  "message_landed": {
+   "value": 9,
+   "why": "ok"
+  },
+  "new_knowledge": {
+   "value": 8,
+   "why": "ok"
+  }
+ },
+ "takeaway": "Heat makes bubbles and the bubbles make the whistle.",
+ "learned": [
+  "water at the bottom heats first",
+  "bubbles are steam",
+  "steam escapes through the spout",
+  "the whistle is air forced through a small hole",
+  "the pitch rises as pressure builds"
+ ],
+ "quiz": [
+  {
+   "q": "What are the bubbles?",
+   "a": "steam",
+   "correct": true
+  },
+  {
+   "q": "Where does the whistle come from?",
+   "a": "the spout",
+   "correct": true
+  },
+  {
+   "q": "Which water heats first?",
+   "a": "the bottom",
+   "correct": true
+  },
+  {
+   "q": "Why does the pitch rise?",
+   "a": "more pressure",
+   "correct": true
+  },
+  {
+   "q": "What starts the boil?",
+   "a": "the element",
+   "correct": false
+  }
+ ],
+ "defects": [],
+ "verdict": "ship"
+}

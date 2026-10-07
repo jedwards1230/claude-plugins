@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "25.2.0"
+    "version": "26.0.1"
   },
   "plugins": [
     {
@@ -76,6 +76,11 @@
       "name": "screenshotter",
       "source": "./plugins/screenshotter",
       "description": "A generic, agent-only UI screenshotter — autonomously captures, self-verifies, and returns screenshots of any app, UI, or web page, keeping the noisy capture loop out of the parent conversation. For web capture it uses a project-configured Playwright MCP server (template + setup in the README)."
+    },
+    {
+      "name": "animated-short",
+      "source": "./plugins/animated-short",
+      "description": "Make short animated films about anything (explainers, stories, promos): one batched intake round, research with a claims ledger, generated voice, music and sticker art on a bundled deterministic canvas engine, persona and critic review gates, and delivery as a live page, MP4s, captions and a transcript, with spend capped by a ledger"
     }
   ]
 }

@@ -1,0 +1,51 @@
+{
+ "reviewer": "director",
+ "cut": "r1",
+ "scores": {
+  "story": {
+   "value": 8.5,
+   "why": "ok"
+  },
+  "originality": {
+   "value": 8,
+   "why": "ok"
+  },
+  "reads": {
+   "value": 9,
+   "why": "ok"
+  },
+  "sync": {
+   "value": 9,
+   "why": "ok"
+  },
+  "overall": {
+   "value": 8.8,
+   "why": "ok"
+  }
+ },
+ "defects": [
+  {
+   "at": "0:04",
+   "severity": "minor",
+   "check": "READ-2",
+   "issue": "label arrives a beat early",
+   "fix": "delay 0.2 s"
+  },
+  {
+   "at": "0:07",
+   "severity": "blocking",
+   "check": "TEXT-1",
+   "issue": "caption looks cut off",
+   "fix": "check the write-on",
+   "maybe_intentional": true
+  },
+  {
+   "at": "0:09",
+   "severity": "blocking",
+   "check": "SYNC-3",
+   "issue": "pop lands late",
+   "fix": "move the beat"
+  }
+ ],
+ "verdict": "ship"
+}
