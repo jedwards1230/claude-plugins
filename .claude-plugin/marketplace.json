@@ -4,7 +4,7 @@
     "name": "jedwards1230"
   },
   "metadata": {
-    "version": "26.0.3"
+    "version": "27.0.0"
   },
   "plugins": [
     {
@@ -15,7 +15,7 @@
     {
       "name": "git-tooling",
       "source": "./plugins/git-tooling",
-      "description": "Git tooling — default-branch commit prompt, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, on-demand CI + release status watching, and a Release Ticker status line that follows each merge through to its published release"
+      "description": "Git tooling — default-branch commit prompt, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, on-demand CI + release status watching"
     },
     {
       "name": "ansible-quality",
@@ -81,6 +81,11 @@
       "name": "animated-short",
       "source": "./plugins/animated-short",
       "description": "Make short animated films about anything (explainers, stories, promos): one batched intake round, research with a claims ledger, generated voice, music and sticker art on a bundled deterministic canvas engine, persona and critic review gates, and delivery as a live page, MP4s, captions and a transcript, with spend capped by a ledger"
+    },
+    {
+      "name": "gh-monitor",
+      "source": "./plugins/gh-monitor",
+      "description": "One view of every GitHub PR in flight: checks, review, merge by any route, release and published image or chart, in plain-language status-line, band and toast updates, with an opt-in hand-off to bump the deploy repo"
     }
   ]
 }
