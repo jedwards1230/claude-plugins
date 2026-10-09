@@ -1,4 +1,7 @@
 {
+  "modules": [
+    "./release-ticker/register.ts"
+  ],
   "hooks": {
     "SessionStart": [
       {

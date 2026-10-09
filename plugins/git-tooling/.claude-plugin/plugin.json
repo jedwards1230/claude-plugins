@@ -1,8 +1,40 @@
 {
   "name": "git-tooling",
-  "version": "1.13.0",
-  "description": "Git tooling for Claude Code — default-branch commit prompt, bulk worktree force-remove guard, force-push guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, on-demand CI status watching with failing-check names surfaced inline, and release watching (GitHub Release + GHCR package publishes)",
+  "version": "1.14.0",
+  "description": "Git tooling for Claude Code — default-branch commit prompt, bulk worktree force-remove guard, force-push guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, on-demand CI status watching with failing-check names surfaced inline, release watching (GitHub Release + GHCR package publishes), and the Release Ticker mod: a status line that follows each `gh pr merge` through release run, tag, GitHub Release and registry digest, and nags when a floating tag wasn't moved",
   "author": {
     "name": "jedwards1230"
+  },
+  "userConfig": {
+    "releaseWorkflow": {
+      "type": "string",
+      "title": "Release workflow",
+      "description": "Workflow file the Release Ticker follows after a merge (under .github/workflows/). A repo without it is skipped silently.",
+      "required": false,
+      "default": "release.yml"
+    },
+    "registry": {
+      "type": "string",
+      "title": "Container registry",
+      "description": "Registry whose digest the Release Ticker waits for when the repo publishes a package named after it. Only ghcr.io is read (through the GitHub Packages API); any other value skips the digest stage.",
+      "required": false,
+      "default": "ghcr.io"
+    },
+    "floatingTagRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Floating-tag repos",
+      "description": "Entries of the form owner/repo:tag (e.g. owner/workflows:v1). After a merge in such a repo, the Release Ticker nags when the floating tag still isn't on the new release (or merge) commit once the release resolves or the watch times out.",
+      "required": false,
+      "default": []
+    },
+    "timeoutMin": {
+      "type": "number",
+      "title": "Release watch timeout (minutes)",
+      "description": "Hard stop for a Release Ticker watch, in minutes after the merge.",
+      "required": false,
+      "default": 20,
+      "min": 1
+    }
   }
 }

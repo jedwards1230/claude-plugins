@@ -1,6 +1,6 @@
 # git-tooling
 
-Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-aware push reminders, and on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
+Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-aware push reminders, on-demand CI + release status watching, and a Release Ticker status line that follows each merge to its published release — bundled into one plugin so any Claude session that touches git stays well-behaved.
 
 ## Features
 
@@ -12,6 +12,7 @@ Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-a
 - **`gh-resolve-threads`** (bin) — list a PR's unresolved review threads, or resolve specific ones by id, without hand-writing the GraphQL each time. Paginates past the 100-thread-per-page GraphQL limit. No `--resolve-all` — resolution stays per-thread, on purpose.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 - **Release watching** (skill `release-watch`) — the sibling of `ci-watch` that begins where it ends (at `MERGED`). Invoke the `Monitor` tool with a bundled poller that follows a release through to publication: the GitHub release workflow run, the git tag + GitHub Release, **and** GHCR container/chart package publishes (a new image version — or a moving tag like `latest` repointed to a new digest — at `ghcr.io/<owner>/<pkg>`, incl. nested names like `charts/hermes`). Emits on success **and** failure terminals (a failed release workflow is surfaced, never silent). Public GHCR packages read anonymously; private ones need the `gh` token to carry `read:packages` (else that target fails gracefully without crashing the watch).
+- **Release Ticker** (mod) — after a `gh pr merge` that actually merged, a status line under the prompt walks the merge through its release — release workflow run → git tag → GitHub Release → registry digest — and a toast reports the published version (or the failure / timeout). Nags when a configured floating tag (e.g. `v1`) wasn't moved to the new release. Visible only while a release is in flight; token-neutral (status line and toasts only, nothing reaches the model).
 
 ## Prerequisites
 
@@ -20,6 +21,8 @@ Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-a
 - `jq` — used by the push-reminder hook (and other hook scripts)
 
 > The `ci-watch` and `release-watch` scripts use only the Python 3 standard library (no `pip`/Docker/`jq`) and need `python3` (3.8+).
+>
+> The Release Ticker is a [mod](https://code.claude.com/docs/en/plugins/mods/overview) (a TypeScript hooks module, `hooks/release-ticker/`) and needs a Claude Code version that loads mods; it needs only `gh`.
 
 ## Usage
 
@@ -181,3 +184,61 @@ release-watch.py owner/svc --ghcr owner/svc       # both halves of one release i
 `--tag T` binds to the immediately preceding target. The script polls every 30s (override via `GIT_TOOLING_RELEASE_POLL_SECONDS`), emits one notification per transition, and exits when every target is published or its release workflow concludes — exit 1 if any target hit a failure terminal (release workflow failed, or a private package the token can't read). Pass `--tag` for an already-published release/version and it reports it and exits at once. Use `TaskStop` to cancel early.
 
 Each notification is one line per transition — good terminals (`RELEASED <tag>`, `PUBLISHED <pkg>:<tag>`, `PUBLISHED <pkg>:latest repointed -> <digest>`), neutral terminals (`RUN success — no new release`, `idle — no release in flight`), and failure terminals (`RUN failure — release workflow failed (<url>)`, `INACCESSIBLE — … needs read:packages`). The full signature/output reference is the table in [`skills/release-watch/SKILL.md`](skills/release-watch/SKILL.md) (its source of truth), the same way `ci-watch`'s lives in its own SKILL.md.
+
+### Release Ticker (mod)
+
+A status line that follows each merge to its published release, then gets out of the way.
+
+**What it shows.** While a release is in flight, one line under the prompt (one segment per armed repo):
+
+```
+release owner/repo #12: run in_progress → tag
+release owner/repo #12: tag v1.2.3 → release
+release owner/repo #12: release v1.2.3 → ghcr.io digest
+```
+
+The line disappears on any terminal, and a toast reports it:
+
+- `owner/repo v1.2.3 published` — the GitHub Release is out (no package to wait for, or the registry could not be read);
+- `owner/repo v1.2.3 published (ghcr.io sha256:…)` — and the registry has the image for that tag;
+- `owner/repo v1.2.3 published (no digest seen)` — the Release is out but no matching package version showed up before `timeoutMin`;
+- `owner/repo: release run failed (<conclusion>)` — any conclusion other than `success`, `skipped` or `neutral` (`failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, …);
+- `owner/repo: release run finished, no new release` — the run succeeded (or was skipped) and no new tag appeared within the 2-minute release grace window;
+- `owner/repo v1.2.3 tagged (no GitHub Release)` — a new tag, but no Release for it within that same 2-minute window;
+- `owner/repo: release watch timed out after 20 min`.
+
+**Arming rule.** It arms only on a Bash `gh pr merge` tool call (`--repo`/`-R`, a PR URL, `GH_REPO=`, a number or branch selector, or a bare merge of the current branch's PR — read before the merge runs, so `--delete-branch` can't switch it away), and only once the call completed and `gh pr view` confirms the PR is `MERGED` within the last 5 minutes — a failed or denied merge, `gh pr merge --auto` that merely enabled auto-merge, or re-running `gh pr merge` on a PR merged long ago arms nothing. The command may chain (`git push && gh pr merge 12`), redirect (`2>&1`, `> log`) or start with `cd dir &&` (gh then runs in `dir`; a relative `dir` resolves against the session's working directory, and `~` is not expanded). A merge wrapped in `bash -c`, `sh -c`, `sudo`, `eval` or a script is not detected. It then:
+
+- **falls through silently** (no status, no toast) when the repo has no `releaseWorkflow` file;
+- polls every 30 s with bounded `gh` calls (15 s each), never inside the tool call: the release run for the merge commit → a new tag → that tag's GitHub Release → the registry digest;
+- takes as the release tag only a tag that did not exist at merge time and sits on the merge commit or a commit descending from it (a release commit), reading the newest tags by commit date — so an unrelated tag pushed meanwhile (a nightly, another branch) is ignored, however many tags the repo has;
+- skips the digest stage unless the repo publishes a container package named after it (looked up through the GitHub Packages API, so only `ghcr.io` is read; a token without `read:packages` or any query failure just skips the stage);
+- gives up quietly if no release run appears within 3 minutes (a path-filtered or label-gated release that didn't fire), and stops hard at `timeoutMin`.
+
+One watch per repo: a newer merge in the same repo replaces the older watch; merges in different repos are watched side by side. Ending the session cancels the watches and clears the line.
+
+**Floating tags.** Some repos publish through a floating tag that only moves when a workflow is dispatched (merging ships nothing). For a repo listed in `floatingTagRepos`, the ticker keeps waiting for a (dispatched) release run until the timeout — a `workflow_dispatch` run created after the merge counts even when another merge moved the default branch first, so its head isn't this merge commit — hints `dispatch <releaseWorkflow> to move <tag>` in the status line, and — when the release resolves or the watch times out — toasts a nag such as `owner/repo: floating tag v1 not moved — dispatch release.yml` if the tag doesn't point at the new release tag's commit (or at the merge commit when no release was cut).
+
+**Options** (`userConfig`, all optional):
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `releaseWorkflow` | `release.yml` | Workflow file under `.github/workflows/` to follow. A repo without it is skipped silently. |
+| `registry` | `ghcr.io` | Registry for the digest stage. Only `ghcr.io` is read; any other value skips the stage. |
+| `floatingTagRepos` | *(empty)* | `owner/repo:tag` entries (a list; several entries comma-separated). |
+| `timeoutMin` | `20` | Hard stop for a watch, in minutes after the merge (minimum 1). |
+
+Set them with `/plugin configure`, or from the shell (use the plugin id `claude plugin list` shows):
+
+```bash
+echo '{"floatingTagRepos": "jedwards1230/release-workflows:v1", "timeoutMin": "30"}' \
+  | claude plugin configure git-tooling@jedwards1230-plugins --values-stdin
+```
+
+`configure` saves each value as a string, so list several floating-tag repos comma-separated (`"owner/a:v1, owner/b:v2"`); the ticker also accepts a real list or a JSON array string. Restart Claude Code to apply.
+
+**Token-neutral.** The mod only calls `$.ui.status` and `$.ui.toast`: no context is injected into the conversation and no model calls are made. The `tool.call` hook hands `gh pr merge`'s result back verbatim.
+
+**Relationship to `release-watch`.** The ticker is the passive, always-on glance: it arms itself on a merge and needs no prompt. The [`release-watch`](#release-watch-skill) skill is the on-demand, agent-facing tool: it streams transitions to the agent through `Monitor`, takes explicit targets (any repo, specific tags, several GHCR packages), and is what to reach for when the agent should act on the outcome.
+
+The logic is tested with fixture `gh` output under `tests/` (`claude plugin test plugins/git-tooling`), which CI runs.
