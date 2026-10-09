@@ -92,15 +92,59 @@ jobs:
           done < <(find plugins -name '*.test.sh' -print0)
           exit $status
 
+  mod-tests:
+    name: Mod Tests
+    runs-on: ubuntu-latest
+    env:
+      DISABLE_TELEMETRY: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Runs `claude plugin test` for every plugin that ships mod tests
+      # (*.test.ts). The tests answer gh/clock/UI from fixtures: no sign-in,
+      # no network. The Claude Code version is pinned; bump it deliberately.
+      # ubuntu-latest's preinstalled Node/npm is enough (no setup-node).
+      # The postinstall that fetches the native binary is run explicitly, so
+      # an npm that skips install scripts still ends with a working claude.
+      - name: Install Claude Code
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/claude-code" @anthropic-ai/claude-code@2.1.287
+          node "$RUNNER_TEMP/claude-code/node_modules/@anthropic-ai/claude-code/install.cjs"
+          echo "$RUNNER_TEMP/claude-code/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Run mod test suites
+        run: |
+          {
+            echo "## Mod Tests"
+            echo ""
+            echo "| Plugin | Result |"
+            echo "|--------|--------|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          status=0
+          while IFS= read -r plugin; do
+            echo "::group::$plugin"
+            if claude plugin test "$plugin"; then
+              echo "| \`$plugin\` | :white_check_mark: Passed |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| \`$plugin\` | :x: Failed |" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Mod tests failed in $plugin"
+              status=1
+            fi
+            echo "::endgroup::"
+          done < <(find plugins -name '*.test.ts' -not -path '*/node_modules/*' | cut -d/ -f1-2 | sort -u)
+          exit $status
+
   ci:
     name: CI
     if: always()
-    needs: [validate, shell-tests]
+    needs: [validate, shell-tests, mod-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
-          results=("${{ needs.validate.result }}" "${{ needs.shell-tests.result }}")
+          results=("${{ needs.validate.result }}" "${{ needs.shell-tests.result }}" "${{ needs.mod-tests.result }}")
           for r in "${results[@]}"; do
             if [[ "$r" == "failure" || "$r" == "cancelled" ]]; then
               echo "CI failed"

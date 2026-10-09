@@ -9,12 +9,18 @@ Personal Claude Code plugin marketplace. All changes go through the workflow bel
 
 ## Build, test & lint
 
-This repo has no compiler or test suite — CI validates JSON syntax and enforces plugin version bumps.
+There is no compiler. CI validates JSON syntax, runs each plugin's hermetic test suites (`*.test.sh` shell tests, and `*.test.ts` mod tests through `claude plugin test`), and enforces plugin version bumps.
 
 ```bash
 # Validate JSON files (marketplace.json + all plugin.json) — mirrors the JSON Validation CI job
 python3 -m json.tool .claude-plugin/marketplace.json > /dev/null
 find plugins -name plugin.json -print0 | xargs -0 -I{} python3 -m json.tool {} > /dev/null
+
+# Shell test suites — mirrors the Shell Tests CI job
+find plugins -name '*.test.sh' -exec bash {} \;
+
+# Mod tests (plugins that ship *.test.ts) — mirrors the Mod Tests CI job
+claude plugin test plugins/git-tooling
 
 # Validate plugin version bumps against main — mirrors the Plugin Version Check CI job
 ./scripts/check-plugin-versions.sh origin/main
