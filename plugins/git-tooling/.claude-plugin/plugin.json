@@ -1,6 +1,6 @@
 {
   "name": "git-tooling",
-  "version": "1.14.0",
+  "version": "1.14.1",
   "description": "Git tooling for Claude Code — default-branch commit prompt, bulk worktree force-remove guard, force-push guard, wt-done merged-branch cleanup, gh-resolve-threads PR review-thread triage, PR-aware push reminders, on-demand CI status watching with failing-check names surfaced inline, release watching (GitHub Release + GHCR package publishes), and the Release Ticker mod: a status line that follows each `gh pr merge` through release run, tag, GitHub Release and registry digest, and nags when a floating tag wasn't moved",
   "author": {
     "name": "jedwards1230"

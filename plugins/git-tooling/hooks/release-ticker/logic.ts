@@ -1,7 +1,7 @@
 /**
  * Release Ticker — pure logic: parsing the merge command and the plugin's
  * options, and the stage machine that walks a merge through its release
- * (run -> tag -> GitHub Release -> registry digest). No `$`, no I/O: every
+ * (workflow -> tag -> GitHub release -> image). No `$`, no I/O: every
  * function here takes plain data, so the tests import it directly.
  */
 
@@ -37,8 +37,19 @@ export const DEFAULTS = {
 export const POLL_MS = 30_000
 /** How long a merge may go without a release run before the watch gives up quietly. */
 export const NO_RUN_GRACE_MS = 3 * 60_000
-/** How long after a successful run the tag (then the Release) may take to appear. */
+/**
+ * How long after a successful run the tag may take to appear. A release
+ * workflow tags inside its own run, so a short wait is enough; past it the
+ * run cut nothing (a chore merge that needs no version bump).
+ */
+export const TAG_GRACE_MS = 90_000
+/** How long after the tag its GitHub release may take to appear. */
 export const RELEASE_GRACE_MS = 2 * 60_000
+/**
+ * The longest status text: Claude Code prefixes the line with ` ⚠ git-tooling: `
+ * (16 characters) and the whole line must fit in 82.
+ */
+export const STATUS_MAX = 66
 /** How recently the PR must have merged for a `gh pr merge` to arm (an old, already-merged PR does not). */
 export const RECENT_MERGE_MS = 5 * 60_000
 /** Clock skew tolerated between this machine and GitHub's `mergedAt`. */
@@ -277,6 +288,8 @@ export type Watch = {
   stage: Stage
   /** The release run's status (`queued`, `in_progress`, ...) once one exists. */
   runStatus?: string
+  /** When the release run started (GitHub's `run_started_at`, else `created_at`). */
+  runStartedAt?: number
   /** When the run finished successfully. */
   runDoneAt?: number
   /** Tag names that existed when the watch armed. */
@@ -302,7 +315,7 @@ export type Terminal =
 export type Step = { watch: Watch; done?: undefined } | { watch: Watch; done: Terminal }
 
 /** The newest run of the release workflow for the merge commit. */
-export type RunObs = { status: string; conclusion: string | null; url?: string }
+export type RunObs = { status: string; conclusion: string | null; url?: string; startedAt?: number }
 /**
  * A tag and its commit. `related`: whether the commit is the merge commit or
  * descends from it (undefined when that could not be checked).
@@ -326,7 +339,11 @@ export function stepRun(watch: Watch, run: RunObs | null | undefined, now: numbe
     const isStale = !watch.floatingTag && now - watch.armedAt >= NO_RUN_GRACE_MS
     return isStale ? { watch, done: { kind: 'no-run' } } : { watch }
   }
-  if (run.status !== 'completed') return { watch: { ...watch, runStatus: run.status } }
+  if (run.status !== 'completed') {
+    return {
+      watch: { ...watch, runStatus: run.status, ...(run.startedAt !== undefined ? { runStartedAt: run.startedAt } : {}) },
+    }
+  }
   const conclusion = run.conclusion ?? 'unknown'
   if (GOOD.has(conclusion)) {
     return { watch: { ...watch, runStatus: 'completed', stage: 'tag', runDoneAt: now } }
@@ -339,7 +356,7 @@ export function stepRun(watch: Watch, run: RunObs | null | undefined, now: numbe
  * The tag stage: a tag that did not exist at arm time, on the merge commit
  * or on a commit that descends from it (a release commit). A new tag off the
  * merge's history is never taken, and joins the baseline so it is not
- * checked again. None after RELEASE_GRACE_MS -> no release.
+ * checked again. None TAG_GRACE_MS after the run succeeded -> no release.
  */
 export function stepTag(watch: Watch, tags: readonly TagObs[] | undefined, now: number): Step {
   if (tags === undefined) return { watch }
@@ -354,7 +371,7 @@ export function stepTag(watch: Watch, tags: readonly TagObs[] | undefined, now: 
   const unrelated = fresh.filter(t => t.related === false).map(t => t.name)
   const next = unrelated.length > 0 ? { ...watch, baselineTags: [...watch.baselineTags, ...unrelated] } : watch
   const since = watch.runDoneAt ?? now
-  return now - since >= RELEASE_GRACE_MS ? { watch: next, done: { kind: 'no-release' } } : { watch: next }
+  return now - since >= TAG_GRACE_MS ? { watch: next, done: { kind: 'no-release' } } : { watch: next }
 }
 
 /**
@@ -430,52 +447,140 @@ export function shortDigest(digest: string): string {
   return m ? `${m[1] ?? ''}${(m[2] as string).slice(0, 12)}` : digest
 }
 
-/** One watch's part of the status line. */
-export function statusTextOf(watch: Watch, config: Config): string {
-  const head = `release ${watch.repo} #${watch.pr}`
-  switch (watch.stage) {
-    case 'run': {
-      if (watch.runStatus) return `${head}: run ${watch.runStatus} → tag`
-      const hint = watch.floatingTag
-        ? ` (dispatch ${config.releaseWorkflow} to move ${watch.floatingTag})`
-        : ''
-      return `${head}: waiting for ${config.releaseWorkflow} run${hint}`
-    }
-    case 'tag':
-      return `${head}: run success → tag`
-    case 'release':
-      return `${head}: tag ${watch.tag} → release`
-    case 'registry':
-      return `${head}: release ${watch.tag} → ${config.registry} digest`
-  }
+/** The user-facing name of each stage, used alike in the status line, toasts and README. */
+export const STAGE_NAMES: Record<Stage, string> = {
+  run: 'workflow',
+  tag: 'tag',
+  release: 'GitHub release',
+  registry: 'image',
 }
 
-/** The status line for every armed watch, or undefined when none is armed. */
-export function statusLineOf(watches: readonly Watch[], config: Config): string | undefined {
-  return watches.length === 0 ? undefined : watches.map(w => statusTextOf(w, config)).join('  ·  ')
+const STAGE_ORDER: readonly Stage[] = ['run', 'tag', 'release', 'registry']
+
+/** The stages this watch walks: the image stage only when the repo publishes a package (decided at arm time). */
+export function stagesOf(watch: Watch): Stage[] {
+  return watch.pkg ? [...STAGE_ORDER] : STAGE_ORDER.slice(0, 3)
+}
+
+/** `2/4`: the current stage's position among the stages that apply. */
+export function stepCountOf(watch: Watch): string {
+  const stages = stagesOf(watch)
+  return `${stages.indexOf(watch.stage) + 1}/${stages.length}`
+}
+
+/** `40s`, `1m 40s`, `1h 5m`. */
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return s % 60 === 0 ? `${m}m` : `${m}m ${s % 60}s`
+  const h = Math.floor(m / 60)
+  return m % 60 === 0 ? `${h}h` : `${h}h ${m % 60}m`
+}
+
+/** Cuts `s` to `n` characters, ending in `…` when cut. */
+export function elide(s: string, n: number): string {
+  if (s.length <= n) return s
+  return n <= 1 ? '…' : `${s.slice(0, n - 1)}…`
+}
+
+/** The parts of one status segment that may be shortened to fit. */
+type Parts = { name: string; ver: string; wf: string; elapsed: string; compact: boolean }
+
+function renderSegment(watch: Watch, p: Parts): string {
+  const phrase = (() => {
+    switch (watch.stage) {
+      case 'run':
+        if (watch.runStatus === 'in_progress') return `workflow running${p.elapsed ? ` ${p.elapsed}` : ''}`
+        if (watch.runStatus) return `workflow ${watch.runStatus.replace(/_/g, ' ')}`
+        if (watch.floatingTag) return `dispatch ${p.wf} to move ${watch.floatingTag}`
+        return p.compact ? 'waiting for workflow' : 'waiting for workflow to start'
+      case 'tag':
+        return 'workflow done, waiting for tag'
+      case 'release':
+        return `tagged ${p.ver}, waiting for ${p.compact ? 'release' : 'GitHub release'}`
+      case 'registry':
+        return `${p.ver} released, waiting for image`
+    }
+  })()
+  return `${p.name} #${watch.pr} · ${stepCountOf(watch)} · ${phrase}`
+}
+
+/**
+ * One watch's part of the status line, at most `max` characters: the repo
+ * name (owner dropped), the step count, and what it is waiting for. Too
+ * long, it elides the repo name, drops the elapsed time, elides the
+ * version, shortens the phrase, then elides further, in that order.
+ */
+export function statusTextOf(watch: Watch, config: Config, now: number, max = STATUS_MAX): string {
+  const p: Parts = {
+    name: watch.repo.split('/')[1] ?? watch.repo,
+    ver: watch.tag ?? '',
+    wf: config.releaseWorkflow,
+    elapsed: formatElapsed(now - (watch.runStartedAt ?? watch.armedAt)),
+    compact: false,
+  }
+  const shrink = (key: 'name' | 'ver' | 'wf', min: number) => {
+    const over = renderSegment(watch, p).length - max
+    if (over > 0) p[key] = elide(p[key], Math.max(min, p[key].length - over))
+  }
+  const fits = () => renderSegment(watch, p).length <= max
+  shrink('name', 14)
+  if (!fits()) p.elapsed = ''
+  shrink('ver', 10)
+  if (!fits()) p.compact = true
+  shrink('name', 6)
+  shrink('wf', 8)
+  shrink('ver', 5)
+  return elide(renderSegment(watch, p), max)
+}
+
+/**
+ * The status line for every armed watch, or undefined when none is armed.
+ * Several watches share the line when they fit; otherwise the newest is
+ * shown with `+N more`.
+ */
+export function statusLineOf(watches: readonly Watch[], config: Config, now: number): string | undefined {
+  if (watches.length === 0) return undefined
+  const newest = [...watches].sort((a, b) => b.armedAt - a.armedAt)
+  const all = newest.map(w => statusTextOf(w, config, now, Number.POSITIVE_INFINITY)).join(' | ')
+  if (all.length <= STATUS_MAX) return all
+  if (newest.length === 1) return statusTextOf(newest[0] as Watch, config, now)
+  const more = ` | +${newest.length - 1} more`
+  return statusTextOf(newest[0] as Watch, config, now, STATUS_MAX - more.length) + more
+}
+
+/** `owner/repo #12`, how a toast names the merge. */
+function labelOf(watch: Watch): string {
+  return `${watch.repo} #${watch.pr}`
 }
 
 /** The toast a terminal shows; undefined for the quiet ones. */
 export function toastTextOf(watch: Watch, done: Terminal, config: Config): string | undefined {
+  const pr = labelOf(watch)
+  const minutes = Math.round(config.timeoutMs / 60_000)
   switch (done.kind) {
     case 'published':
-      if (done.digest) return `${watch.repo} ${done.tag} published (${config.registry} ${shortDigest(done.digest)})`
-      return done.noDigest ? `${watch.repo} ${done.tag} published (no digest seen)` : `${watch.repo} ${done.tag} published`
+      if (done.digest) return `${pr}: ${done.tag} published (GitHub release + ${config.registry} image ${shortDigest(done.digest)})`
+      if (done.noDigest) return `${pr}: ${done.tag} published (GitHub release; no ${config.registry} image after ${minutes} min)`
+      return watch.pkg
+        ? `${pr}: ${done.tag} published (GitHub release; ${config.registry} image not checked)`
+        : `${pr}: ${done.tag} published (GitHub release)`
     case 'tagged':
-      return `${watch.repo} ${done.tag} tagged (no GitHub Release)`
+      return `${pr}: tagged ${done.tag}, but no GitHub release appeared`
     case 'failed':
-      return `${watch.repo}: release run failed (${done.conclusion})`
+      return `${pr}: ${config.releaseWorkflow} failed (${done.conclusion})`
     case 'no-release':
-      return `${watch.repo}: release run finished, no new release`
+      return `${pr}: ${config.releaseWorkflow} ran but cut no new version (nothing to release)`
     case 'timeout':
-      return `${watch.repo}: release watch timed out after ${Math.round(config.timeoutMs / 60_000)} min`
+      return `${pr}: still waiting for the ${STAGE_NAMES[watch.stage]} after ${minutes} min — gave up`
     case 'no-run':
       return undefined
   }
 }
 
 export function nagTextOf(watch: Watch, config: Config): string {
-  return `${watch.repo}: floating tag ${watch.floatingTag} not moved — dispatch ${config.releaseWorkflow}`
+  return `${labelOf(watch)}: floating tag ${watch.floatingTag} not moved — dispatch ${config.releaseWorkflow} to move it`
 }
 
 /** Whether a `tool.call` result means the command actually ran to completion. */

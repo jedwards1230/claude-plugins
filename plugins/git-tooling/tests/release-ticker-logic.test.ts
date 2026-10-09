@@ -2,6 +2,8 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   configOf,
+  elide,
+  formatElapsed,
   isCompleted,
   isFloatingTagStale,
   isRecentMerge,
@@ -9,11 +11,15 @@ import {
   parseFloatingTagRepos,
   parseMergeCommand,
   RELEASE_GRACE_MS,
+  STATUS_MAX,
+  stagesOf,
   stepRegistry,
   stepRelease,
   stepRun,
   stepTag,
   statusLineOf,
+  statusTextOf,
+  TAG_GRACE_MS,
   timeoutOf,
   toastTextOf,
 } from '../hooks/release-ticker/logic'
@@ -124,7 +130,7 @@ describe('release-ticker logic', () => {
     expect(timeoutOf(WATCH)).toEqual({ kind: 'timeout' })
     expect(timeoutOf({ ...WATCH, stage: 'registry', tag: 'v1.2.3' })).toEqual({ kind: 'published', tag: 'v1.2.3', noDigest: true })
     expect(toastTextOf({ ...WATCH, stage: 'registry' }, { kind: 'published', tag: 'v1.2.3', noDigest: true }, configOf({}))).toBe(
-      'acme/widget v1.2.3 published (no digest seen)',
+      'acme/widget #12: v1.2.3 published (GitHub release; no ghcr.io image after 20 min)',
     )
   })
 
@@ -153,8 +159,9 @@ describe('release-ticker logic', () => {
     const skipped = stepTag(atTag, [{ name: 'nightly', sha: 'x', related: false }, { name: 'v9', sha: 'y' }], 1)
     expect(skipped.watch.stage, 'unrelated or unverified: no pick').toBe('tag')
     expect(skipped.watch.baselineTags, 'an unrelated tag is not checked again').toEqual(['v1.2.2', 'nightly'])
-    expect(stepTag(atTag, [{ name: 'v1.2.2', sha: 'old' }], RELEASE_GRACE_MS - 1).done).toBeUndefined()
-    expect(stepTag(atTag, [{ name: 'v1.2.2', sha: 'old' }], RELEASE_GRACE_MS).done).toEqual({ kind: 'no-release' })
+    expect(stepTag(atTag, [{ name: 'v1.2.2', sha: 'old' }], TAG_GRACE_MS - 1).done).toBeUndefined()
+    expect(stepTag(atTag, [{ name: 'v1.2.2', sha: 'old' }], TAG_GRACE_MS).done).toEqual({ kind: 'no-release' })
+    expect(TAG_GRACE_MS, 'the post-run tag wait is short').toBeLessThanOrEqual(90_000)
   })
 
   test('stepRelease and stepRegistry', () => {
@@ -192,11 +199,109 @@ describe('release-ticker logic', () => {
     expect(isCompleted({ result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } })).toBe(false)
   })
 
-  test('statusLineOf joins armed watches, undefined when none', () => {
+  test('statusLineOf: one segment per watch when they fit, else the newest + N more; undefined when none', () => {
     const config = configOf({})
-    expect(statusLineOf([], config)).toBeUndefined()
-    expect(
-      statusLineOf([{ ...WATCH, runStatus: 'queued' }, { ...WATCH, repo: 'acme/gadget', pr: 3, stage: 'release', tag: 'v2.0.0' }], config),
-    ).toBe('release acme/widget #12: run queued → tag  ·  release acme/gadget #3: tag v2.0.0 → release')
+    expect(statusLineOf([], config, 0)).toBeUndefined()
+    const widget: Watch = { ...WATCH, runStatus: 'queued' }
+    expect(statusLineOf([widget], config, 0)).toBe('widget #12 · 1/3 · workflow queued')
+    const gadget: Watch = { ...WATCH, repo: 'acme/gadget', pr: 3, stage: 'tag', armedAt: 5 }
+    expect(statusLineOf([{ ...widget, repo: 'acme/w' }, { ...gadget, repo: 'acme/g', stage: 'run', runStatus: 'queued' }], config, 0)).toBe(
+      'g #3 · 1/3 · workflow queued | w #12 · 1/3 · workflow queued',
+    )
+    expect(statusLineOf([widget, gadget], config, 0)).toBe('gadget #3 · 2/3 · workflow done, waiting for tag | +1 more')
+  })
+
+  test('statusTextOf: a step count and a plain phrase for every stage, 4 stages with a package, 3 without', () => {
+    const config = configOf({})
+    const pkg = { scope: 'users', owner: 'acme', name: 'widget' } as const
+    const at = (w: Partial<Watch>, now = 0) => statusTextOf({ ...WATCH, ...w }, config, now)
+    expect(stagesOf(WATCH)).toEqual(['run', 'tag', 'release'])
+    expect(stagesOf({ ...WATCH, pkg })).toEqual(['run', 'tag', 'release', 'registry'])
+
+    expect(at({})).toBe('widget #12 · 1/3 · waiting for workflow to start')
+    expect(at({ floatingTag: 'v1' })).toBe('widget #12 · 1/3 · dispatch release.yml to move v1')
+    expect(at({ runStatus: 'queued' })).toBe('widget #12 · 1/3 · workflow queued')
+    expect(at({ runStatus: 'in_progress', runStartedAt: 0 }, 100_000)).toBe('widget #12 · 1/3 · workflow running 1m 40s')
+    expect(at({ runStatus: 'in_progress' }, 40_000), 'no start time: elapsed since arming').toBe(
+      'widget #12 · 1/3 · workflow running 40s',
+    )
+    expect(at({ stage: 'tag' })).toBe('widget #12 · 2/3 · workflow done, waiting for tag')
+    expect(at({ stage: 'release', tag: 'v1.2.3' })).toBe('widget #12 · 3/3 · tagged v1.2.3, waiting for GitHub release')
+
+    expect(at({ pkg })).toBe('widget #12 · 1/4 · waiting for workflow to start')
+    expect(at({ pkg, stage: 'tag' })).toBe('widget #12 · 2/4 · workflow done, waiting for tag')
+    expect(at({ pkg, stage: 'release', tag: 'v1.2.3' })).toBe('widget #12 · 3/4 · tagged v1.2.3, waiting for GitHub release')
+    expect(at({ pkg, stage: 'registry', tag: 'v1.2.3' })).toBe('widget #12 · 4/4 · v1.2.3 released, waiting for image')
+  })
+
+  test('formatElapsed and elide', () => {
+    expect(formatElapsed(0)).toBe('0s')
+    expect(formatElapsed(40_000)).toBe('40s')
+    expect(formatElapsed(60_000)).toBe('1m')
+    expect(formatElapsed(100_000)).toBe('1m 40s')
+    expect(formatElapsed(65 * 60_000)).toBe('1h 5m')
+    expect(formatElapsed(-5_000), 'clock skew clamps to zero').toBe('0s')
+    expect(elide('abcdef', 6)).toBe('abcdef')
+    expect(elide('abcdefg', 6)).toBe('abcde…')
+  })
+
+  test('every status line fits 82 columns with the 16-character ` ⚠ git-tooling: ` prefix', () => {
+    const PREFIX = 16
+    const pkg = { scope: 'users', owner: 'acme', name: 'a-really-long-repository-name-for-tests-x' } as const
+    const long: Watch = { ...WATCH, repo: 'acme/a-really-long-repository-name-for-tests-x', pr: 12345 }
+    const tag = 'v10.20.300-beta.12'
+    const now = 3 * 3600_000 + 59 * 60_000 + 59_000
+    for (const config of [configOf({}), configOf({ releaseWorkflow: 'publish-container-images-and-charts.yaml' })]) {
+      for (const base of [WATCH, long]) {
+        for (const w of [base, { ...base, pkg }]) {
+          const stages: Watch[] = [
+            w,
+            { ...w, floatingTag: 'v1' },
+            { ...w, runStatus: 'queued' },
+            { ...w, runStatus: 'in_progress' },
+            { ...w, stage: 'tag' },
+            { ...w, stage: 'release', tag },
+            ...(w.pkg ? [{ ...w, stage: 'registry' as const, tag }] : []),
+          ]
+          for (const s of stages) {
+            const text = statusLineOf([s], config, now) as string
+            expect(text.length + PREFIX, text).toBeLessThanOrEqual(82)
+            expect(text, 'keeps the step count').toMatch(/ · \d\/[34] · /)
+          }
+          const multi = statusLineOf(stages, config, now) as string
+          expect(multi.length + PREFIX, multi).toBeLessThanOrEqual(82)
+        }
+      }
+    }
+    expect(STATUS_MAX).toBe(66)
+    expect(statusTextOf({ ...long, stage: 'release', tag }, configOf({}), 0)).toBe(
+      'a-really-lo… #12345 · 3/3 · tagged v10.20.30…, waiting for release',
+    )
+    expect(statusTextOf({ ...long, runStatus: 'in_progress' }, configOf({}), 100_000)).toBe(
+      'a-really-long-repository-n… #12345 · 1/3 · workflow running 1m 40s',
+    )
+  })
+
+  test('toasts name the PR and say what happened in plain words', () => {
+    const config = configOf({})
+    const pkg = { scope: 'users', owner: 'acme', name: 'widget' } as const
+    const toast = toastTextOf
+    expect(toast(WATCH, { kind: 'published', tag: 'v1.2.3' }, config)).toBe('acme/widget #12: v1.2.3 published (GitHub release)')
+    expect(toast({ ...WATCH, pkg }, { kind: 'published', tag: 'v1.2.3', digest: `sha256:${'d'.repeat(64)}` }, config)).toBe(
+      'acme/widget #12: v1.2.3 published (GitHub release + ghcr.io image sha256:dddddddddddd)',
+    )
+    expect(toast({ ...WATCH, pkg }, { kind: 'published', tag: 'v1.2.3' }, config)).toBe(
+      'acme/widget #12: v1.2.3 published (GitHub release; ghcr.io image not checked)',
+    )
+    expect(toast(WATCH, { kind: 'tagged', tag: 'v1.2.3' }, config)).toBe('acme/widget #12: tagged v1.2.3, but no GitHub release appeared')
+    expect(toast(WATCH, { kind: 'failed', conclusion: 'failure' }, config)).toBe('acme/widget #12: release.yml failed (failure)')
+    expect(toast(WATCH, { kind: 'no-release' }, config)).toBe(
+      'acme/widget #12: release.yml ran but cut no new version (nothing to release)',
+    )
+    expect(toast({ ...WATCH, stage: 'tag' }, { kind: 'timeout' }, config)).toBe(
+      'acme/widget #12: still waiting for the tag after 20 min — gave up',
+    )
+    expect(toast(WATCH, { kind: 'timeout' }, config)).toBe('acme/widget #12: still waiting for the workflow after 20 min — gave up')
+    expect(toast(WATCH, { kind: 'no-run' }, config)).toBeUndefined()
   })
 })

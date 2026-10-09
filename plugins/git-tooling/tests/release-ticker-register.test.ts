@@ -58,23 +58,23 @@ describe('release-ticker register', () => {
     const w = world(on, gh)
 
     await mergeIn($, w.clock)
-    expect(w.statuses).toEqual([`release ${REPO} #12: waiting for release.yml run`])
+    expect(w.statuses).toEqual([`widget #12 · 1/4 · waiting for workflow to start`])
 
     gh.run = { status: 'in_progress', conclusion: null }
     await w.clock.advance(POLL)
-    expect(w.statuses.at(-1)).toBe(`release ${REPO} #12: run in_progress → tag`)
+    expect(w.statuses.at(-1)).toBe(`widget #12 · 1/4 · workflow running 30s`)
 
     gh.run = { status: 'completed', conclusion: 'success' }
     cutRelease(gh)
     await w.clock.advance(POLL)
     expect(w.statuses.at(-1), 'tag and release land in one poll; the digest is next').toBe(
-      `release ${REPO} #12: release v1.2.3 → ghcr.io digest`,
+      `widget #12 · 4/4 · v1.2.3 released, waiting for image`,
     )
     expect(w.toasts).toEqual([])
 
     pushImage(gh)
     await w.clock.advance(POLL)
-    expect(w.toasts).toEqual([`${REPO} v1.2.3 published (ghcr.io sha256:dddddddddddd)`])
+    expect(w.toasts).toEqual([`${REPO} #12: v1.2.3 published (GitHub release + ghcr.io image sha256:dddddddddddd)`])
     expect(w.statuses.at(-1), 'the status is gone once published').toBeUndefined()
 
     const polled = w.runs.length
@@ -88,11 +88,11 @@ describe('release-ticker register', () => {
 
     await mergeIn($, w.clock)
     await w.clock.advance(POLL)
-    expect(w.statuses.at(-1)).toBe(`release ${REPO} #12: run success → tag`)
+    expect(w.statuses.at(-1)).toBe(`widget #12 · 2/3 · workflow done, waiting for tag`)
 
     cutRelease(gh)
     await w.clock.advance(POLL)
-    expect(w.toasts, 'no package: published at the Release').toEqual([`${REPO} v1.2.3 published`])
+    expect(w.toasts, 'no package: published at the Release').toEqual([`${REPO} #12: v1.2.3 published (GitHub release)`])
     expect(w.statuses.at(-1)).toBeUndefined()
   })
 
@@ -105,7 +105,7 @@ describe('release-ticker register', () => {
     gh.run = { status: 'completed', conclusion: 'failure' }
     await w.clock.advance(POLL)
 
-    expect(w.toasts).toEqual([`${REPO}: release run failed (failure)`])
+    expect(w.toasts).toEqual([`${REPO} #12: release.yml failed (failure)`])
     expect(w.statuses.at(-1)).toBeUndefined()
   })
 
@@ -116,10 +116,10 @@ describe('release-ticker register', () => {
     await mergeIn($, w.clock)
     await w.clock.advance(19 * 60_000)
     expect(w.toasts).toEqual([])
-    expect(w.statuses.at(-1)).toBe(`release ${REPO} #12: run in_progress → tag`)
+    expect(w.statuses.at(-1)).toBe(`widget #12 · 1/3 · workflow running 19m`)
 
     await w.clock.advance(60_000 + POLL)
-    expect(w.toasts).toEqual([`${REPO}: release watch timed out after 20 min`])
+    expect(w.toasts).toEqual([`${REPO} #12: still waiting for the workflow after 20 min — gave up`])
     expect(w.statuses.at(-1)).toBeUndefined()
   })
 
@@ -192,7 +192,7 @@ describe('release-ticker register', () => {
       'gh pr view --json number,url',
       `gh pr view 12 --repo ${REPO} --json number,url,state,mergedAt,mergeCommit`,
     ])
-    expect(w.statuses).toEqual([`release ${REPO} #12: waiting for release.yml run`])
+    expect(w.statuses).toEqual([`widget #12 · 1/3 · waiting for workflow to start`])
   })
 
   test('the tool.call result is handed back verbatim', async ($, on) => {
@@ -238,7 +238,7 @@ describe('release-ticker register', () => {
     pushImage(gh)
     await w.clock.advance(POLL)
 
-    expect(w.toasts).toEqual([`${REPO} v1.2.3 published (ghcr.io sha256:dddddddddddd)`])
+    expect(w.toasts).toEqual([`${REPO} #12: v1.2.3 published (GitHub release + ghcr.io image sha256:dddddddddddd)`])
     expect(w.inits.length).toBeGreaterThan(5)
     for (const init of w.inits) {
       expect(typeof init.timeoutMs, 'every run sets its own timeout').toBe('number')
@@ -266,18 +266,20 @@ describe('release-ticker register', () => {
     await mergeIn($, w.clock)
     await w.clock.advance(POLL)
     const shown = w.statuses.at(-1)
-    expect(shown).toBe(`release ${REPO} #12: run in_progress → tag`)
+    expect(shown).toBe(`widget #12 · 1/3 · workflow running 30s`)
 
     w.ctl.deny = true
     gh.run = { status: 'completed', conclusion: 'success' }
     cutRelease(gh)
     await w.clock.advance(POLL)
     expect(w.toasts).toEqual([])
-    expect(w.statuses.at(-1)).toBe(shown)
+    expect(w.statuses.at(-1), 'still at the workflow stage, only the elapsed time moved').toBe(
+      `widget #12 · 1/3 · workflow running 1m`,
+    )
 
     w.ctl.deny = false
     await w.clock.advance(POLL)
-    expect(w.toasts).toEqual([`${REPO} v1.2.3 published`])
+    expect(w.toasts).toEqual([`${REPO} #12: v1.2.3 published (GitHub release)`])
     expect(w.statuses.at(-1)).toBeUndefined()
   })
 
@@ -287,11 +289,11 @@ describe('release-ticker register', () => {
     w.ctl.denyOn = '/packages/'
 
     await mergeIn($, w.clock)
-    expect(w.statuses).toEqual([`release ${REPO} #12: waiting for release.yml run`])
+    expect(w.statuses).toEqual([`widget #12 · 1/3 · waiting for workflow to start`])
     cutRelease(gh)
     await w.clock.advance(POLL)
 
-    expect(w.toasts).toEqual([`${REPO} v1.2.3 published`])
+    expect(w.toasts).toEqual([`${REPO} #12: v1.2.3 published (GitHub release)`])
   })
 
   test('cd dir && gh pr merge runs gh pr view in that dir (relative dirs are left to the session cwd)', async ($, on) => {
@@ -319,7 +321,7 @@ describe('release-ticker register', () => {
 
     await mergeIn($, w.clock, 'gh pr merge --squash --delete-branch')
 
-    expect(w.statuses).toEqual([`release ${REPO} #12: waiting for release.yml run`])
+    expect(w.statuses).toEqual([`widget #12 · 1/3 · waiting for workflow to start`])
   })
 
   test('a bare merge whose output is redirected (2>&1) still arms', async ($, on) => {
@@ -327,6 +329,6 @@ describe('release-ticker register', () => {
 
     await mergeIn($, w.clock, 'gh pr merge --squash 2>&1')
 
-    expect(w.statuses).toEqual([`release ${REPO} #12: waiting for release.yml run`])
+    expect(w.statuses).toEqual([`widget #12 · 1/3 · waiting for workflow to start`])
   })
 })

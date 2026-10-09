@@ -90,6 +90,8 @@ export function createTicker(host: Host, config: Config): Ticker {
   let stopped = false
   /** What the status line shows now; undefined when nothing is pinned. */
   let shown: string | undefined
+  /** The clock at the last arm or poll, for the elapsed time in the status line. */
+  let lastNow = 0
 
   async function gh(args: readonly string[], cwd?: string): Promise<RunResult | null> {
     return host.run(['gh', ...args], cwd)
@@ -108,7 +110,7 @@ export function createTicker(host: Host, config: Config): Ticker {
 
   /** Pins the status line for the armed watches; skips a no-op redraw. */
   function render() {
-    const text = statusLineOf([...watches.values()], config)
+    const text = statusLineOf([...watches.values()], config, lastNow)
     if (text === shown) return
     shown = text
     host.status(text)
@@ -188,6 +190,7 @@ export function createTicker(host: Host, config: Config): Ticker {
     const floatingTag = floatingTagFor(config, prRepo)
     if (stopped) return
     const now = await host.now()
+    lastNow = now
     const watch: Watch = {
       repo: prRepo,
       pr: pr.number,
@@ -209,10 +212,12 @@ export function createTicker(host: Host, config: Config): Ticker {
   function runOf(value: unknown): RunObs | null {
     const run = recordOf(value)
     if (typeof run.status !== 'string') return null
+    const startedAt = Date.parse(String(run.run_started_at ?? run.created_at))
     return {
       status: run.status,
       conclusion: typeof run.conclusion === 'string' ? run.conclusion : null,
       ...(typeof run.html_url === 'string' ? { url: run.html_url } : {}),
+      ...(Number.isFinite(startedAt) ? { startedAt } : {}),
     }
   }
 
@@ -350,7 +355,9 @@ export function createTicker(host: Host, config: Config): Ticker {
     isPolling = true
     try {
       for (const [key, w] of [...watches]) {
-        const step = await advance(w, await host.now())
+        const now = await host.now()
+        lastNow = now
+        const step = await advance(w, now)
         if (stopped || watches.get(key) !== w) continue // replaced or stopped meanwhile
         if (step.done) {
           watches.delete(key)
