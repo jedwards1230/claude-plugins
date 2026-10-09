@@ -243,8 +243,8 @@ export function stepArtifacts(rel: ReleaseState, image: ImageObs, chartSeen: boo
 export function timeoutOf(rel: ReleaseState, timeoutMs: number): Outcome {
   if (rel.stage === 'artifacts' && rel.tag) {
     const missing: ('image' | 'chart')[] = []
-    if (rel.image && !rel.image.ref) missing.push('image')
-    if (rel.chart && !rel.chart.version) missing.push('chart')
+    if ((rel.image && !rel.image.ref) || rel.probe?.includes('image')) missing.push('image')
+    if ((rel.chart && !rel.chart.version) || rel.probe?.includes('chart')) missing.push('chart')
     return { kind: 'released', tag: rel.tag, ...(missing.length ? { missing } : {}) }
   }
   return { kind: 'timeout', stage: rel.stage, minutes: Math.round(timeoutMs / 60_000) }
@@ -274,23 +274,27 @@ export function isFloatingTagStale(rel: ReleaseState, floatingSha: string | unde
  * repo also takes a run dispatched after the merge; a dispatch takes the
  * first dispatched run created after it.
  */
-export async function observeRun(gh: GitHubClient, rel: ReleaseState): Promise<RunObs | null | undefined> {
+export async function observeRun(gh: GitHubClient, rel: ReleaseState, now: number): Promise<RunObs | null | undefined> {
   if (rel.runId !== undefined) return gh.runById(rel.repo, rel.runId)
   if (rel.mergeSha) {
     const runs = await gh.runsForSha(rel.repo, rel.mergeSha)
     if (runs === undefined) return undefined
     // The release workflow's own run; else a release-looking caller (auto-release.yml -> release.yml via workflow_call).
-    const run = runs.find(r => isReleaseRun(r, rel.workflow)) ?? runs.find(isReleaseLikeRun)
-    if (run) return run
+    const own = runs.find(r => isReleaseRun(r, rel.workflow))
+    if (own) return own
+    const like = runs.find(isReleaseLikeRun)
+    if (like && (await mayFallBack(gh, rel, now))) return like
     if (rel.prHeadSha && rel.prHeadSha !== rel.mergeSha) {
       // A release on `pull_request: closed` runs on the PR's head commit, not the merge.
       const onHead = await gh.runsForSha(rel.repo, rel.prHeadSha)
       if (onHead === undefined) return undefined
       const since = (rel.mergedAt ?? rel.armedAt) - DISPATCH_SKEW_MS
       const closed = onHead.find(
-        r => r.event === 'pull_request' && (r.createdAt ?? 0) >= since && (isReleaseRun(r, rel.workflow) || isReleaseLikeRun(r)),
+        r => r.event === 'pull_request' && (r.createdAt ?? 0) >= since && isReleaseRun(r, rel.workflow),
       )
       if (closed) return closed
+      const closedLike = onHead.find(r => r.event === 'pull_request' && (r.createdAt ?? 0) >= since && isReleaseLikeRun(r))
+      if (closedLike && (await mayFallBack(gh, rel, now))) return closedLike
     }
     if (!rel.floatingTag) return null
   }
@@ -310,6 +314,18 @@ export async function observeRun(gh: GitHubClient, rel: ReleaseState): Promise<R
     return after[0] ?? null
   }
   return null
+}
+
+/**
+ * Whether a release-looking run of another workflow may stand in for the
+ * configured one: when the configured workflow never runs by itself (only
+ * through `workflow_call`, so it has no run history), or when it has had the
+ * run grace to start and didn't. A release-drafter run seen first therefore
+ * never locks out a release.yml run created a poll later.
+ */
+async function mayFallBack(gh: GitHubClient, rel: ReleaseState, now: number): Promise<boolean> {
+  if (now - (rel.mergedAt ?? rel.armedAt) >= NO_RUN_GRACE_MS) return true
+  return (await gh.hasOwnRuns(rel.repo, rel.workflow)) === false
 }
 
 async function observeTags(gh: GitHubClient, rel: ReleaseState): Promise<TagObs[] | undefined> {
@@ -352,7 +368,7 @@ export async function advance(
     const cur = step.rel
     switch (cur.stage) {
       case 'run':
-        step = stepRun(cur, await observeRun(gh, cur), now)
+        step = stepRun(cur, await observeRun(gh, cur, now), now)
         break
       case 'tag':
         step = stepTag(cur, await observeTags(gh, cur), now)
@@ -396,7 +412,8 @@ async function probeKinds(
   registry: string,
   kinds: readonly ArtifactKind[],
 ): Promise<Partial<Record<ArtifactKind, PackageRef | 'absent' | 'unknown'>>> {
-  const [owner, name] = repo.split('/') as [string, string]
+  // GHCR package names are lower case; a repo like Acme/Widget publishes acme/widget.
+  const [owner, name] = repo.toLowerCase().split('/') as [string, string]
   const out: Partial<Record<ArtifactKind, PackageRef | 'absent' | 'unknown'>> = {}
   for (const kind of kinds) out[kind] = await gh.probePackage(registry, owner, kind === 'image' ? name : `charts/${name}`)
   return out

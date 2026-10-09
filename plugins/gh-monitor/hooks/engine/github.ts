@@ -231,6 +231,17 @@ export function createGitHub(run: Run) {
     runList(`repos/${repo}/actions/workflows/${wf.id}/runs?event=workflow_dispatch&per_page=5`)
   /** A workflow's newest runs (any event), newest first. */
   const workflowRuns = (repo: Repo, wf: Workflow) => runList(`repos/${repo}/actions/workflows/${wf.id}/runs?per_page=5`)
+  const ownRuns = new Map<string, boolean>()
+  /** Whether a workflow has any run of its own (a `workflow_call`-only one has none); cached per session. */
+  async function hasOwnRuns(repo: Repo, wf: Workflow): Promise<boolean | undefined> {
+    const key = `${repo.toLowerCase()}#${wf.id}`
+    const hit = ownRuns.get(key)
+    if (hit !== undefined) return hit
+    const runs = await workflowRuns(repo, wf)
+    if (runs === undefined) return undefined
+    ownRuns.set(key, runs.length > 0)
+    return runs.length > 0
+  }
   /** In-progress runs of a repo (the sweep). */
   const activeRuns = (repo: Repo) => runList(`repos/${repo}/actions/runs?status=in_progress&per_page=10`)
 
@@ -303,7 +314,7 @@ export function createGitHub(run: Run) {
       const o = recordOf(JSON.parse(r.stdout))
       if (typeof o.token === 'string' && o.token) return o.token
       const errors = Array.isArray(o.errors) ? o.errors : []
-      return errors.some(e => /DENIED|UNAUTHORIZED|NAME_UNKNOWN/.test(String(recordOf(e).code))) ? null : undefined
+      return errors.some(e => /DENIED|UNAUTHORIZED|NAME_UNKNOWN|NAME_INVALID/.test(String(recordOf(e).code))) ? null : undefined
     } catch {
       return undefined
     }
@@ -398,6 +409,7 @@ export function createGitHub(run: Run) {
     workflowRuns,
     activeRuns,
     runById,
+    hasOwnRuns,
     newestTags,
     descends,
     release,

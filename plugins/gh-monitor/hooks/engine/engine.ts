@@ -431,14 +431,24 @@ export function createEngine(host: Host, config: Config): Engine {
     return i
   }
 
-  /** Arms (or refreshes) a PR watch; the next poll confirms it. */
-  function addPr(repo: Repo, pr: number, source: ArmSource, now: number, cwd?: string): Internal {
+  /**
+   * Arms (or refreshes) a PR watch; the next poll confirms it. A finished PR
+   * stays finished when touched in passing (no replayed release or toasts),
+   * but starts over when asked for by name (`restart`: /watch-pr, a typed
+   * "merged #N") or when it ended closed/gone, since GitHub may have reopened
+   * it; one that is still closed is then dropped quietly by the first read.
+   */
+  function addPr(repo: Repo, pr: number, source: ArmSource, now: number, cwd?: string, restart = false): Internal {
     const id = prId(repo, pr)
     const existing = items.get(id)
     if (existing) {
-      // A finished PR stays finished: touching it again never re-runs its release or its toasts.
-      if (existing.phase !== 'done') existing.touchedAt = now
-      return existing
+      if (existing.phase !== 'done') {
+        existing.touchedAt = now
+        return existing
+      }
+      const reread = existing.outcome?.kind === 'closed' || existing.outcome?.kind === 'gone'
+      if (!restart && !reread) return existing
+      items.delete(id)
     }
     const i = newItem(id, repo, source, now, { pr, ...(cwd !== undefined ? { cwd } : {}) })
     items.set(id, i)
@@ -989,7 +999,7 @@ export function createEngine(host: Host, config: Config): Engine {
     for (const line of lines) {
       let target: Internal | undefined
       if (line.repo) {
-        target = items.get(prId(line.repo, line.pr)) ?? addPr(line.repo, line.pr, 'merged-event', now)
+        target = addPr(line.repo, line.pr, 'merged-event', now)
       } else {
         const tracked = [...items.values()].filter(i => i.pr === line.pr && i.phase === 'pr')
         const byTask = tracked.filter(i => taskRepos.some(r => sameRepo(r, i.repo)))
@@ -1016,7 +1026,7 @@ export function createEngine(host: Host, config: Config): Engine {
         said.repo ??
         [...items.values()].find(i => i.pr === said.pr && i.phase === 'pr')?.repo ??
         (await repoAt(undefined))
-      if (repo) target = items.get(prId(repo, said.pr)) ?? addPr(repo, said.pr, 'typed-merged', now)
+      if (repo) target = addPr(repo, said.pr, 'typed-merged', now, undefined, true)
     } else {
       const open = [...items.values()].filter(i => i.phase === 'pr' && i.pr !== undefined)
       open.sort((a, b) => b.touchedAt - a.touchedAt)
@@ -1074,7 +1084,7 @@ export function createEngine(host: Host, config: Config): Engine {
         notFound.push(`#${t.pr}`)
         continue
       }
-      const i = addPr(repo, t.pr, 'command', now)
+      const i = addPr(repo, t.pr, 'command', now, undefined, true)
       if (i.confirmed) i.touchedAt = now
       armed.push(i)
     }
@@ -1094,7 +1104,7 @@ export function createEngine(host: Host, config: Config): Engine {
     lastNow = now
     const name = nameOf(parsed.repo)
     if (parsed.pr !== undefined) {
-      const i = addPr(parsed.repo, parsed.pr, 'command', now)
+      const i = addPr(parsed.repo, parsed.pr, 'command', now, undefined, true)
       if (!i.confirmed) {
         const r = await confirmNow([i], now)
         if (r.get(i) === 'gone') return elide(`not found: ${name} #${parsed.pr}`, 80)

@@ -32,8 +32,6 @@ export const STATUS_MAX = 66
 export const TOAST_MAX = 100
 /** A finished item stays on the band this long. */
 export const DONE_LINGER_MS = 600_000
-/** A deploy offer stops being offered this long after the release finished. */
-export const OFFER_TTL_MS = 3_600_000
 /** Consecutive failed reads before a row says GitHub can't be reached. */
 export const OFFLINE_STREAK = 3
 /** Below this many band columns the row markers are dropped. */
@@ -355,13 +353,14 @@ export function markerOf(tone: Tone): string {
 const BAD_OUTCOMES: ReadonlySet<Outcome['kind']> = new Set(['failed', 'timeout'])
 const GOOD_OUTCOMES: ReadonlySet<Outcome['kind']> = new Set(['published', 'released'])
 
-export function isOfferActive(item: Item, now: number): boolean {
-  return item.deploy?.state === 'offered' && (item.doneAt === undefined || now - item.doneAt < OFFER_TTL_MS)
+/** An open deploy offer. Expiry is the engine's (engine.ts OFFER_TTL_MS turns a stale offer `dismissed`), so the UI only reads the state. */
+export function isOfferActive(item: Item): boolean {
+  return item.deploy?.state === 'offered'
 }
 
 /** Live: still being watched (PR or release phase), or a deploy offer waiting on the person. */
 export function isLive(item: Item, now: number): boolean {
-  return item.phase === 'pr' || item.phase === 'release' || isOfferActive(item, now)
+  return item.phase === 'pr' || item.phase === 'release' || isOfferActive(item)
 }
 
 /** Shown on the band: live, or finished within DONE_LINGER_MS. */
@@ -370,7 +369,7 @@ export function isOnBand(item: Item, now: number): boolean {
 }
 
 export function toneOf(item: Item, now: number): Tone {
-  if (isOfferActive(item, now)) return 'offer'
+  if (isOfferActive(item)) return 'offer'
   if (item.phase === 'done') {
     const k = item.outcome?.kind
     if (k && BAD_OUTCOMES.has(k)) return 'bad'
@@ -426,7 +425,7 @@ function versionOf(item: Item): string {
 
 function render(item: Item, now: number, s: Shape): string {
   const ver = (v: string) => elide(v, s.verMax)
-  if (isOfferActive(item, now) && item.deploy) {
+  if (isOfferActive(item) && item.deploy) {
     const d = item.deploy
     return `${elide(shortName(item.repo), s.nameMax)} ${ver(d.version)} → ${elide(shortName(d.target.deployRepo), s.nameMax)}`
   }
@@ -525,7 +524,7 @@ export function statusLine(snap: Snapshot, max = STATUS_MAX): string | undefined
   const failingItems = [...prs.filter(i => prBucket(i.prView) === 'failing'), ...recentFailed]
   const f = failingItems.length
   const releasing = live.filter(i => i.phase === 'release').length
-  const offers = live.filter(i => isOfferActive(i, now)).length
+  const offers = live.filter(i => isOfferActive(i)).length
 
   const failing = (withName: boolean) =>
     f === 0 ? '' : withName && f === 1 ? `1 failing (${shortName((failingItems[0] as Item).repo)})` : `${f} failing`
@@ -841,7 +840,7 @@ export function paneBlocks(snap: Snapshot, columns: number): PaneBlock[] {
 
     const buttons: PaneButton[] = []
     if (item.phase !== 'done') buttons.push({ key: `stop:${item.id}`, label: 'stop', action: 'stop' })
-    if (isOfferActive(item, now)) {
+    if (isOfferActive(item)) {
       buttons.push({ key: `bump:${item.id}`, label: 'bump', action: 'bump', prompt: deployPrompt(item) })
       buttons.push({ key: `x:${item.id}`, label: 'x', action: 'dismiss' })
     }

@@ -137,9 +137,6 @@ describe('bug 3: a finished PR is never re-armed', () => {
     await r.settle()
     await r.tick()
     expect(r.kinds().slice(before)).toEqual([])
-    r.engine.onPrompt('merged #12', 'composer')
-    await r.settle()
-    expect(r.kinds().slice(before)).toEqual([])
   })
 })
 

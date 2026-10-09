@@ -138,8 +138,8 @@ function hoistGhRepo(words: string[]): string[] {
     if ((w === '-R' || w === '--repo') && i + 1 < words.length) {
       moved.push('-R', words[i + 1] as string)
       i += 2
-    } else if (w.startsWith('--repo=')) {
-      moved.push('-R', w.slice(7))
+    } else if (w.startsWith('--repo=') || w.startsWith('-R=')) {
+      moved.push('-R', w.slice(w.indexOf('=') + 1))
       i += 1
     } else break
   }
@@ -238,7 +238,8 @@ export function isWorthReading(result: unknown): boolean {
     const o = inner as { interrupted?: unknown; backgroundTaskId?: unknown }
     if (o.interrupted === true || o.backgroundTaskId) return false
   }
-  if (r.isError === true && /command not found|No such file or directory/i.test(outputOf(result))) return false
+  // Only gh's own failure to start counts; a later `&& rm missing` saying "No such file" must not hide a merge.
+  if (r.isError === true && /command not found: gh\b|\bgh: command not found|\bgh: No such file or directory/i.test(outputOf(result))) return false
   return true
 }
 

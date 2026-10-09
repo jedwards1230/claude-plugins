@@ -492,7 +492,7 @@ export function typedMerged(text: string): { matched: boolean; repo?: Repo; pr?:
   if (url) return { matched: true, ...url }
   const qualified = /\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)\b/.exec(text)
   if (qualified) return { matched: true, repo: qualified[1] as string, pr: Number(qualified[2]) }
-  const bare = /(?:^|\s)#(\d+)\b/.exec(text) ?? /^\s*(?:i\s+)?(?:just\s+)?merged\s+(\d+)\b/i.exec(text)
+  const bare = /(?:^|\s)#(\d+)\b/.exec(text) ?? /^\s*(?:i\s+)?(?:just\s+)?merged\s+(\d+)(?=\s*(?:[.,!;:)]|$))/i.exec(text)
   if (bare) return { matched: true, pr: Number(bare[1]) }
   return { matched: true }
 }

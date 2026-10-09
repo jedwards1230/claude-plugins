@@ -344,9 +344,10 @@ export function answer(gh: GitHub, argv: readonly string[]): Answer {
     const [, scope, owner, enc, versions] = pkg as unknown as [string, string, string, string, string | undefined]
     const name = decodeURIComponent(enc)
     const [rOwner, rName] = REPO.split('/') as [string, string]
+    // A token without read:packages gets 403 for any package, existing or not.
+    if (gh.packagesApi === 'forbidden') return fail('gh: You need at least read:packages scope to list packages. (HTTP 403)')
     if (owner !== rOwner) return notFound
     const which = name === rName ? 'image' : name === `charts/${rName}` ? 'chart' : undefined
-    if (gh.packagesApi === 'forbidden') return fail('gh: You need at least read:packages scope to list packages. (HTTP 403)')
     if (!which || gh.packages[which] !== scope) return notFound
     if (!versions) return ok({ name, package_type: 'container' })
     const list =
@@ -418,6 +419,8 @@ function registryAnswer(gh: GitHub, argv: readonly string[]): Answer {
   const which = (path: string) => (path === `${rOwner}/${rName}` ? 'image' : path === `${rOwner}/charts/${rName}` ? 'chart' : undefined)
   const token = /^https:\/\/ghcr\.io\/token\?scope=repository:(.+):pull$/.exec(url)
   if (token) {
+    // The real registry refuses upper case outright.
+    if (/[A-Z]/.test(token[1] as string)) return ok({ errors: [{ code: 'NAME_INVALID', message: 'invalid repository name' }] })
     const w = which(token[1] as string)
     return w && gh.packages[w] && !gh.privatePackages
       ? ok({ token: `anon-${w}` })
