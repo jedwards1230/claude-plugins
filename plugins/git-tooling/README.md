@@ -12,7 +12,7 @@ Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-a
 - **`gh-resolve-threads`** (bin) — list a PR's unresolved review threads, or resolve specific ones by id, without hand-writing the GraphQL each time. Paginates past the 100-thread-per-page GraphQL limit. No `--resolve-all` — resolution stays per-thread, on purpose.
 - **CI status watching** (skill `ci-watch`) — invoke the `Monitor` tool with a bundled poller that streams pass/fail/pending/review/merge transitions for open PRs and exits when every watched PR is merged or closed. Reports a `READY` milestone when a PR is mergeable, then keeps watching until the actual merge. Only runs when you ask for it; no always-on background process.
 - **Release watching** (skill `release-watch`) — the sibling of `ci-watch` that begins where it ends (at `MERGED`). Invoke the `Monitor` tool with a bundled poller that follows a release through to publication: the GitHub release workflow run, the git tag + GitHub Release, **and** GHCR container/chart package publishes (a new image version — or a moving tag like `latest` repointed to a new digest — at `ghcr.io/<owner>/<pkg>`, incl. nested names like `charts/hermes`). Emits on success **and** failure terminals (a failed release workflow is surfaced, never silent). Public GHCR packages read anonymously; private ones need the `gh` token to carry `read:packages` (else that target fails gracefully without crashing the watch).
-- **Release Ticker** (mod) — after a `gh pr merge` that actually merged, a status line under the prompt walks the merge through its release — release workflow run → git tag → GitHub Release → registry digest — and a toast reports the published version (or the failure / timeout). Nags when a configured floating tag (e.g. `v1`) wasn't moved to the new release. Visible only while a release is in flight; token-neutral (status line and toasts only, nothing reaches the model).
+- **Release Ticker** (mod) — after a `gh pr merge` that actually merged, a status line under the prompt walks the merge through its release in plain words — `workflow` → `tag` → `GitHub release` → `image` — and a toast reports the published version (or the failure / timeout / "nothing to release"). Nags when a configured floating tag (e.g. `v1`) wasn't moved to the new release. Visible only while a release is in flight; token-neutral (status line and toasts only, nothing reaches the model).
 
 ## Prerequisites
 
@@ -189,42 +189,54 @@ Each notification is one line per transition — good terminals (`RELEASED <tag>
 
 A status line that follows each merge to its published release, then gets out of the way.
 
-**What it shows.** While a release is in flight, one line under the prompt (one segment per armed repo):
+**What it shows.** While a release is in flight, one short line under the prompt: the repo (owner dropped), the PR, which step of how many, and what it is waiting for. The stages, named the same in the status line, the toasts and here:
+
+1. `workflow` — the `releaseWorkflow` run for the merge commit;
+2. `tag` — a new git tag on the merge commit or a release commit after it;
+3. `GitHub release` — the GitHub Release for that tag;
+4. `image` — the `ghcr.io` package version for that tag. Only for a repo that publishes a container package named after it (decided when the watch arms); otherwise the walk has 3 steps.
 
 ```
-release owner/repo #12: run in_progress → tag
-release owner/repo #12: tag v1.2.3 → release
-release owner/repo #12: release v1.2.3 → ghcr.io digest
+widget #12 · 1/4 · waiting for workflow to start
+widget #12 · 1/4 · workflow queued
+widget #12 · 1/4 · workflow running 1m 40s
+widget #12 · 2/4 · workflow done, waiting for tag
+widget #12 · 3/4 · tagged v1.2.3, waiting for GitHub release
+widget #12 · 4/4 · v1.2.3 released, waiting for image
+workflows #7 · 1/3 · dispatch release.yml to move v1
 ```
+
+The running time counts from the run start GitHub reports. The line stays within 66 characters, so with Claude Code's ` ⚠ git-tooling: ` prefix it fits an 82-column terminal: a long repo name or version is cut with `…`, the running time is dropped, and `GitHub release` shortens to `release` before anything else is cut. With several repos in flight the segments share the line (`a #3 · 1/3 · workflow queued | b #12 · 1/3 · workflow running 40s`, newest first) when they fit; otherwise the newest is shown with `| +N more`.
 
 The line disappears on any terminal, and a toast reports it:
 
-- `owner/repo v1.2.3 published` — the GitHub Release is out (no package to wait for, or the registry could not be read);
-- `owner/repo v1.2.3 published (ghcr.io sha256:…)` — and the registry has the image for that tag;
-- `owner/repo v1.2.3 published (no digest seen)` — the Release is out but no matching package version showed up before `timeoutMin`;
-- `owner/repo: release run failed (<conclusion>)` — any conclusion other than `success`, `skipped` or `neutral` (`failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, …);
-- `owner/repo: release run finished, no new release` — the run succeeded (or was skipped) and no new tag appeared within the 2-minute release grace window;
-- `owner/repo v1.2.3 tagged (no GitHub Release)` — a new tag, but no Release for it within that same 2-minute window;
-- `owner/repo: release watch timed out after 20 min`.
+- `owner/repo #12: v1.2.3 published (GitHub release)` — the GitHub release is out and there is no image stage;
+- `owner/repo #12: v1.2.3 published (GitHub release + ghcr.io image sha256:…)` — and the registry has the image for that tag;
+- `owner/repo #12: v1.2.3 published (GitHub release; ghcr.io image not checked)` — the registry could not be read;
+- `owner/repo #12: v1.2.3 published (GitHub release; no ghcr.io image after 20 min)` — the release is out but no matching image showed up before `timeoutMin`;
+- `owner/repo #12: release.yml failed (<conclusion>)` — any conclusion other than `success`, `skipped` or `neutral` (`failure`, `cancelled`, `timed_out`, `startup_failure`, `action_required`, …);
+- `owner/repo #12: release.yml ran but cut no new version (nothing to release)` — the run succeeded (or was skipped) and no new tag appeared within 90 s of it finishing. A release workflow tags inside its own run, so this is the usual outcome of a merge that needs no version bump (a `chore:` PR), and it ends within about two minutes, not at the timeout;
+- `owner/repo #12: tagged v1.2.3, but no GitHub release appeared` — a new tag, but no release for it within 2 minutes;
+- `owner/repo #12: still waiting for the <stage> after 20 min — gave up` — `timeoutMin` reached at the `workflow`, `tag` or `GitHub release` stage.
 
 **Arming rule.** It arms only on a Bash `gh pr merge` tool call (`--repo`/`-R`, a PR URL, `GH_REPO=`, a number or branch selector, or a bare merge of the current branch's PR — read before the merge runs, so `--delete-branch` can't switch it away), and only once the call completed and `gh pr view` confirms the PR is `MERGED` within the last 5 minutes — a failed or denied merge, `gh pr merge --auto` that merely enabled auto-merge, or re-running `gh pr merge` on a PR merged long ago arms nothing. The command may chain (`git push && gh pr merge 12`), redirect (`2>&1`, `> log`) or start with `cd dir &&` (gh then runs in `dir`; a relative `dir` resolves against the session's working directory, and `~` is not expanded). A merge wrapped in `bash -c`, `sh -c`, `sudo`, `eval` or a script is not detected. It then:
 
 - **falls through silently** (no status, no toast) when the repo has no `releaseWorkflow` file;
-- polls every 30 s with bounded `gh` calls (15 s each), never inside the tool call: the release run for the merge commit → a new tag → that tag's GitHub Release → the registry digest;
+- polls every 30 s with bounded `gh` calls (15 s each), never inside the tool call: the release run for the merge commit (`workflow`) → a new tag (`tag`) → that tag's GitHub Release (`GitHub release`) → the registry digest (`image`);
 - takes as the release tag only a tag that did not exist at merge time and sits on the merge commit or a commit descending from it (a release commit), reading the newest tags by commit date — so an unrelated tag pushed meanwhile (a nightly, another branch) is ignored, however many tags the repo has;
-- skips the digest stage unless the repo publishes a container package named after it (looked up through the GitHub Packages API, so only `ghcr.io` is read; a token without `read:packages` or any query failure just skips the stage);
+- skips the `image` stage unless the repo publishes a container package named after it (looked up through the GitHub Packages API, so only `ghcr.io` is read; a token without `read:packages` or any query failure just skips the stage);
 - gives up quietly if no release run appears within 3 minutes (a path-filtered or label-gated release that didn't fire), and stops hard at `timeoutMin`.
 
 One watch per repo: a newer merge in the same repo replaces the older watch; merges in different repos are watched side by side. Ending the session cancels the watches and clears the line.
 
-**Floating tags.** Some repos publish through a floating tag that only moves when a workflow is dispatched (merging ships nothing). For a repo listed in `floatingTagRepos`, the ticker keeps waiting for a (dispatched) release run until the timeout — a `workflow_dispatch` run created after the merge counts even when another merge moved the default branch first, so its head isn't this merge commit — hints `dispatch <releaseWorkflow> to move <tag>` in the status line, and — when the release resolves or the watch times out — toasts a nag such as `owner/repo: floating tag v1 not moved — dispatch release.yml` if the tag doesn't point at the new release tag's commit (or at the merge commit when no release was cut).
+**Floating tags.** Some repos publish through a floating tag that only moves when a workflow is dispatched (merging ships nothing). For a repo listed in `floatingTagRepos`, the ticker keeps waiting for a (dispatched) release run until the timeout — a `workflow_dispatch` run created after the merge counts even when another merge moved the default branch first, so its head isn't this merge commit — shows `dispatch <releaseWorkflow> to move <tag>` in the status line, and — when the release resolves or the watch times out — toasts a nag such as `owner/repo #12: floating tag v1 not moved — dispatch release.yml to move it` if the tag doesn't point at the new release tag's commit (or at the merge commit when no release was cut).
 
 **Options** (`userConfig`, all optional):
 
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `releaseWorkflow` | `release.yml` | Workflow file under `.github/workflows/` to follow. A repo without it is skipped silently. |
-| `registry` | `ghcr.io` | Registry for the digest stage. Only `ghcr.io` is read; any other value skips the stage. |
+| `registry` | `ghcr.io` | Registry for the `image` stage. Only `ghcr.io` is read; any other value drops the stage (3 steps). |
 | `floatingTagRepos` | *(empty)* | `owner/repo:tag` entries (a list; several entries comma-separated). |
 | `timeoutMin` | `20` | Hard stop for a watch, in minutes after the merge (minimum 1). |
 

@@ -23,7 +23,7 @@ export type GitHub = {
   /** Whether the repo has the release workflow file. */
   hasWorkflow: boolean
   /** The newest release run for the merge commit; null before one exists. */
-  run: { status: string; conclusion: string | null } | null
+  run: { status: string; conclusion: string | null; run_started_at?: string } | null
   /** Dispatched release runs, newest first (any head commit). */
   dispatchRuns: { head_sha: string; status: string; conclusion: string | null; created_at: string }[]
   /** Tags, newest commit first (as the GraphQL TAG_COMMIT_DATE order lists them). */

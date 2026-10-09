@@ -57,7 +57,8 @@ function rig(gh: GitHub, options: Record<string, unknown> = {}, onRun?: (line: s
 
 const MERGED = { repo: REPO, pr: String(PR), auto: false }
 const FLOATING = { floatingTagRepos: [`${REPO}:v1`] }
-const NAG = `${REPO}: floating tag v1 not moved — dispatch release.yml`
+const NAG = `${REPO} #${PR}: floating tag v1 not moved — dispatch release.yml to move it`
+const PUBLISHED = `${REPO} #${PR}: v1.2.3 published (GitHub release)`
 
 describe('release-ticker ticker', () => {
   test('floating tag left on the old commit after a release: nag', async () => {
@@ -69,7 +70,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`, NAG])
+    expect(r.texts()).toEqual([PUBLISHED, NAG])
     expect(r.toasts[1]?.timeoutMs, 'the nag stays up longer').toBe(10_000)
   })
 
@@ -82,7 +83,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
   })
 
   test('floating-tag repo with no dispatched run: status hints, timeout nags', async () => {
@@ -91,14 +92,14 @@ describe('release-ticker ticker', () => {
 
     await r.ticker.arm(MERGED)
     expect(r.statuses).toEqual([
-      `release ${REPO} #${PR}: waiting for release.yml run (dispatch release.yml to move v1)`,
+      `widget #${PR} · 1/3 · dispatch release.yml to move v1`,
     ])
 
     for (let i = 0; i < 9; i++) await r.tick()
     expect(r.texts(), 'no quiet give-up for a floating-tag repo').toEqual([])
 
     await r.tick()
-    expect(r.texts()).toEqual([`${REPO}: release watch timed out after 5 min`, NAG])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: still waiting for the workflow after 5 min — gave up`, NAG])
     expect(r.statuses.at(-1)).toBeUndefined()
   })
 
@@ -109,7 +110,7 @@ describe('release-ticker ticker', () => {
     await r.ticker.arm(MERGED)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO}: release run finished, no new release`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: release.yml ran but cut no new version (nothing to release)`])
   })
 
   test('a failed run does not nag on top of the failure', async () => {
@@ -119,7 +120,7 @@ describe('release-ticker ticker', () => {
     await r.ticker.arm(MERGED)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO}: release run failed (failure)`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: release.yml failed (failure)`])
   })
 
   test('an unreadable floating tag never nags', async () => {
@@ -130,7 +131,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
   })
 
   test('an org package is found under orgs/ and its digest awaited', async () => {
@@ -144,7 +145,7 @@ describe('release-ticker ticker', () => {
     pushImage(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published (ghcr.io sha256:dddddddddddd)`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: v1.2.3 published (GitHub release + ghcr.io image sha256:dddddddddddd)`])
   })
 
   test('a registry that cannot be queried skips the digest stage', async () => {
@@ -156,7 +157,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: v1.2.3 published (GitHub release; ghcr.io image not checked)`])
   })
 
   test('a registry other than ghcr.io never looks up a package', async () => {
@@ -168,7 +169,7 @@ describe('release-ticker ticker', () => {
     await r.tick()
 
     expect(r.runs.some(x => x.includes('/packages/'))).toBe(false)
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
   })
 
   test('a transient API failure keeps the watch where it was', async () => {
@@ -194,7 +195,7 @@ describe('release-ticker ticker', () => {
     expect(r.texts()).toEqual([])
     for (let i = 0; i < 4; i++) await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 tagged (no GitHub Release)`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: tagged v1.2.3, but no GitHub release appeared`])
   })
 
   test('a second merge in the same repo replaces the first watch; one timer serves all', async () => {
@@ -239,7 +240,7 @@ describe('release-ticker ticker', () => {
     expect(r.ticker.watches()[0]?.stage).toBe('registry')
     for (let i = 0; i < 9; i++) await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published (no digest seen)`])
+    expect(r.texts()).toEqual([`${REPO} #${PR}: v1.2.3 published (GitHub release; no ghcr.io image after 5 min)`])
     expect(r.statuses.at(-1)).toBeUndefined()
   })
 
@@ -252,7 +253,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
   })
 
   test('an unrelated new tag is not taken for the release', async () => {
@@ -267,7 +268,7 @@ describe('release-ticker ticker', () => {
 
     cutRelease(gh)
     await r.tick()
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
     expect(r.runs.filter(x => x.includes(`/compare/${MERGE_SHA}...${LATER_SHA}`)).length, 'checked once').toBe(1)
   })
 
@@ -297,7 +298,7 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
   })
 
   test('floating-tag repo: a run dispatched after the merge on a later head is followed', async () => {
@@ -318,6 +319,35 @@ describe('release-ticker ticker', () => {
     cutRelease(gh)
     await r.tick()
 
-    expect(r.texts()).toEqual([`${REPO} v1.2.3 published`])
+    expect(r.texts()).toEqual([PUBLISHED])
+  })
+
+  test('deck#32 regression: release.yml succeeds but cuts no tag (a chore merge) -> no-release well before the timeout', async () => {
+    const gh = github({ run: { status: 'in_progress', conclusion: null } })
+    const r = rig(gh)
+
+    await r.ticker.arm(MERGED)
+    await r.tick()
+    gh.run = { status: 'completed', conclusion: 'success' }
+    await r.tick()
+    expect(r.statuses.at(-1)).toBe(`widget #${PR} · 2/3 · workflow done, waiting for tag`)
+
+    let elapsed = 2 * POLL_MS
+    while (r.ticker.watches().length > 0 && elapsed < 20 * 60_000) {
+      await r.tick()
+      elapsed += POLL_MS
+    }
+    expect(r.texts()).toEqual([`${REPO} #${PR}: release.yml ran but cut no new version (nothing to release)`])
+    expect(r.statuses.at(-1), 'the status line is gone').toBeUndefined()
+    expect(elapsed, 'ends within ~90 s of the run finishing, not at the 20 min timeout').toBeLessThanOrEqual(3 * 60_000)
+  })
+
+  test('the running phrase counts from the run start GitHub reports', async () => {
+    const gh = github({ run: { status: 'in_progress', conclusion: null, run_started_at: iso(-60_000) } })
+    const r = rig(gh)
+
+    await r.ticker.arm(MERGED)
+    await r.tick()
+    expect(r.statuses.at(-1)).toBe(`widget #${PR} · 1/3 · workflow running 1m 30s`)
   })
 })

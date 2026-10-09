@@ -1,7 +1,7 @@
 /**
  * Release Ticker — a Claude Code mod. After a `gh pr merge` that actually
- * merged, a status line walks the merge through its release (workflow run
- * -> tag -> GitHub Release -> registry digest) and a toast reports the
+ * merged, a status line walks the merge through its release (workflow ->
+ * tag -> GitHub release -> image) and a toast reports the
  * outcome; a configured floating tag left behind earns a nag toast.
  *
  * Token-neutral: it only draws `$.ui.status` and `$.ui.toast`, never adds
