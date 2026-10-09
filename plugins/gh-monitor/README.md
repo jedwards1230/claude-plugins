@@ -12,7 +12,24 @@ It replaces the Release Ticker that used to live in `git-tooling`, and it follow
 
 ## What it looks like
 
-<!-- CAPTURE -->
+An 80-column terminal with four things in flight (strings produced by the plugin's own render code against test fixtures — `tests/capture.sh`):
+
+```
+── transcript ──────────────────────────────────────────────────────────────────
+⏺ Merged acme/widget#12 on GitHub; the release workflow has finished.
+
+── band (above the prompt) ─────────────────────────────────────────────────────
+✗ earmark #178 · checks failing: lint, test · waiting for review
+↑ scrim v0.47.9 → homelab-k8s [ bump ] [ x ]
+● widget #12 · 2/4 · workflow done, waiting for tag
+◐ deck #32 · checks passed · waiting for review
+── prompt ──────────────────────────────────────────────────────────────────────
+>
+── status line (prefix drawn by Claude Code) ───────────────────────────────────
+ ⚠ gh-monitor: 2 PRs · 1 failing · 1 in review · 1 releasing · 1 to deploy
+```
+
+The status line text is at most 66 characters; Claude Code draws the ` ⚠ gh-monitor: ` prefix itself. With a single item in flight it shows that item's row, e.g. `widget #12 · 2/4 · workflow done, waiting for tag`. Band rows always fit the band's width — repo owners are dropped and long names or versions are elided with `…`.
 
 ## How it starts watching
 
@@ -25,7 +42,7 @@ Nothing to configure. It arms itself from what you and Claude do:
 5. **Commands.** `/watch-pr <number | owner/repo#N | URL>` and `/watch-release <owner/repo> [--pr N | --tag vX]`.
 6. **Optional sweep.** With `sweepRepos` set, release runs that start in those repos are picked up even if you did not start them.
 
-Watches survive `/clear`, `/reload-plugins` and a restart of the same session.
+Watch state is saved per session, so watches survive `/clear` and resume when the same session restarts. Whether `/reload-plugins` re-loads a marketplace mod is not verified — start a new session after installing.
 
 ## What the stages say
 
@@ -40,6 +57,8 @@ Each line reads `<repo> #<pr> · <step>/<total> · <what it is waiting for>`.
 | GitHub release | `tagged v1.2.3, waiting for GitHub release` |
 | Image / chart | `v1.2.3 released, waiting for image + chart` |
 | Done | `v1.2.3 published` |
+
+The release run is the configured workflow's run on the merge commit. When that workflow is only called by another one (`workflow_call`), or runs on `pull_request: closed`, the run of a release-named workflow on the merge or PR head commit counts instead, and the line names that file (e.g. `auto-release.yml`).
 
 The release steps are always named **workflow, tag, GitHub release, image / chart**, in the status line, the band, the toasts and here. The image and chart steps only exist for a repo that publishes a matching `ghcr.io` package, decided when the release watch starts.
 
@@ -105,7 +124,7 @@ By default the mod only draws a status line, a band, a pane and toasts. Nothing 
 
 ## Requirements
 
-- `gh`, authenticated. Reading a private `ghcr.io` package also needs the `read:packages` scope; without it the image/chart step is skipped rather than failing.
+- `gh`, authenticated, and `curl`. Public `ghcr.io` images and charts are read anonymously from the registry when the token lacks `read:packages`; a *private* package needs that scope, and without it the image/chart step is skipped rather than failing.
 - A Claude Code version that loads mods. Start a new session after installing.
 
 ## Migrating from the Release Ticker
