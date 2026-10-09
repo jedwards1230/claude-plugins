@@ -1,6 +1,6 @@
 # git-tooling
 
-Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-aware push reminders, on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
+Git tooling for Claude Code. Branch and push guards, merged-branch cleanup, PR-aware push reminders, and on-demand CI + release status watching — bundled into one plugin so any Claude session that touches git stays well-behaved.
 
 ## Features
 
