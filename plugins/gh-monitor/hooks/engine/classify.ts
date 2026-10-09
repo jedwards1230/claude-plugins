@@ -295,6 +295,8 @@ export type PrFacts = {
   url?: string
   mergedAt?: number
   mergeSha?: string
+  /** The PR's head commit (a `pull_request: closed` release runs on it). */
+  headSha?: string
   base?: string
   defaultBranch?: string
   labels: string[]
@@ -313,6 +315,7 @@ export function factsOf(node: Record<string, unknown>): PrFacts {
     ...(typeof node.url === 'string' ? { url: node.url } : {}),
     ...(mergedAt !== undefined ? { mergedAt } : {}),
     ...(typeof mergeSha === 'string' ? { mergeSha } : {}),
+    ...(headOf(node).sha ? { headSha: headOf(node).sha as string } : {}),
     ...(typeof node.baseRefName === 'string' ? { base: node.baseRefName } : {}),
     ...(typeof defaultBranch === 'string' ? { defaultBranch } : {}),
     labels: Array.isArray(labels)

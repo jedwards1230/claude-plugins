@@ -16,6 +16,7 @@ import {
   toastsFor,
   width,
 } from '../hooks/ui/text'
+import { clusters } from '../hooks/ui/text'
 import type { ToastConfig } from '../hooks/ui/text'
 import {
   canonical,
@@ -355,3 +356,112 @@ describe('capture', () => {
     ])
   })
 })
+
+/** Repo, check and version strings full of 2-cell and 0-cell glyphs. */
+const WIDE_REPO = 'acme/日本語のとても長いリポジトリ名-🚀-ウィジェット'
+const WIDE_CHECKS = ['🔒 lint', '👨‍👩‍👧 family-tests', '✅ 単体テスト-ユニット', 'e\u0301-accents', '🇺🇸 region-check-with-a-long-name']
+const WIDE_VERSION = 'v1.2.3-ベータ版-🎉'
+const MORE_COLUMNS = [10, 20, 30, 40, 60, 80, 120] as const
+
+describe('widths in terminal cells (QA bug 7)', () => {
+  test('width counts cells: wide 2, marks and ZWJ 0, VS16 widens, markers 1', () => {
+    expect(width('abc')).toBe(3)
+    expect(width('日本')).toBe(4)
+    expect(width('🔒')).toBe(2)
+    expect(width('👨‍👩‍👧'), 'a ZWJ family is one glyph').toBe(2)
+    expect(width('🇺🇸'), 'a flag is one glyph').toBe(2)
+    expect(width('e\u0301')).toBe(1)
+    expect(width('✓\uFE0F'), 'VS16 asks for emoji presentation').toBe(2)
+    expect(width('👍🏽'), 'a skin tone joins its base').toBe(2)
+    for (const m of ['✓', '✗', '●', '◐', '·', '↑', '…', '→', '⚠']) expect(width(m), m).toBe(1)
+    expect(clusters('a👨‍👩‍👧b').map(c => c.text)).toEqual(['a', '👨‍👩‍👧', 'b'])
+  })
+
+  test('elide cuts on a cluster boundary and never over its bound', () => {
+    expect(elide('日本語', 4)).toBe('日…')
+    expect(elide('a🔒b', 3)).toBe('a…')
+    expect(elide('👨‍👩‍👧x', 2)).toBe('…')
+    expect(elide('ab👨‍👩‍👧', 4), 'fits whole').toBe('ab👨‍👩‍👧')
+    expect(elide('ab👨‍👩‍👧', 3)).toBe('ab…')
+    for (const s of [WIDE_REPO, ...WIDE_CHECKS, WIDE_VERSION]) {
+      for (let n = 0; n <= width(s) + 1; n++) {
+        const e = elide(s, n)
+        expect(width(e), `${s} @ ${n}`).toBeLessThanOrEqual(n)
+        expect(e.includes('\u200d…'), 'never cut inside a ZWJ sequence').toBe(false)
+      }
+    }
+  })
+
+  test(`emoji and CJK names: status <= ${STATUS_BUDGET}, band <= columns, pane <= columns, toast <= ${TOAST_BUDGET}`, () => {
+    const at = { repo: WIDE_REPO, id: `pr:${WIDE_REPO}#12`, title: '修正: 🎉 新機能を追加する\nsecond line' }
+    const rows = [
+      ...everyRow(WIDE_REPO, WIDE_VERSION),
+      prItem({ ci: 'failing', failed: 5, failing: WIDE_CHECKS, checks: WIDE_CHECKS.map(n => ({ name: n, state: 'fail' as const })) }, at),
+      prItem({ ci: 'failing', failed: 5, failing: WIDE_CHECKS }, { title: at.title }),
+    ]
+    for (const it of rows) {
+      const one = snap([it])
+      const s = statusLine(one)
+      if (s !== undefined) expect(width(s), s).toBeLessThanOrEqual(STATUS_BUDGET)
+      for (const c of MORE_COLUMNS) {
+        for (const r of bandRows(one, c, 10)) expect(bandRowCells(r), `${c}: ${r.text}`).toBeLessThanOrEqual(c)
+        for (const b of paneBlocks(one, c)) {
+          expect(width(b.header), b.header).toBeLessThanOrEqual(c)
+          expect(b.header.includes('\n'), 'one line').toBe(false)
+          for (const l of b.lines) expect(width(l.text), `pane ${c}: ${l.text}`).toBeLessThanOrEqual(c)
+        }
+      }
+      const events: MonitorEvent[] = [
+        { kind: 'checks-failed', item: it, names: WIDE_CHECKS },
+        { kind: 'merged', item: it },
+        { kind: 'outcome', item: it },
+        { kind: 'floating-tag-stale', item: it, tag: WIDE_VERSION },
+        { kind: 'deploy-offer', item: it },
+      ]
+      for (const t of toastsFor(events, CONFIG)) expect(width(t.text), t.text).toBeLessThanOrEqual(TOAST_BUDGET)
+    }
+    const crowd = snap(many(30, WIDE_REPO).map(i => (i.prView?.ci === 'failing' ? { ...i, prView: { ...i.prView, failing: WIDE_CHECKS } } : i)))
+    expect(width(statusLine(crowd) as string)).toBeLessThanOrEqual(STATUS_BUDGET)
+    for (const c of MORE_COLUMNS) for (const r of bandRows(crowd, c, 6)) expect(bandRowCells(r)).toBeLessThanOrEqual(c)
+  })
+
+  test('a status that would just fit in code points but not in cells is shortened', () => {
+    // 30 wide glyphs: 30 code points, 60 cells, so the row has to be cut to fit 66 cells.
+    const it = prItem({ ci: 'failing', failing: ['検'.repeat(30)] })
+    const s = statusLine(snap([it])) as string
+    expect(width(s), s).toBeLessThanOrEqual(STATUS_BUDGET)
+    expect([...s].length, 'it is the cells, not the code points, that bind').toBeLessThan(STATUS_BUDGET)
+  })
+})
+
+describe('band limits at the edges', () => {
+  test('columns 0 or maxRows 0 draw nothing; tiny widths never overflow', () => {
+    for (const s of [canonical(), snap(many(30)), snap([offerItem()])]) {
+      expect(bandRows(s, 0, 10)).toEqual([])
+      expect(bandRows(s, -5, 10)).toEqual([])
+      expect(bandRows(s, Number.NaN, 10)).toEqual([])
+      expect(bandRows(s, 80, 0)).toEqual([])
+      expect(bandRows(s, 80, -1)).toEqual([])
+      for (const c of [1, 2, 3, 5, 8, 39, 40]) {
+        for (const m of [1, 2, 3]) {
+          const rows = bandRows(s, c, m)
+          expect(rows.length, `${c} cols, ${m} rows`).toBeLessThanOrEqual(m)
+          for (const r of rows) expect(bandRowCells(r), `${c}: ${JSON.stringify(r.text)}`).toBeLessThanOrEqual(c)
+        }
+      }
+    }
+    expect(bandRows(snap(many(30)), 80, 1).map(r => r.text), 'one row left: only the overflow row').toEqual([
+      '+30 more · /gh-monitor for all',
+    ])
+  })
+
+  test('pane lines at 0 and 1 columns stay within them', () => {
+    for (const c of [0, 1]) {
+      for (const b of paneBlocks(canonical(), c)) {
+        expect(width(b.header)).toBeLessThanOrEqual(c)
+        for (const l of b.lines) expect(width(l.text)).toBeLessThanOrEqual(c)
+      }
+    }
+  })
+})
+

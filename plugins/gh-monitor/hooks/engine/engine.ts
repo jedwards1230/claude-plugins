@@ -35,7 +35,7 @@ import {
   viewOf,
 } from './release'
 import type { ReleaseState } from './release'
-import { isCompleted, sameRepo, taskIdOf } from './shell'
+import { isCompleted, isWorthReading, sameRepo, taskIdOf } from './shell'
 import { isStaleForeign, keyOf as storeKeyOf, KEY_PREFIX, payloadOf, prune, readSaved, SAVE_DEBOUNCE_MS } from './store'
 
 export type RunResult = { exitCode: number; stdout: string; stderr: string }
@@ -169,6 +169,15 @@ function publicOf(i: Internal): Item {
   return item
 }
 
+/** Whether a stored item is whole enough to resume (a release needs its workflow). */
+function isRestorable(raw: Internal): boolean {
+  if (!raw || typeof raw.id !== 'string' || typeof raw.repo !== 'string') return false
+  if (!['pr', 'release', 'done'].includes(raw.phase) || typeof raw.armedAt !== 'number') return false
+  const rel = raw.rel as Partial<ReleaseState> | undefined
+  if (rel !== undefined && (typeof rel !== 'object' || typeof rel.workflow?.path !== 'string' || typeof rel.deadline !== 'number')) return false
+  return raw.phase !== 'release' || rel !== undefined
+}
+
 /** Whether an item still needs polling or showing. */
 function isLive(i: Internal): boolean {
   return i.phase !== 'done'
@@ -224,6 +233,7 @@ export function createEngine(host: Host, config: Config): Engine {
   let ticks = 0
   let lastNow = 0
   let savedKey: string | undefined
+  let home: Promise<string | undefined> | undefined
 
   // ── emitting ──
 
@@ -316,9 +326,9 @@ export function createEngine(host: Host, config: Config): Engine {
     const saved = readSaved<Internal>(await host.storeGet(key))
     if (saved) {
       for (const raw of prune(saved.items, now)) {
-        if (typeof raw.id !== 'string' || typeof raw.repo !== 'string' || items.has(raw.id)) continue
+        if (!isRestorable(raw) || items.has(raw.id)) continue
         const i: Internal = { ...raw, errorStreak: 0, suspect: false }
-        if (i.deploy?.state === 'offered' && now - (i.doneAt ?? 0) > OFFER_TTL_MS) i.deploy = { ...i.deploy, state: 'dismissed' }
+        if (i.deploy?.state === 'offered' && now - (i.doneAt ?? 0) >= OFFER_TTL_MS) i.deploy = { ...i.deploy, state: 'dismissed' }
         items.set(i.id, i)
       }
     }
@@ -361,8 +371,27 @@ export function createEngine(host: Host, config: Config): Engine {
 
   // ── lookups ──
 
+  /**
+   * A `cd` directory as gh can use it: no shell runs it, so `~` is expanded
+   * here (HOME read once) and a relative path joined to the session's cwd.
+   */
+  async function resolveDir(dir: string | undefined): Promise<string | undefined> {
+    if (dir === undefined) return undefined
+    if (dir === '~' || dir.startsWith('~/')) {
+      home ??= host
+        .run(['printenv', 'HOME'])
+        .then(r => (r && r.exitCode === 0 && r.stdout.trim().startsWith('/') ? r.stdout.trim() : undefined))
+        .catch(() => undefined)
+      const h = await home
+      return h ? `${h}${dir.slice(1)}` : undefined
+    }
+    if (dir.startsWith('/')) return dir
+    const base = await host.cwd().catch(() => undefined)
+    return base ? `${base.replace(/\/+$/, '')}/${dir.replace(/^\.\//, '')}` : dir
+  }
+
   async function repoAt(cwd: string | undefined): Promise<Repo | undefined> {
-    const dir = cwd ?? (await host.cwd().catch(() => undefined))
+    const dir = (await resolveDir(cwd)) ?? (await host.cwd().catch(() => undefined))
     const key = dir ?? ''
     if (repoAtCache.has(key)) return repoAtCache.get(key)
     const repo = await gh.repoAt(dir)
@@ -406,11 +435,11 @@ export function createEngine(host: Host, config: Config): Engine {
   function addPr(repo: Repo, pr: number, source: ArmSource, now: number, cwd?: string): Internal {
     const id = prId(repo, pr)
     const existing = items.get(id)
-    if (existing && existing.phase !== 'done') {
-      existing.touchedAt = now
+    if (existing) {
+      // A finished PR stays finished: touching it again never re-runs its release or its toasts.
+      if (existing.phase !== 'done') existing.touchedAt = now
       return existing
     }
-    if (existing) items.delete(id) // a done PR touched again starts over
     const i = newItem(id, repo, source, now, { pr, ...(cwd !== undefined ? { cwd } : {}) })
     items.set(id, i)
     enforceMax()
@@ -445,7 +474,7 @@ export function createEngine(host: Host, config: Config): Engine {
     opts: { run?: RunObs; dispatchedAt?: number; waitRunSince?: number; wantTag?: string; tagSha?: string },
   ): Promise<Internal | undefined> {
     if (coveredRelease(repo, opts.run?.id)) return undefined
-    const pkgs = config.registry === 'ghcr.io' ? await probePackages(gh, repo) : {}
+    const pkgs = config.registry === 'ghcr.io' ? await probePackages(gh, repo, config.registry) : {}
     const tags = await gh.newestTags(repo)
     const cutoff = opts.run ? (opts.run.createdAt ?? now) - RUN_TAG_LOOKBACK_MS : now - CLOCK_SKEW_MS
     const floatingTag = floatingTagFor(config, repo)
@@ -463,6 +492,7 @@ export function createEngine(host: Host, config: Config): Engine {
       ...(opts.waitRunSince !== undefined ? { waitRunSince: opts.waitRunSince } : {}),
       ...(pkgs.image ? { image: pkgs.image } : {}),
       ...(pkgs.chart ? { chart: pkgs.chart } : {}),
+      ...(pkgs.probe ? { probe: pkgs.probe } : {}),
     }
     if (opts.wantTag) {
       rel.wantTag = opts.wantTag
@@ -543,10 +573,11 @@ export function createEngine(host: Host, config: Config): Engine {
     if (!facts.mergeSha) return undefined
     const tags = await gh.newestTags(i.repo)
     if (!tags) return undefined
-    const pkgs = config.registry === 'ghcr.io' ? await probePackages(gh, i.repo) : {}
+    const pkgs = config.registry === 'ghcr.io' ? await probePackages(gh, i.repo, config.registry) : {}
     const mergedAt = facts.mergedAt ?? now
-    // The hard stop runs from the merge; a release asked for by name (/watch-pr, /watch-release) gets its full time.
-    const from = i.source === 'command' ? Math.max(mergedAt, now) : mergedAt
+    // The hard stop runs from the merge, or from when the merge was first seen if that was later
+    // (a suspended laptop, a restart, a late "merged"): a late watch still gets its full look.
+    const from = Math.max(mergedAt, now)
     const rel: ReleaseState = {
       repo: i.repo,
       workflow: wf,
@@ -554,12 +585,14 @@ export function createEngine(host: Host, config: Config): Engine {
       armedAt: now,
       deadline: from + config.timeoutMs,
       mergeSha: facts.mergeSha,
+      ...(facts.headSha ? { prHeadSha: facts.headSha } : {}),
       mergedAt,
       baselineTags: baselineOf(tags, mergedAt - CLOCK_SKEW_MS),
       noRunGrace: !config.semverLabelGate,
       ...(floatingTag ? { floatingTag } : {}),
       ...(pkgs.image ? { image: pkgs.image } : {}),
       ...(pkgs.chart ? { chart: pkgs.chart } : {}),
+      ...(pkgs.probe ? { probe: pkgs.probe } : {}),
     }
     // A watch made from the release run alone gives way to the PR's.
     for (const other of [...items.values()]) {
@@ -680,7 +713,14 @@ export function createEngine(host: Host, config: Config): Engine {
         continue
       }
       try {
-        armed += (await arm(r, now)).length
+        let req = r
+        if (r.cwd !== undefined) {
+          // No shell runs gh: `cd ~/x` and `cd sub` are resolved here.
+          const { cwd: raw, ...rest } = r
+          const dir = await resolveDir(raw)
+          req = (dir !== undefined ? { ...rest, cwd: dir } : rest) as ArmRequest
+        }
+        armed += (await arm(req, now)).length
       } catch {
         // an arm that fails is an arm that didn't happen
       }
@@ -785,34 +825,41 @@ export function createEngine(host: Host, config: Config): Engine {
         for (const [k, i] of livePrs.entries()) {
           if (stopped) return
           if (items.get(i.id) !== i) continue
-          events.push(...(await applyPr(i, found[k], now)))
+          events.push(...(await guarded(i, () => applyPr(i, found[k], now))))
         }
       }
 
       // Merges whose release couldn't be routed yet.
       for (const i of [...items.values()]) {
         if (stopped) return
-        if (i.phase === 'pr' && i.pendingMerge) events.push(...(await onMerged(i, i.pendingMerge.facts, now)))
+        const pending = i.pendingMerge
+        if (i.phase === 'pr' && pending) events.push(...(await guarded(i, () => onMerged(i, pending.facts, now))))
       }
 
       // Releases: a few reads per item, in turn.
       for (const i of [...items.values()]) {
         if (stopped) return
-        if (i.phase !== 'release' || !i.rel) continue
-        const step = await advance(gh, i.rel, now, config.timeoutMs, config.registry)
-        if (items.get(i.id) !== i || stopped) continue
-        i.rel = step.rel
-        i.release = viewOf(step.rel)
-        if (step.rel.runId !== undefined) dropDuplicateRuns(i, step.rel.runId)
-        if (step.done) events.push(...(await finishRelease(i, step.done, now)))
-        else touch(i, now)
+        const rel = i.rel
+        if (i.phase !== 'release' || !rel) continue
+        events.push(
+          ...(await guarded(i, async () => {
+            const step = await advance(gh, rel, now, config.timeoutMs, config.registry)
+            if (items.get(i.id) !== i || stopped) return []
+            i.rel = step.rel
+            i.release = viewOf(step.rel)
+            if (step.rel.runId !== undefined) dropDuplicateRuns(i, step.rel.runId)
+            if (step.done) return finishRelease(i, step.done, now)
+            touch(i, now)
+            return []
+          })),
+        )
       }
 
       if (slowTick && config.sweepRepos.length > 0) await sweep(now)
 
       // Expire offers; forget what's long done.
       for (const i of [...items.values()]) {
-        if (i.deploy?.state === 'offered' && now - (i.doneAt ?? now) > OFFER_TTL_MS) {
+        if (i.deploy?.state === 'offered' && now - (i.doneAt ?? now) >= OFFER_TTL_MS) {
           i.deploy = { ...i.deploy, state: 'dismissed' }
           touch(i, now)
         }
@@ -829,6 +876,16 @@ export function createEngine(host: Host, config: Config): Engine {
       host.after(0, () => void poll().catch(() => undefined))
     }
     stopTimerIfIdle(now)
+  }
+
+  /** One item's poll work: a throw (a corrupt stored item) costs that item a read, never the others' emits. */
+  async function guarded(i: Internal, work: () => Promise<MonitorEvent[]>): Promise<MonitorEvent[]> {
+    try {
+      return await work()
+    } catch {
+      i.errorStreak++
+      return []
+    }
   }
 
   /** A PR-less watch on the same run as a PR's release gives way. */
@@ -871,8 +928,9 @@ export function createEngine(host: Host, config: Config): Engine {
     const merge = parsePrCommands(seen.command).find(c => c.verb === 'merge' && c.selector === undefined)
     if (!merge) return
     // Read the branch's PR before a --delete-branch merge switches branches; bounded to one gh call.
+    const cwd = await resolveDir(merge.cwd)
     const pending = gh
-      .prView(undefined, merge.repo, merge.cwd)
+      .prView(undefined, merge.repo, cwd)
       .then(found => (found ? { repo: found.repo, pr: found.pr } : undefined))
       .catch(() => undefined)
     preResolved.set(seen.command, pending)
@@ -885,11 +943,13 @@ export function createEngine(host: Host, config: Config): Engine {
       const command = seen.command ?? ''
       const pre = preResolved.get(command)
       preResolved.delete(command)
-      if (!command || !isCompleted(seen.result)) return
+      if (!command) return
       if (seen.tool === 'Bash') {
+        if (!isWorthReading(seen.result)) return
         const reqs = [...bashPrRequests(command, seen.result), ...parseReleaseCommands(command)]
         await armAll(reqs, pre ? await pre : undefined)
       } else if (seen.tool === 'Monitor') {
+        if (!isCompleted(seen.result)) return
         const taskId = taskIdOf(seen.result)
         const ci = parseCiWatchCommand(command)
         if (ci) {
@@ -964,7 +1024,9 @@ export function createEngine(host: Host, config: Config): Engine {
       if (!target) {
         const repo = await repoAt(undefined)
         const last = repo ? await gh.lastMerged(repo) : undefined
-        if (repo && last && now - last.mergedAt <= RECENT_MERGE_MS && last.mergedAt - now <= CLOCK_SKEW_MS) {
+        const known = repo && last ? items.get(prId(repo, last.pr)) : undefined
+        // A PR already followed to the end is not followed again.
+        if (repo && last && !known && now - last.mergedAt <= RECENT_MERGE_MS && last.mergedAt - now <= CLOCK_SKEW_MS) {
           target = addPr(repo, last.pr, 'typed-merged', now)
         }
       }

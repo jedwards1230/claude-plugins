@@ -30,9 +30,11 @@ export function sameRepo(a: Repo | undefined, b: Repo | undefined): boolean {
 }
 
 /**
- * Splits a shell command into simple commands (on `&&`, `||`, `;`, `|`, `&`
- * and newlines), each a list of words with quotes and backslashes resolved.
- * The `&` of a redirection (`2>&1`, `&>file`) stays in its word.
+ * Splits a shell command into simple commands (on `&&`, `||`, `;`, `|`, `&`,
+ * newlines and the parentheses of `( … )` / `$( … )`), each a list of words
+ * with quotes and backslashes resolved. The `&` of a redirection (`2>&1`,
+ * `&>file`) stays in its word. A heredoc's body is data, not commands: it is
+ * skipped (the `<<EOF` operator itself yields no word).
  */
 export function segmentsOf(command: string): string[][] {
   const segments: string[][] = []
@@ -40,6 +42,8 @@ export function segmentsOf(command: string): string[][] {
   let word = ''
   let inWord = false
   let quote: '"' | "'" | null = null
+  /** Heredoc delimiters opened on this line; their bodies start after the next newline. */
+  const heredocs: { delim: string; strip: boolean }[] = []
 
   const endWord = () => {
     if (inWord) words.push(word)
@@ -74,6 +78,38 @@ export function segmentsOf(command: string): string[][] {
     } else if (c === '&' && (/[<>]$/.test(word) || command[i + 1] === '>')) {
       word += c
       inWord = true
+    } else if (c === '<' && command[i + 1] === '<' && command[i + 2] !== '<') {
+      // `<<EOF`, `<< 'EOF'`, `<<-EOF`: note the delimiter; the body is skipped at the newline.
+      endWord()
+      let j = i + 2
+      const strip = command[j] === '-'
+      if (strip) j++
+      while (command[j] === ' ' || command[j] === '\t') j++
+      let delim = ''
+      while (j < command.length && !/[\s;&|<>()]/.test(command[j] as string)) delim += command[j++]
+      delim = delim.replace(/['"\\]/g, '')
+      if (delim) heredocs.push({ delim, strip })
+      i = j - 1
+    } else if (c === '\n' && heredocs.length > 0) {
+      endSegment()
+      // Skip each pending heredoc body, line by line, through its delimiter line.
+      let j = i + 1
+      for (const h of heredocs.splice(0)) {
+        while (j <= command.length) {
+          const nl = command.indexOf('\n', j)
+          const end = nl < 0 ? command.length : nl
+          const line = command.slice(j, end)
+          j = end + 1
+          if ((h.strip ? line.replace(/^\t+/, '') : line) === h.delim) break
+        }
+      }
+      i = j - 1
+    } else if (c === '(' || c === ')') {
+      if (c === '(' && word === '$') {
+        word = ''
+        inWord = false
+      }
+      endSegment()
     } else if (c === ';' || c === '\n' || c === '|' || c === '&') {
       endSegment()
     } else {
@@ -88,11 +124,34 @@ export function segmentsOf(command: string): string[][] {
 /** One simple command with the directory a preceding `cd` moved to. */
 export type Segment = { words: string[]; cwd?: string }
 
+/**
+ * gh's own `-R/--repo` before the subcommand (`gh -R o/r pr view 12`) moved
+ * after it, so every parser finds it among the subcommand's arguments.
+ */
+function hoistGhRepo(words: string[]): string[] {
+  const at = words.findIndex(w => w === 'gh' || w.endsWith('/gh'))
+  if (at < 0 || !words.slice(0, at).every(w => ENV_RE.test(w))) return words
+  const moved: string[] = []
+  let i = at + 1
+  while (i < words.length) {
+    const w = words[i] as string
+    if ((w === '-R' || w === '--repo') && i + 1 < words.length) {
+      moved.push('-R', words[i + 1] as string)
+      i += 2
+    } else if (w.startsWith('--repo=')) {
+      moved.push('-R', w.slice(7))
+      i += 1
+    } else break
+  }
+  return moved.length === 0 ? words : [...words.slice(0, at + 1), ...words.slice(i), ...moved]
+}
+
 /** segmentsOf with each segment's `cd` directory carried forward. */
 export function commandsOf(command: string): Segment[] {
   let cwd: string | undefined
   const out: Segment[] = []
-  for (const words of segmentsOf(command)) {
+  for (const raw of segmentsOf(command)) {
+    const words = hoistGhRepo(raw)
     if (words[0] === 'cd' && words.length === 2) {
       cwd = words[1]
       continue
@@ -160,6 +219,26 @@ export function isCompleted(result: unknown): boolean {
     const o = inner as { interrupted?: unknown; backgroundTaskId?: unknown }
     if (o.interrupted === true || o.backgroundTaskId) return false
   }
+  return true
+}
+
+/**
+ * Whether a finished Bash call is worth reading for arms. Unlike
+ * isCompleted, an error counts: Bash marks every non-zero exit as an error,
+ * and `gh pr checks` exits 8 while checks run, a merge followed by a failing
+ * `&& git pull` still merged. Denied, interrupted and backgrounded calls
+ * don't count, nor a command that never ran (`gh: command not found`).
+ */
+export function isWorthReading(result: unknown): boolean {
+  if (!result || typeof result !== 'object') return false
+  const r = result as { deny?: unknown; isError?: unknown; result?: unknown }
+  if (r.deny !== undefined) return false
+  const inner = r.result
+  if (inner && typeof inner === 'object') {
+    const o = inner as { interrupted?: unknown; backgroundTaskId?: unknown }
+    if (o.interrupted === true || o.backgroundTaskId) return false
+  }
+  if (r.isError === true && /command not found|No such file or directory/i.test(outputOf(result))) return false
   return true
 }
 

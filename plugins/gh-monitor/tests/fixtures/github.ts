@@ -68,7 +68,7 @@ export type GitHub = {
   /** Workflow runs (any repo the release watch reads), newest last is fine: answers sort newest first. */
   runs: FixtureRun[]
   /** Tags, newest commit first (the GraphQL TAG_COMMIT_DATE order); `date` is the commit date (ISO). */
-  tags: { name: string; sha: string; date?: string }[]
+  tags: { name: string; sha: string; date?: string; annotated?: boolean }[]
   /** How a commit relates to the merge commit (`compare/MERGE...sha`). */
   ancestry: Record<string, 'ahead' | 'behind' | 'diverged' | 'identical'>
   /** Tags with a published GitHub Release; `drafts` have a draft one. */
@@ -76,6 +76,13 @@ export type GitHub = {
   drafts: string[]
   /** Where the repo's container packages live: the image `{name}` and the chart `charts/{name}`. */
   packages: { image?: 'users' | 'orgs'; chart?: 'users' | 'orgs' }
+  /**
+   * How the Packages API answers this token: 'ok', or 'forbidden' (403 "need
+   * read:packages", the real default for a `gh auth login` token).
+   */
+  packagesApi: 'ok' | 'forbidden'
+  /** Packages that exist but are private: the anonymous registry denies them. */
+  privatePackages: boolean
   imageVersions: { digest: string; tags: string[] }[]
   chartVersions: { tags: string[] }[]
   /** Floating tag name -> its commit. */
@@ -129,6 +136,8 @@ export function github(o: Partial<GitHub> = {}): GitHub {
     releases: ['v1.2.2'],
     drafts: [],
     packages: {},
+    packagesApi: 'ok',
+    privatePackages: false,
     imageVersions: [{ digest: `sha256:${'e'.repeat(64)}`, tags: ['1.2.2', 'v1.2.2'] }],
     chartVersions: [{ tags: ['1.2.2'] }],
     floating: {},
@@ -224,6 +233,8 @@ const newest = (runs: readonly FixtureRun[]) => [...runs].sort((a, b) => Date.pa
 export function answer(gh: GitHub, argv: readonly string[]): Answer {
   const line = argv.join(' ')
   if (gh.broken.some(b => line.includes(b))) return broken
+  if (line === 'printenv HOME') return { exitCode: 0, stdout: '/home/tester\n', stderr: '' }
+  if (argv[0] === 'curl') return registryAnswer(gh, argv)
 
   if (line.startsWith('gh api graphql ') && line.includes('...PR')) {
     const vars = varsOf(argv)
@@ -244,7 +255,11 @@ export function answer(gh: GitHub, argv: readonly string[]): Answer {
   if (line.startsWith('gh api graphql ') && line.includes('refs(')) {
     const vars = varsOf(argv)
     if (gh.missingRepos.includes(`${vars.get('owner')}/${vars.get('name')}`)) return notFound
-    const nodes = gh.tags.slice(0, 20).map(t => ({ name: t.name, target: { oid: t.sha, ...(t.date ? { committedDate: t.date } : {}) } }))
+    const nodes = gh.tags.slice(0, 20).map(t => {
+      const commit = { oid: t.sha, ...(t.date ? { committedDate: t.date } : {}) }
+      // An annotated tag points at a tag object; its commit is one level down.
+      return { name: t.name, target: t.annotated ? { oid: `0${t.sha.slice(1)}`, target: commit } : commit }
+    })
     return ok({ data: { repository: { refs: { nodes } } } })
   }
 
@@ -284,15 +299,13 @@ export function answer(gh: GitHub, argv: readonly string[]): Answer {
   if (api === `repos/${repo}/actions/workflows?per_page=100`) {
     return ok({ total_count: gh.workflows.length, workflows: gh.workflows.map(w => ({ ...w, state: 'active' })) })
   }
-  const fallback = new RegExp(`^repos/${repo}/actions/runs\\?head_sha=([0-9a-f]+)&per_page=100$`).exec(api)
-  if (fallback) {
-    const p = Object.values(gh.prs).find(v => (v.headSha ?? HEAD_SHA) === fallback[1])
-    return ok({ total_count: p?.actionRuns?.length ?? 0, workflow_runs: p?.actionRuns ?? [] })
-  }
-  const bySha = new RegExp(`^repos/${repo}/actions/runs\\?head_sha=([0-9a-f]+)&per_page=20$`).exec(api)
+  const bySha = new RegExp(`^repos/${repo}/actions/runs\\?head_sha=([0-9a-f]+)&per_page=(?:20|100)$`).exec(api)
   if (bySha) {
-    const runs = newest(gh.runs.filter(r => r.head_sha === bySha[1])).slice(0, 20)
-    return ok({ total_count: runs.length, workflow_runs: runs.map(r => runJson(repo, r)) })
+    // The scripted runs on that commit, plus a PR head's Actions runs (the hidden-checks fallback).
+    const runs = newest(gh.runs.filter(r => r.head_sha === bySha[1])).map(r => runJson(repo, r))
+    const p = Object.values(gh.prs).find(v => (v.headSha ?? HEAD_SHA) === bySha[1])
+    const all = [...runs, ...(p?.actionRuns ?? [])].slice(0, 100)
+    return ok({ total_count: all.length, workflow_runs: all })
   }
   const active = new RegExp(`^repos/${repo}/actions/runs\\?status=in_progress&per_page=10$`).exec(api)
   if (active) {
@@ -333,6 +346,7 @@ export function answer(gh: GitHub, argv: readonly string[]): Answer {
     const [rOwner, rName] = REPO.split('/') as [string, string]
     if (owner !== rOwner) return notFound
     const which = name === rName ? 'image' : name === `charts/${rName}` ? 'chart' : undefined
+    if (gh.packagesApi === 'forbidden') return fail('gh: You need at least read:packages scope to list packages. (HTTP 403)')
     if (!which || gh.packages[which] !== scope) return notFound
     if (!versions) return ok({ name, package_type: 'container' })
     const list =
@@ -391,10 +405,35 @@ export function finishRun(gh: GitHub, conclusion = 'success', id = 100) {
   releaseRun(gh, { id, status: 'completed', conclusion })
 }
 
-/** The release cut by the merge: tag on the release commit, its GitHub Release published. */
+/** The release cut by the merge: an annotated tag on the release commit, its GitHub Release published. */
 export function cutRelease(gh: GitHub, tag = 'v1.2.3', sha = RELEASE_SHA) {
-  gh.tags = [{ name: tag, sha }, ...gh.tags]
+  gh.tags = [{ name: tag, sha, annotated: true }, ...gh.tags]
   gh.releases = [...gh.releases, tag]
+}
+
+/** The anonymous ghcr.io registry: `/token` and `HEAD /v2/<pkg>/manifests/<tag>` (curl argv). */
+function registryAnswer(gh: GitHub, argv: readonly string[]): Answer {
+  const url = argv[argv.length - 1] as string
+  const [rOwner, rName] = REPO.split('/') as [string, string]
+  const which = (path: string) => (path === `${rOwner}/${rName}` ? 'image' : path === `${rOwner}/charts/${rName}` ? 'chart' : undefined)
+  const token = /^https:\/\/ghcr\.io\/token\?scope=repository:(.+):pull$/.exec(url)
+  if (token) {
+    const w = which(token[1] as string)
+    return w && gh.packages[w] && !gh.privatePackages
+      ? ok({ token: `anon-${w}` })
+      : ok({ errors: [{ code: 'DENIED', message: 'requested access to the resource is denied' }] })
+  }
+  const manifest = /^https:\/\/ghcr\.io\/v2\/(.+)\/manifests\/([^/]+)$/.exec(url)
+  if (manifest && argv.includes('-I')) {
+    const w = which(manifest[1] as string)
+    const tag = decodeURIComponent(manifest[2] as string)
+    if (!w || !argv.includes(`Authorization: Bearer anon-${w}`)) return { exitCode: 0, stdout: 'HTTP/2 401 \r\n\r\n', stderr: '' }
+    const hit = w === 'image' ? gh.imageVersions.find(v => v.tags.includes(tag)) : gh.chartVersions.find(v => v.tags.includes(tag))
+    if (!hit) return { exitCode: 0, stdout: 'HTTP/2 404 \r\ncontent-type: application/json\r\n\r\n', stderr: '' }
+    const digest = 'digest' in hit ? hit.digest : `sha256:${'f'.repeat(64)}`
+    return { exitCode: 0, stdout: `HTTP/2 200 \r\ndocker-content-digest: ${digest}\r\n\r\n`, stderr: '' }
+  }
+  return { exitCode: 6, stdout: '', stderr: `curl: unscripted ${url}` }
 }
 
 /** Only the tag, no GitHub Release. */
@@ -402,9 +441,10 @@ export function cutTag(gh: GitHub, tag = 'v1.2.3', sha = RELEASE_SHA) {
   gh.tags = [{ name: tag, sha }, ...gh.tags]
 }
 
-/** GHCR got the image for `tag` (tagged `v1.2.3` and `1.2.3`). */
-export function pushImage(gh: GitHub, tag = 'v1.2.3') {
-  gh.imageVersions = [{ digest: DIGEST, tags: [tag.replace(/^v/, ''), tag] }, ...gh.imageVersions]
+/** GHCR got the image for `tag`: tagged `v1.2.3` and `1.2.3`, or (`bare`) only `1.2.3` as real images often are. */
+export function pushImage(gh: GitHub, tag = 'v1.2.3', opts: { bare?: boolean } = {}) {
+  const tags = opts.bare ? [tag.replace(/^v/, '')] : [tag.replace(/^v/, ''), tag]
+  gh.imageVersions = [{ digest: DIGEST, tags }, ...gh.imageVersions]
 }
 
 /** GHCR got the chart for `tag` (version without the `v`). */

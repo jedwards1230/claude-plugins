@@ -374,7 +374,8 @@ describe('deploy hand-off', () => {
     await r2.tick()
     expect(r2.item(PR_ID)?.deploy?.state).toBe('offered')
     expect(r2.timers(), 'an open offer keeps the timer').toBe(1)
-    await r2.tick(61 * 60_000)
-    expect(r2.item(PR_ID)?.deploy?.state ?? 'gone').not.toBe('offered')
+    const doneAt = r2.item(PR_ID)?.doneAt as number
+    await r2.tick(doneAt + 60 * 60_000 - r2.now()) // exactly the TTL: expired, not yet forgotten
+    expect(r2.item(PR_ID)?.deploy?.state).toBe('dismissed')
   })
 })

@@ -9,7 +9,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import type { Snapshot } from '../hooks/engine/model'
 import { toView } from '../hooks/ui/state'
-import { deployPrompt } from '../hooks/ui/text'
+import { deployPrompt, width } from '../hooks/ui/text'
 import { canonical, doneItem, NOW, offerItem, prItem, releaseItem, snap, many, check } from './fixtures/items'
 
 const PLUGIN = 'gh-monitor'
@@ -122,7 +122,7 @@ describe('band', () => {
     })
     const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
     expect(texts.some(t => /^[✗●◐✓·↑] $/.test(t))).toBe(false)
-    for (const t of texts) expect([...t].length, t).toBeLessThanOrEqual(36)
+    for (const t of texts) expect(width(t), t).toBeLessThanOrEqual(36)
     expect(await ui.findAll({ type: 'Button' })).toEqual([])
     await ui.unmount()
   })

@@ -12,7 +12,7 @@ import { repoFromUrl, repoOf } from './shell'
 export type RunResult = { exitCode: number; stdout: string; stderr: string }
 export type Run = (argv: readonly string[], cwd?: string) => Promise<RunResult | null>
 
-type Json = { ok: true; data: unknown } | { ok: false; notFound: boolean }
+type Json = { ok: true; data: unknown } | { ok: false; notFound: boolean; forbidden?: boolean }
 
 /** A repo's release workflow: id, display name, file path. */
 export type Workflow = { id: number; name: string; path: string }
@@ -45,6 +45,20 @@ export const TAGS_QUERY =
   'query($owner:String!,$name:String!){repository(owner:$owner,name:$name){' +
   'refs(refPrefix:"refs/tags/",first:20,orderBy:{field:TAG_COMMIT_DATE,direction:DESC}){' +
   'nodes{name target{oid ... on Commit{committedDate} ... on Tag{target{oid ... on Commit{committedDate}}}}}}}}'
+
+/** A container package and where it can be read. */
+export type PackageRef =
+  | { owner: string; name: string; via: 'api'; scope: Scope }
+  | { owner: string; name: string; via: 'registry' }
+export type Probe = PackageRef | 'absent' | 'unknown'
+
+/** The manifest types a registry HEAD accepts: OCI index/manifest and their Docker equivalents. */
+const MANIFEST_TYPES = [
+  'application/vnd.oci.image.index.v1+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.docker.distribution.manifest.v2+json',
+].join(', ')
 
 const basename = (path: string) => path.split('/').pop() ?? path
 const timeOf = (v: unknown): number | undefined => {
@@ -95,6 +109,16 @@ export function isReleaseRun(run: RunObs, wf: Workflow): boolean {
   return run.name !== undefined && run.name.toLowerCase() === wf.name.toLowerCase()
 }
 
+/**
+ * A run that looks like a release by its workflow file (or, without a path,
+ * its name): the fallback when the configured workflow only runs through
+ * `workflow_call` (auto-release.yml calling release.yml).
+ */
+export function isReleaseLikeRun(run: RunObs): boolean {
+  if (run.path) return /release/i.test(basename(run.path.replace(/@.*$/, '')))
+  return run.name !== undefined && /release/i.test(run.name)
+}
+
 export function createGitHub(run: Run) {
   const gh = async (args: readonly string[], cwd?: string): Promise<RunResult | null> => {
     try {
@@ -107,7 +131,10 @@ export function createGitHub(run: Run) {
   async function api(path: string): Promise<Json> {
     const r = await gh(['api', path])
     if (!r) return { ok: false, notFound: false }
-    if (r.exitCode !== 0) return { ok: false, notFound: /HTTP 404|Not Found/i.test(r.stderr + r.stdout) }
+    if (r.exitCode !== 0) {
+      const text = r.stderr + r.stdout
+      return { ok: false, notFound: /HTTP 404|Not Found/i.test(text), forbidden: /HTTP 403|Forbidden|read:packages/i.test(text) }
+    }
     try {
       return { ok: true, data: JSON.parse(r.stdout) }
     } catch {
@@ -198,7 +225,7 @@ export function createGitHub(run: Run) {
   }
 
   /** Runs for a commit (every workflow). */
-  const runsForSha = (repo: Repo, sha: string) => runList(`repos/${repo}/actions/runs?head_sha=${sha}&per_page=20`)
+  const runsForSha = (repo: Repo, sha: string) => runList(`repos/${repo}/actions/runs?head_sha=${sha}&per_page=100`)
   /** A workflow's dispatched runs, newest first. */
   const dispatchedRuns = (repo: Repo, wf: Workflow) =>
     runList(`repos/${repo}/actions/workflows/${wf.id}/runs?event=workflow_dispatch&per_page=5`)
@@ -255,13 +282,86 @@ export function createGitHub(run: Run) {
     return r.notFound ? null : undefined
   }
 
-  /** Where a container package lives: users/ or orgs/; null when neither has it, undefined when unreadable. */
-  async function packageScope(owner: string, name: string): Promise<Scope | null | undefined> {
-    let unreadable = false
+  /** A plain HTTPS read with curl (argv only, no shell), capped like every gh call. */
+  async function curl(args: readonly string[]): Promise<RunResult | null> {
+    try {
+      return await run(['curl', '-sS', '--max-time', '15', ...args])
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * An anonymous pull token for a registry repository: the token; null when
+   * the registry denies anonymous pulls (no public package of that name);
+   * undefined when it could not be asked.
+   */
+  async function registryToken(registry: string, path: string): Promise<string | null | undefined> {
+    const r = await curl([`https://${registry}/token?scope=repository:${path}:pull`])
+    if (!r || r.exitCode !== 0) return undefined
+    try {
+      const o = recordOf(JSON.parse(r.stdout))
+      if (typeof o.token === 'string' && o.token) return o.token
+      const errors = Array.isArray(o.errors) ? o.errors : []
+      return errors.some(e => /DENIED|UNAUTHORIZED|NAME_UNKNOWN/.test(String(recordOf(e).code))) ? null : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Where a container package can be read: through the Packages API (users/
+   * or orgs/), anonymously through the registry (a public package read with a
+   * token that lacks `read:packages`), 'absent', or 'unknown' when it could
+   * not be told this time (asked again on a later poll).
+   */
+  async function probePackage(registry: string, owner: string, name: string): Promise<Probe> {
+    let forbidden = false
+    let transient = false
     for (const scope of ['users', 'orgs'] as const) {
       const r = await api(`${scope}/${owner}/packages/container/${encodeURIComponent(name)}`)
-      if (r.ok) return scope
-      if (!r.notFound) unreadable = true
+      if (r.ok) return { owner, name, via: 'api', scope }
+      if (r.forbidden) forbidden = true
+      else if (!r.notFound) transient = true
+    }
+    if (!forbidden && !transient) return 'absent'
+    if (registry !== 'ghcr.io') return forbidden && !transient ? 'absent' : 'unknown'
+    // The API couldn't say (a token without read:packages, or a blip): ask the registry anonymously.
+    const token = await registryToken(registry, `${owner}/${name}`)
+    if (typeof token === 'string') return { owner, name, via: 'registry' }
+    // Denied anonymously: no public package. Without read:packages a private one can't be read at all.
+    if (token === null && !transient) return 'absent'
+    return 'unknown'
+  }
+
+  /**
+   * The first of `tags` the registry has a manifest for, with its digest:
+   * null when none of them exists yet, undefined when it could not be read.
+   */
+  async function registryVersion(
+    registry: string,
+    owner: string,
+    name: string,
+    tags: readonly string[],
+  ): Promise<{ tag: string; digest?: string } | null | undefined> {
+    const token = await registryToken(registry, `${owner}/${name}`)
+    if (typeof token !== 'string') return undefined
+    let unreadable = false
+    for (const tag of tags) {
+      const r = await curl([
+        '-I',
+        '-H',
+        `Authorization: Bearer ${token}`,
+        '-H',
+        `Accept: ${MANIFEST_TYPES}`,
+        `https://${registry}/v2/${owner}/${name}/manifests/${encodeURIComponent(tag)}`,
+      ])
+      const status = r && r.exitCode === 0 ? /^HTTP\/[\d.]+ (\d{3})/m.exec(r.stdout)?.[1] : undefined
+      if (status === '200') {
+        const digest = /^docker-content-digest:\s*(\S+)/im.exec(r?.stdout ?? '')?.[1]
+        return { tag, ...(digest ? { digest } : {}) }
+      }
+      if (status !== '404') unreadable = true
     }
     return unreadable ? undefined : null
   }
@@ -301,7 +401,8 @@ export function createGitHub(run: Run) {
     newestTags,
     descends,
     release,
-    packageScope,
+    probePackage,
+    registryVersion,
     versions,
     commitOf,
   }

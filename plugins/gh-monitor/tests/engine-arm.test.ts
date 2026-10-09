@@ -119,12 +119,12 @@ describe('route 1: PRs the session touches', () => {
     expect(r.runs.filter(x => !x.includes('...PR'))).toEqual([])
   })
 
-  test('denied, errored, interrupted and backgrounded calls arm nothing', async () => {
+  test('denied, interrupted, backgrounded and never-ran calls arm nothing', async () => {
     const r = engineRig(github())
     const command = 'gh pr view 12 -R acme/widget'
     for (const result of [
       { deny: 'no' },
-      { result: 'boom', isError: true },
+      { result: 'zsh: command not found: gh', isError: true },
       bashResult('', { interrupted: true }),
       bashResult('', { backgroundTaskId: 'bg1' }),
     ]) {

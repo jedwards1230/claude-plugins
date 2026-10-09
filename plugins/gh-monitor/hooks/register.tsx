@@ -53,12 +53,26 @@ const COMMANDS = {
   },
 } as const
 
-/** The engine's Host: bounded processes, the clock, the store, the session. */
-function hostOf($: EngineInterface): Host {
+/**
+ * `~` and `~/x` as the home directory (a `cd ~/x && gh …` the engine parsed;
+ * `$.process.run` has no shell to expand it). `~user` is left alone.
+ */
+export function expandHome(cwd: string, home: string | undefined): string {
+  if (!home || !(cwd === '~' || cwd.startsWith('~/'))) return cwd
+  return `${home.replace(/\/+$/, '')}${cwd.slice(1)}`
+}
+
+/**
+ * The engine's Host: bounded processes (every gh call capped at 15 s; one
+ * that cannot start or times out is `null`, never a throw), the clock, the
+ * store, the session. Exported for its tests only.
+ */
+export function hostOf($: EngineInterface): Host {
   return {
     run: async (argv, cwd) => {
       try {
-        const r = await $.process.run([...argv], { ...(cwd ? { cwd } : {}), timeoutMs: GH_TIMEOUT_MS })
+        const dir = cwd ? expandHome(cwd, await $.env.get('HOME')) : undefined
+        const r = await $.process.run([...argv], { ...(dir ? { cwd: dir } : {}), timeoutMs: GH_TIMEOUT_MS })
         return { exitCode: r.exitCode ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
       } catch {
         return null

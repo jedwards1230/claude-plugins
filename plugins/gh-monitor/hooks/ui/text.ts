@@ -7,7 +7,7 @@
  * <phrase>`, owner dropped, the stage names `workflow · tag · GitHub release ·
  * image / chart` the same on every surface.
  *
- * Widths are code points (every glyph used here is single-width). The status
+ * Widths are terminal cells (`width`: CJK and emoji 2, marks and ZWJ 0). The status
  * text is at most STATUS_MAX: Claude Code itself prefixes ` ⚠ gh-monitor: `,
  * so nothing here adds a prefix. A row too long is shortened in a fixed order
  * (`fit`): repo name, elapsed time, version, phrase level, name again and the
@@ -52,17 +52,93 @@ export type ToastConfig = { timeoutMs: number; releaseWorkflow: string }
 // ---------------------------------------------------------------------------
 // width helpers
 
-/** Cells a string takes: its code points (every glyph here is single-width). */
-export function width(s: string): number {
-  return [...s].length
+/** East Asian Wide / Fullwidth blocks (Hangul jamo, CJK, kana, Hangul syllables, fullwidth forms, CJK ext.). */
+const WIDE_RANGES: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe30, 0xfe4f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x20000, 0x2fffd],
+  [0x30000, 0x3fffd],
+]
+/** Joins the next code point into the current cluster (emoji ZWJ sequences). */
+const ZWJ = 0x200d
+/** Asks for emoji presentation: a narrow base becomes two cells. */
+const VS16 = 0xfe0f
+const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u{1F3FB}-\u{1F3FF}]$/u
+const EMOJI_WIDE = /^\p{Emoji_Presentation}$/u
+const REGIONAL = /^\p{Regional_Indicator}$/u
+
+function codeWidth(ch: string): number {
+  const cp = ch.codePointAt(0) as number
+  if (ZERO_WIDTH.test(ch)) return 0
+  if (EMOJI_WIDE.test(ch)) return 2
+  for (const [lo, hi] of WIDE_RANGES) if (cp >= lo && cp <= hi) return 2
+  return 1
 }
 
-/** Cuts `s` to at most `n` code points, ending in `…` when cut. */
+/**
+ * The string as terminal clusters with the cells each takes: a base and the
+ * marks, variation selectors, skin tones and ZWJ-joined code points after it
+ * (an emoji ZWJ sequence draws as one glyph), a regional-indicator pair (a
+ * flag). Wide (CJK, emoji presentation) is 2, VS16 widens a narrow base to 2,
+ * combining marks and ZWJ are 0. `⚠` and the markers here have text
+ * presentation and stay 1.
+ */
+export function clusters(s: string): { text: string; cells: number }[] {
+  const out: { text: string; cells: number }[] = []
+  let isJoining = false
+  for (const ch of s) {
+    const cp = ch.codePointAt(0) as number
+    const last = out[out.length - 1]
+    if (last && (isJoining || ZERO_WIDTH.test(ch))) {
+      last.text += ch
+      if (cp === VS16 && last.cells === 1) last.cells = 2
+      isJoining = cp === ZWJ
+      continue
+    }
+    if (last && REGIONAL.test(ch) && REGIONAL.test(last.text) && [...last.text].length === 1) {
+      last.text += ch
+      last.cells = 2
+      continue
+    }
+    isJoining = cp === ZWJ
+    out.push({ text: ch, cells: REGIONAL.test(ch) ? 1 : codeWidth(ch) })
+  }
+  return out
+}
+
+/** Tabs and line breaks (from a check name or a PR title) as single spaces: every row is one line. */
+export function oneLine(s: string): string {
+  return s.replace(/[\t\r\n\v\f]+/g, ' ')
+}
+
+/** Terminal cells a string takes (see clusters). */
+export function width(s: string): number {
+  let n = 0
+  for (const c of clusters(s)) n += c.cells
+  return n
+}
+
+/** Cuts `s` to at most `n` cells on a cluster boundary, ending in `…` (one cell) when cut. */
 export function elide(s: string, n: number): string {
-  const cps = [...s]
-  if (cps.length <= n) return s
+  if (width(s) <= n) return s
   if (n <= 0) return ''
-  return n === 1 ? '…' : `${cps.slice(0, n - 1).join('')}…`
+  let text = ''
+  let used = 0
+  for (const c of clusters(s)) {
+    if (used + c.cells > n - 1) break
+    text += c.text
+    used += c.cells
+  }
+  return `${text}…`
 }
 
 /** `acme/widget` -> `widget`: the owner is never shown in a row, status or toast. */
@@ -381,7 +457,8 @@ function render(item: Item, now: number, s: Shape): string {
  * Renders with progressively tighter shapes until the text fits `max`; a
  * shrink only takes what is needed (never below its minimum).
  */
-function fitWith(build: (s: Shape) => string, nameOf: () => string, verOf: () => string, max: number): string {
+function fitWith(draw: (s: Shape) => string, nameOf: () => string, verOf: () => string, max: number): string {
+  const build = (shape: Shape) => oneLine(draw(shape))
   let s: Shape = { ...ROOMY }
   const over = () => width(build(s)) - max
   const shrink = (key: 'nameMax' | 'verMax', full: string, min: number) => {
@@ -481,7 +558,7 @@ export type Toast = { text: string; timeoutMs: number }
 /** Builds a toast from a name-less template, eliding the name first and then the tail to TOAST_MAX. */
 function fitToast(item: Item, build: (label: string) => string): string {
   const full = shortName(item.repo)
-  const make = (n: number) => build(labelOf({ ...item, repo: elide(full, n) }, Infinity))
+  const make = (n: number) => oneLine(build(labelOf({ ...item, repo: elide(full, n) }, Infinity)))
   let text = make(Infinity)
   const over = width(text) - TOAST_MAX
   if (over > 0) text = make(Math.max(6, width(full) - over))
@@ -634,15 +711,17 @@ export function bandRows(snap: Snapshot, columns: number, maxRows: number): Band
     snap.items.filter(i => isOnBand(i, now)),
     now,
   )
-  if (shown.length === 0) return []
-  const cap = Math.max(1, Math.floor(maxRows))
+  const cap = Number.isFinite(maxRows) ? Math.floor(maxRows) : 0
+  const cols = Number.isFinite(columns) ? Math.floor(columns) : 0
+  // No room for even one cell, or no rows to draw in: draw nothing rather than overflow.
+  if (shown.length === 0 || cap < 1 || cols < 1) return []
   const isOverflow = shown.length > cap
   const visible = isOverflow ? shown.slice(0, cap - 1) : shown
-  const markerCells = columns >= MARKER_MIN_COLUMNS ? 2 : 0
+  const markerCells = cols >= MARKER_MIN_COLUMNS ? 2 : 0
+  const room = cols - markerCells
 
   const rows: BandRow[] = visible.map((item, index) => {
     const tone = toneOf(item, now)
-    const room = Math.max(1, columns - markerCells)
     const wantsButtons = tone === 'offer'
     const buttonCells = wantsButtons ? 1 + BUMP_CELLS + 1 + X_CELLS : 0
     const hasButtons = wantsButtons && room - buttonCells >= MIN_TEXT_WITH_BUTTONS
@@ -666,7 +745,6 @@ export function bandRows(snap: Snapshot, columns: number, maxRows: number): Band
   if (isOverflow) {
     const n = shown.length - visible.length
     const roomy = `+${n} more · /gh-monitor for all`
-    const room = Math.max(1, columns - markerCells)
     const text = width(roomy) <= room ? roomy : elide(`+${n} more`, room)
     rows.push({ key: OVERFLOW_KEY, marker: markerCells > 0 ? ' ' : '', tone: 'neutral', text, isDim: true, buttons: [] })
   }
@@ -711,13 +789,14 @@ export function linkable(url: string | undefined): string | undefined {
 /** Every item, newest work first, with full detail; each line fit to `columns`. */
 export function paneBlocks(snap: Snapshot, columns: number): PaneBlock[] {
   const now = snap.now
-  const fit = (s: string) => elide(s, Math.max(1, columns))
+  const cols = Number.isFinite(columns) ? Math.max(0, Math.floor(columns)) : 0
+  const fit = (s: string) => elide(oneLine(s), cols)
   return sortItems(snap.items, now).map(item => {
     const lines: PaneLine[] = []
     const add = (key: string, text: string, extra: Omit<PaneLine, 'key' | 'text'> = {}) =>
       lines.push({ key: `${item.id}:${key}`, text: fit(text), ...extra })
     const tone = toneOf(item, now)
-    add('row', `${markerOf(tone)} ${rowText(item, now, Math.max(1, columns - 2))}`, { tone })
+    add('row', `${markerOf(tone)} ${rowText(item, now, Math.max(0, cols - 2))}`, { tone })
 
     const v = item.prView
     if (v) {

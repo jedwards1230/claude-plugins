@@ -437,6 +437,7 @@ export function bashPrRequests(command: string, result: unknown): ArmRequest[] {
     }
   }
   if (prCmds.length > 0) for (const u of urls) out.push({ kind: 'pr', source: 'url', ...u, ...(firstCwd !== undefined ? { cwd: firstCwd } : {}) })
+  for (const m of apiMerges(command)) out.push({ kind: 'pr', source: 'pr-cmd', ...m })
   const push = parsePush(command)
   if (push) {
     out.push({
@@ -446,6 +447,20 @@ export function bashPrRequests(command: string, result: unknown): ArmRequest[] {
       ...(push.cwd !== undefined ? { cwd: push.cwd } : {}),
       openOnly: true,
     })
+  }
+  return out
+}
+
+/** `gh api repos/o/r/pulls/N/merge -X PUT` (or `--method PUT`): a merge through the REST API. */
+export function apiMerges(command: string): { repo: Repo; pr: number; cwd?: string }[] {
+  const out: { repo: Repo; pr: number; cwd?: string }[] = []
+  for (const { words, cwd } of commandsOf(command)) {
+    const at = ghAt(words, 'api')
+    if (at < 0) continue
+    const args = words.slice(at + 2)
+    const path = args.map(a => /^\/?repos\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/pulls\/(\d+)\/merge$/.exec(a)).find(Boolean)
+    const put = args.some((a, i) => ((a === '-X' || a === '--method') && /^put$/i.test(args[i + 1] ?? '')) || /^--method=put$/i.test(a) || /^-XPUT$/i.test(a))
+    if (path && put) out.push({ repo: path[1] as string, pr: Number(path[2]), ...(cwd !== undefined ? { cwd } : {}) })
   }
   return out
 }
@@ -468,7 +483,7 @@ export function mergedLinesIn(text: string): MergedLine[] {
 }
 
 /** The person saying they merged: `merged`, `I merged #12`, `just merged https://…/pull/12`. */
-export const TYPED_MERGED_RE = /^\s*(?:i\s+)?(?:just\s+)?merged\b/i
+export const TYPED_MERGED_RE = /^\s*(?:i\s+)?(?:just\s+)?merged\b(?!\s*\?)/i
 
 /** What a typed "merged" names: an explicit `owner/repo#N`, PR URL, or `#N`. */
 export function typedMerged(text: string): { matched: boolean; repo?: Repo; pr?: number } {
@@ -477,7 +492,7 @@ export function typedMerged(text: string): { matched: boolean; repo?: Repo; pr?:
   if (url) return { matched: true, ...url }
   const qualified = /\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)#(\d+)\b/.exec(text)
   if (qualified) return { matched: true, repo: qualified[1] as string, pr: Number(qualified[2]) }
-  const bare = /(?:^|\s)#(\d+)\b/.exec(text)
+  const bare = /(?:^|\s)#(\d+)\b/.exec(text) ?? /^\s*(?:i\s+)?(?:just\s+)?merged\s+(\d+)\b/i.exec(text)
   if (bare) return { matched: true, pr: Number(bare[1]) }
   return { matched: true }
 }
