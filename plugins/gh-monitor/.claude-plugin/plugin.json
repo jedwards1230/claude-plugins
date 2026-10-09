@@ -1,0 +1,79 @@
+{
+  "name": "gh-monitor",
+  "version": "1.0.0",
+  "description": "One glanceable view of every GitHub PR you are working on, from checks and review through merge (however it happens) to the published release, with plain-language status, toasts, and an optional hand-off to bump the repo that deploys it. Token-neutral by default.",
+  "author": {
+    "name": "jedwards1230"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "releaseWorkflow": {
+      "type": "string",
+      "title": "Release workflow",
+      "description": "Workflow file (under .github/workflows/) that cuts releases. A repo without a release workflow is reported as having nothing to release.",
+      "required": false,
+      "default": "release.yml"
+    },
+    "registry": {
+      "type": "string",
+      "title": "Container registry",
+      "description": "Registry whose image and chart versions are awaited after a release. Only ghcr.io is read (through the GitHub Packages API); any other value skips the image/chart stage.",
+      "required": false,
+      "default": "ghcr.io"
+    },
+    "floatingTagRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Floating-tag repos",
+      "description": "Entries of the form owner/repo:tag (e.g. owner/workflows:v1) for repos whose release only happens when a workflow is dispatched. Merges there wait for a dispatched run, and a toast warns when the tag was not moved.",
+      "required": false,
+      "default": []
+    },
+    "timeoutMin": {
+      "type": "number",
+      "title": "Release watch timeout (minutes)",
+      "description": "Hard stop for a release watch, in minutes after the merge.",
+      "required": false,
+      "default": 20,
+      "min": 1
+    },
+    "pollSec": {
+      "type": "number",
+      "title": "Poll interval (seconds)",
+      "description": "How often GitHub is queried while something is being watched. Values below 10 are treated as 10.",
+      "required": false,
+      "default": 30,
+      "min": 10
+    },
+    "deployRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Deploy repos",
+      "description": "Optional hand-off after a release is fully published. Entries of the form owner/app=owner/deploy-repo:path/in/repo. A toast and a band button then draft a ready-to-send request to bump that file; nothing is sent automatically.",
+      "required": false,
+      "default": []
+    },
+    "sweepRepos": {
+      "type": "string",
+      "multiple": true,
+      "title": "Sweep repos",
+      "description": "Optional list of owner/repo whose in-progress release runs are picked up while the session is active, even if you did not start them. Empty means off.",
+      "required": false,
+      "default": []
+    },
+    "semverLabelGate": {
+      "type": "boolean",
+      "title": "Releases need a semver label",
+      "description": "On: a merge into the default branch only waits for a release when the PR carries a semver:major, semver:minor or semver:patch label; otherwise it reports that no release is expected. Off: every merge waits for a release run.",
+      "required": false,
+      "default": true
+    },
+    "nudge": {
+      "type": "boolean",
+      "title": "Tell the model about events",
+      "description": "Off by default (nothing reaches the model). On: one short line per merge, release outcome and failed-checks event is attached to your next prompt so the model knows.",
+      "required": false,
+      "default": false
+    }
+  }
+}
