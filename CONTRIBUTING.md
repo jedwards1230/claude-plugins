@@ -20,7 +20,7 @@ find plugins -name plugin.json -print0 | xargs -0 -I{} python3 -m json.tool {} >
 find plugins -name '*.test.sh' -exec bash {} \;
 
 # Mod tests (plugins that ship *.test.ts) — mirrors the Mod Tests CI job
-claude plugin test plugins/git-tooling
+claude plugin test plugins/gh-monitor
 
 # Validate plugin version bumps against main — mirrors the Plugin Version Check CI job
 ./scripts/check-plugin-versions.sh origin/main
